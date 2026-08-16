@@ -1,0 +1,4 @@
+interface:
+  display_name: "BMAD Progressive"
+  short_description: "Build with progressive context and readiness gates"
+  default_prompt: "Use $bmad-progressive to turn this idea or plan into progressive build context."

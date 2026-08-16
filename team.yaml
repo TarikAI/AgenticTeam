@@ -1,0 +1,4 @@
+# Compatibility pointer
+# AgenticTeam v2 has one canonical machine-readable manifest.
+canonical_manifest: team.json
+schema: schemas/team.schema.json

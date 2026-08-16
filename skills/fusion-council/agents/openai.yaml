@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fusion Council"
+  short_description: "Run independent multi-agent debate and synthesis"
+  default_prompt: "Use $fusion-council to debate this idea and produce one evidence-backed product plan."

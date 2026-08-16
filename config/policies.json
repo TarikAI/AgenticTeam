@@ -1,0 +1,51 @@
+{
+  "version": "2.0.0",
+  "risk_levels": {
+    "R0": "Read-only inspection and analysis.",
+    "R1": "Local, reversible workspace changes with verification.",
+    "R2": "Dependencies, migrations, infrastructure drafts, or broad refactors.",
+    "R3": "External side effects: deploy, publish, send, spend, create paid resources.",
+    "R4": "Irreversible or destructive operations, production data, credentials, legal commitments."
+  },
+  "profiles": {
+    "autonomous": {
+      "description": "Continue through all in-scope reversible work without pausing.",
+      "pause_at": ["R3", "R4"],
+      "product_gate": "automatic-with-recorded-assumptions",
+      "architecture_gate": "automatic-with-independent-review",
+      "release_gate": "human",
+      "max_concurrent_agents": 8,
+      "max_task_retries": 2,
+      "continue_after_noncritical_failure": true
+    },
+    "hitl": {
+      "description": "Human approves product intent, architecture, readiness, and release.",
+      "pause_at": ["product", "architecture", "readiness", "R2", "R3", "R4"],
+      "product_gate": "human",
+      "architecture_gate": "human",
+      "release_gate": "human",
+      "max_concurrent_agents": 6,
+      "max_task_retries": 1,
+      "continue_after_noncritical_failure": false
+    },
+    "supervised": {
+      "description": "Autonomous execution with human checkpoints only for deviations and external actions.",
+      "pause_at": ["structural-deviation", "R3", "R4"],
+      "product_gate": "automatic-after-fusion-or-review",
+      "architecture_gate": "automatic-after-fusion-or-review",
+      "release_gate": "human",
+      "max_concurrent_agents": 6,
+      "max_task_retries": 2,
+      "continue_after_noncritical_failure": true
+    }
+  },
+  "absolute_human_gates": [
+    "production deployment",
+    "public publishing or messaging real people",
+    "spending money or creating paid resources",
+    "handling real credentials or payment methods",
+    "destructive or irreversible data operations",
+    "installing software with broad system access or modifying system settings",
+    "legal or contractual commitments"
+  ]
+}

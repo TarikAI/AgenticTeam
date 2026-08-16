@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agentic Build"
+  short_description: "Run a complete autonomous or human-gated build"
+  default_prompt: "Use $agentic-build to build this project through verified delivery."

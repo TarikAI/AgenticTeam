@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agentic Learn"
+  short_description: "Turn run evidence into evaluated team improvements"
+  default_prompt: "Use $agentic-learn to extract and validate improvements from this completed run."

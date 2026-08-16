@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agentic Verify"
+  short_description: "Independently verify quality and delivery evidence"
+  default_prompt: "Use $agentic-verify to audit this build against its requirements and evidence."

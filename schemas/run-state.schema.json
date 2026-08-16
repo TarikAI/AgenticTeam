@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenticteam.local/schemas/run-state.schema.json",
+  "title": "AgenticTeam run state",
+  "type": "object",
+  "required": ["version", "run_id", "project", "status", "autonomy", "entry_mode", "context_method", "stage", "tasks", "active_specialists", "checkpoints", "fusion_sessions", "events", "created_at", "updated_at"],
+  "properties": {
+    "version": {"type": "string"},
+    "run_id": {"type": "string", "minLength": 1},
+    "project": {"type": "string", "minLength": 1},
+    "status": {"enum": ["active", "waiting-human", "blocked", "verifying", "complete", "failed"]},
+    "autonomy": {"enum": ["autonomous", "supervised", "hitl"]},
+    "entry_mode": {"enum": ["idea", "plan-given", "execute-only"]},
+    "context_method": {"enum": ["adaptive", "bmad-progressive"]},
+    "stage": {"enum": ["00_intake", "01_product", "02_solution", "03_readiness", "04_build", "05_verify", "06_release", "07_learn"]},
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"},
+    "tasks": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/task"}
+    },
+    "active_specialists": {"type": "object"},
+    "checkpoints": {"type": "array", "items": {"$ref": "#/$defs/checkpoint"}},
+    "fusion_sessions": {"type": "array", "items": {"$ref": "#/$defs/fusion"}},
+    "events": {"type": "array", "items": {"type": "object", "required": ["time", "type"]}}
+  },
+  "$defs": {
+    "task": {
+      "type": "object",
+      "required": ["id", "title", "objective", "owner", "stage", "status", "risk", "depends_on", "owned_paths", "acceptance", "evidence_contract", "attempts", "evidence", "created_at"],
+      "properties": {
+        "status": {"enum": ["pending", "ready", "claimed", "blocked", "completed", "failed", "cancelled"]},
+        "risk": {"enum": ["R0", "R1", "R2", "R3", "R4"]},
+        "depends_on": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "owned_paths": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "attempts": {"type": "integer", "minimum": 0},
+        "evidence": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "required": ["id", "status", "kind", "stage", "risk", "question", "recommendation", "created_at"],
+      "properties": {
+        "status": {"enum": ["pending", "approved", "rejected"]},
+        "risk": {"enum": ["R0", "R1", "R2", "R3", "R4"]}
+      }
+    },
+    "fusion": {
+      "type": "object",
+      "required": ["id", "status", "question", "sponsor", "moderator", "verifier", "contributors", "submissions", "created_at"],
+      "properties": {
+        "status": {"enum": ["proposals", "critiques", "synthesis", "verification", "decision", "complete"]},
+        "contributors": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string"}}
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Node (only present if someone adds tooling here)
+node_modules/
+npm-debug.log*
+
+# Python validation/runtime caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local scratch — never commit build working files
+*.local
+scratch/
+tmp/
+
+# Do NOT ignore the team's own dotfiles/templates:
+# harnesses/ and knowledge/ are source, not artifacts.
