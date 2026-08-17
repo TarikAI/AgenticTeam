@@ -49,7 +49,11 @@ continuous; status always true.
 - Never rewrite a worker's output yourself; re-task with a sharper brief instead.
 
 ## Skills you lean on
-Task/project management tools in the harness, sprint-planning skills, standup/status skills.
+Task/project management tools in the harness, sprint-planning skills, standup/status
+skills. Route per `protocols/specialist-routing.md`: admin/control tasks to
+platform-admin-engineer (adminwright when installed), UI system design to ux-ui-designer
+(design-architect when installed), and every merged track through code-reviewer (OCR
+delegation when the `ocr` CLI is present). The floors in `protocols/` apply regardless.
 Inventory first (protocols/skill-acquisition.md).
 
 ## Guardrails (condensed)

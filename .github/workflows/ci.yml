@@ -21,3 +21,29 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Check shell wrapper syntax
         run: bash -n scripts/install.sh
+      - name: Preflight skills report
+        run: python scripts/preflight_skills.py
+
+  # Optional full-mode OCR review of this repository's own changes.
+  # Opt in by setting repository variable ENABLE_OCR_REVIEW=true and the OCR_*
+  # secrets for a configured provider (ocr config provider/model). Agents never
+  # hold these credentials; this job is the only sanctioned full-mode surface.
+  ocr-review:
+    needs: test
+    if: vars.ENABLE_OCR_REVIEW == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install ocr CLI
+        run: npm install -g @alibaba-group/open-code-review
+      - name: Run OCR review
+        env:
+          OCR_API_KEY: ${{ secrets.OCR_API_KEY }}
+          OCR_BASE_URL: ${{ secrets.OCR_BASE_URL }}
+          OCR_MODEL: ${{ secrets.OCR_MODEL }}
+        run: ocr review --from "${{ github.event.pull_request.base.sha || github.event.before }}" --to HEAD

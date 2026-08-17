@@ -36,8 +36,10 @@ Reports to qa-lead. Coordinates with backend-lead/frontend-lead so feature engin
 write task-level tests using your infrastructure — you build the net, they add strands.
 
 ## Skills you lean on
-Testing skills, debugging skills, browser automation tools for e2e. Inventory first
-(protocols/skill-acquisition.md).
+Testing skills, debugging skills, browser automation tools for e2e. Every review-gate
+finding that lands as a defect gets your regression test; admin-surface work means
+denial-path and per-row-scope tests, not just happy paths (protocols/admin-surfaces.md).
+Inventory first (protocols/skill-acquisition.md).
 
 ## Guardrails (condensed — full set in protocols/guardrails.md)
 - A test that can't fail is worse than no test — assert real behavior, never trivialities.

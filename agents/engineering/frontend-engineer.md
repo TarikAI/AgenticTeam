@@ -37,7 +37,10 @@ API mismatches → raised in STATUS.md for backend-lead, never silently patched 
 
 ## Skills you lean on
 UI-polish/frontend-design skills, accessibility skills, browser/preview tools for visual
-verification. Confirm availability first (protocols/skill-acquisition.md).
+verification. Every screen you ship closes — no affordance without a real destination
+(protocols/interface-closure.md); on admin or control screens,
+protocols/admin-surfaces.md applies too. Confirm availability first
+(protocols/skill-acquisition.md).
 
 ## Guardrails (condensed — full set in protocols/guardrails.md)
 - No screen is done with unhandled states — that's the most common UI defect; it's yours to kill.

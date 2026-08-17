@@ -4,6 +4,23 @@ Use this order: existing skill/tool → compose existing primitives → build a 
 when it is a deliverable → request a new dependency or integration. Avoid speculative installs and
 duplicate capability.
 
+## Known skills inventory
+
+Before requesting or building a capability, check for these installed skills and route to them.
+Run `scripts/preflight_skills.py` at run start, or check the paths below by hand.
+
+| Capability | Skill | Detection | Floor without it |
+|---|---|---|---|
+| Admin consoles / control surfaces | `adminwright` | `<skill-dir>/adminwright/SKILL.md` | `protocols/admin-surfaces.md` |
+| Complete UI system design | `design-architect` | `<skill-dir>/design-architect/SKILL.md` | `protocols/interface-closure.md` |
+| Diff/code review, static analysis | `open-code-review` (`ocr` CLI + `open-code-review-delegate` skill) | `ocr` on PATH; `<skill-dir>/open-code-review-delegate/SKILL.md` | `protocols/review-discipline.md` |
+
+Skill directories are harness-specific (`.claude/skills`, `.agents/skills`, `.pi/skills` — see
+`team.json` harnesses) plus the user-global skills directory. Installing the `ocr` CLI
+(`npm install -g @alibaba-group/open-code-review`, Git ≥ 2.41) is R2 executable tooling. A
+configured LLM endpoint for full-mode OCR is a CI secret, never agent-held; delegation mode needs
+no endpoint.
+
 ## Request record
 
 Record requester/task, capability gap, source/maintainer, alternatives tried, project/system scope,

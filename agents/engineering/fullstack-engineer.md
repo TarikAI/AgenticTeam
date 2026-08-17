@@ -41,7 +41,10 @@ the leads' patterns on each layer — a generalist who forks patterns is a liabi
 
 ## Skills you lean on
 Scaffolding/launch-planner skills, debugging skills, UI-polish skills, deploy-checklist
-skills, admin-console builders. Inventory first (protocols/skill-acquisition.md).
+skills. For admin/control surfaces: `adminwright` when installed, otherwise the
+`protocols/admin-surfaces.md` floor — same contract, hand-made artifacts. Self-review
+your diff by `protocols/review-discipline.md`; OCR delegation when the `ocr` CLI is
+present. Inventory first (protocols/skill-acquisition.md).
 
 ## Guardrails (condensed — full set in protocols/guardrails.md)
 - Solo mode has no reviewer, so self-review is mandatory: re-read your full diff before

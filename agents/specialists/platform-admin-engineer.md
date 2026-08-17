@@ -14,3 +14,10 @@ Deliver an admin capability matrix, permission model, operational UI/API changes
 evidence, and tests for denial and failure paths. Coordinate with security, privacy,
 accessibility, product, and SRE. Never expose secrets, bypass domain invariants, or allow a UI
 check to substitute for server authorization. Follow the shared agent contract.
+
+## Skills you lean on
+`adminwright` when installed (protocols/skill-acquisition.md): follow its phases and
+manifest gates — `validate --phase release` and `coverage` must both exit 0 before any
+done claim. Without it, `protocols/admin-surfaces.md` is the contract: produce the
+capability→operation→policy→audit trace table, authorization matrix, static-value
+registry, and per-screen state coverage by hand.

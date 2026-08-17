@@ -47,5 +47,9 @@
     "destructive or irreversible data operations",
     "installing software with broad system access or modifying system settings",
     "legal or contractual commitments"
-  ]
+  ],
+  "tool_classifications": {
+    "npm install -g @alibaba-group/open-code-review": "R2 (executable tooling; Git >= 2.41). Delegation mode needs no endpoint; full-mode review/scan needs an LLM endpoint configured as a CI secret, never agent-held.",
+    "skill installs (adminwright, design-architect, open-code-review-delegate)": "R2 when installed system-wide; R1 when copied into the project's skill directory. Floor protocols in protocols/ apply regardless of presence."
+  }
 }

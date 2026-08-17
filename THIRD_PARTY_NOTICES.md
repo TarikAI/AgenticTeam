@@ -24,3 +24,30 @@ concurrency scheduler.
 
 AgenticTeam's `bmad-progressive` workflow is interoperable inspiration, not a copy or replacement
 of the upstream BMAD distribution.
+
+## Adminwright
+
+- Project: [TarikAI/Adminwright](https://github.com/TarikAI/Adminwright)
+- License: Apache-2.0 (upstream repository)
+- Relationship: routed to when installed, never vendored. The admin-surface contract in
+  `protocols/admin-surfaces.md` and the seeded platform-admin-engineer playbook adapt its
+  published discipline (nothing loose; server-side authorization; spine-first build order;
+  state coverage; declared static values; evidence over screenshots).
+
+## Design Architect
+
+- Project: [TarikAI/DesignArchitect](https://github.com/TarikAI/DesignArchitect)
+- License: Apache-2.0 (upstream repository)
+- Relationship: routed to when installed, never vendored. `protocols/interface-closure.md`
+  adapts its published closure discipline (enumerate before designing; every affordance has
+  a destination; component census; page/component/coverage handoff).
+
+## Open Code Review (OCR)
+
+- Project: [alibaba/open-code-review](https://github.com/alibaba/open-code-review)
+- License: Apache-2.0 (upstream repository)
+- Relationship: optional external tooling (`ocr` CLI via
+  `npm install -g @alibaba-group/open-code-review`), never vendored. `protocols/review-discipline.md`
+  adapts its published review method (deterministic file selection and rule checklists via
+  `ocr delegate`; coverage accounting; line-anchored findings; precision over noise), and the
+  optional CI job invokes its CLI. Full-mode review requires a user-provided LLM endpoint.

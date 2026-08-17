@@ -22,6 +22,11 @@ prompt. Read `references/operating-guide.md` before starting or resuming a run.
 
 ## Orchestrate
 
+- Run `scripts/preflight_skills.py` at run start and record the capability report. Route
+  admin/control-surface work through `adminwright`, UI system design through
+  `design-architect`, and diff reviews through OCR delegation when preflight finds them;
+  the floor protocols (`admin-surfaces.md`, `interface-closure.md`, `review-discipline.md`)
+  apply either way. See `protocols/skill-acquisition.md`.
 - Route work by capability and activate conditional specialists from `team.json` only with a
   concrete question and output.
 - Create tasks with dependencies, acceptance checks, owned paths, risk, and evidence contract.

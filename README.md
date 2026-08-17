@@ -28,6 +28,12 @@ and durable artifacts so the work can survive parallelism, context loss, and hum
   task-sized 2K–8K-token packs, and a cold walk test inspired by ICM Architect and BMAD.
 - **Deterministic runtime:** atomic task claims, dependencies, path ownership, retries, lease
   recovery, stage gates, run resume, Fusion state, reports, and learning records.
+- **External-skill routing with always-on floors:** `adminwright` (admin consoles),
+  `design-architect` (UI systems), and Open Code Review (`ocr`) are detected at run start by
+  `scripts/preflight_skills.py` and routed to when installed — while
+  `protocols/admin-surfaces.md`, `interface-closure.md`, and `review-discipline.md` carry the
+  same disciplines internally, so the team builds and checks the same way with none of them
+  present. See [the integration plan](docs/skills-integration-plan.md).
 - **Native compilers:** Claude Code, Codex, OpenCode, Google Antigravity, Gemini CLI, Pi, and a
   generic portable format.
 
@@ -138,6 +144,7 @@ pointer.
 ```powershell
 python scripts/agentic_team.py validate
 python -m unittest discover -s tests -v
+python scripts/preflight_skills.py
 ```
 
 The suite compiles every harness package and tests lifecycle dependencies, conflicting path

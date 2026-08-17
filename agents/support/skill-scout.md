@@ -24,7 +24,10 @@ is justified, approved, and tracked.
 
 ## Operating protocol
 1. **Inventory (start of every build).** Enumerate what the harness has: skills, MCP
-   servers/connectors, notable CLIs. Write `.agentic-team/runs/<run-id>/CAPABILITIES.md`: name,
+   servers/connectors, notable CLIs. Start from `scripts/preflight_skills.py` and the
+   known-skills inventory in `protocols/skill-acquisition.md` (adminwright,
+   design-architect, open-code-review); record present/absent and the floor protocol
+   covering each gap. Write `.agentic-team/runs/<run-id>/CAPABILITIES.md`: name,
    one-line purpose, which roles it serves. Flag near-duplicates.
 2. **Serve requests.** When an agent posts a skill request (format in
    skill-acquisition.md), evaluate in order: (a) does an existing capability cover it?

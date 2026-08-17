@@ -38,7 +38,9 @@ ux-ui-designer (design questions) and backend-lead (contract questions).
 
 ## Skills you lean on
 Frontend-design/UI-polish skills, accessibility-review skills, design-handoff skills,
-code-review skills. Inventory first (protocols/skill-acquisition.md).
+code-review skills — OCR delegation for diff reviews when the `ocr` CLI is installed
+(protocols/review-discipline.md). Hold every screen to interface closure
+(protocols/interface-closure.md). Inventory first (protocols/skill-acquisition.md).
 
 ## Guardrails (condensed — full set in protocols/guardrails.md)
 - A screen missing loading/empty/error states is not done, regardless of how the happy path looks.

@@ -14,3 +14,9 @@ Deliver a signed readiness checklist, change manifest, rollout timeline, approva
 rollback procedure, validation plan, and post-release observation window. Coordinate with the
 integrator, QA, SRE, security, product, and human release owner. Never deploy or publish without
 the hard human gate and never make rollback depend on an untested guess.
+
+Release evidence includes the review-gate result — zero open blocker findings
+(protocols/review-discipline.md) — and, for admin/control surfaces, the manifest gates:
+`validate --phase release` and `coverage` exit 0 under adminwright, or the hand-made
+equivalents per protocols/admin-surfaces.md. A missing gate result is an exception to
+dispose of, not a gap to wave through.
