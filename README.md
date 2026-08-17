@@ -154,6 +154,7 @@ claims, mandatory human gates, Fusion sequencing, learning, and reports.
 ## Documentation
 
 - [Architecture and runtime](docs/architecture.md)
+- [Running the team on local LLMs](docs/local-llms.md)
 - [Autonomy, Fusion, and progressive context](docs/operating-modes.md)
 - [Harness-native installation](docs/harnesses.md)
 - [Runtime CLI reference](docs/cli.md)
