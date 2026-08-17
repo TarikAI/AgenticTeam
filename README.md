@@ -1,7 +1,7 @@
 # AgenticTeam
 
 AgenticTeam is a portable AI delivery organization for building complete platforms with
-native coding-agent harnesses. Version 2 provides **46 roles**, a deterministic orchestration
+native coding-agent harnesses. Version 2 provides **50 roles**, a deterministic orchestration
 state manager, autonomous and human-in-the-loop policies, independent Fusion councils, optional
 BMAD-inspired progressive context, quality gates, and evidence-controlled learning.
 
@@ -15,11 +15,12 @@ and durable artifacts so the work can survive parallelism, context loss, and hum
 
 ## What is included
 
-- **31 core roles:** leadership, product, architecture, engineering, QA, research, documentation,
-  and a complete marketing organization.
-- **15 conditional specialists:** integration, admin/back office, SRE, performance,
+- **32 core roles:** leadership, product, architecture, engineering (including data
+  engineering), QA, research, documentation, and a complete marketing organization.
+- **18 conditional specialists:** integration, admin/back office, SRE, performance,
   accessibility, privacy, release, analytics, FinOps, localization, compliance, context
-  engineering, system mapping, Fusion moderation, and customer success.
+  engineering, system mapping, Fusion moderation, customer success, trust and safety,
+  fraud and risk, and AI evaluation.
 - **Three autonomy profiles:** `autonomous`, `supervised`, and `hitl`, backed by machine-readable
   risk policy and immutable checkpoints.
 - **Fusion mode:** two or more independent proposals, simultaneous reveal, cross-critique,
