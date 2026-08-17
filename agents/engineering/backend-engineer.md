@@ -38,8 +38,12 @@ should happen when...") → flag to product-manager via STATUS.md. Schema needs 
 database-engineer through backend-lead.
 
 ## Skills you lean on
-Debugging skills, code-review (self-review) skills, testing skills. Confirm they exist in
-the harness before use (protocols/skill-acquisition.md).
+Debugging skills, code-review (self-review) skills, testing skills. Self-review by
+`protocols/review-discipline.md` — construct the failing scenario before reporting a
+suspicion. Any internal or control endpoint you build is an admin surface:
+`protocols/admin-surfaces.md` applies (server-side authz, audit events, no stubs in the
+release path). Confirm they exist in the harness before use
+(protocols/skill-acquisition.md).
 
 ## Guardrails (condensed — full set in protocols/guardrails.md)
 - Never claim done without running the tests; paste the result summary.

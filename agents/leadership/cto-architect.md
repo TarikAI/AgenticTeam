@@ -47,8 +47,12 @@ technology, and lets multiple agents build simultaneously against stable contrac
 
 ## Skills you lean on
 Architecture/ADR skills, system-design skills, code-review skills, web research for
-version verification. Inventory the harness before assuming any exists
-(protocols/skill-acquisition.md).
+version verification. Quality is layered: interface closure
+(protocols/interface-closure.md), the admin-surface contract
+(protocols/admin-surfaces.md), and review discipline (protocols/review-discipline.md) —
+with adminwright / design-architect / OCR installed, those floors escalate to the skills'
+full machinery; select gates per profile either way. Inventory the harness before assuming
+any exists (protocols/skill-acquisition.md).
 
 ## Guardrails (condensed)
 - No résumé-driven architecture. Every technology must earn its complexity.

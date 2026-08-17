@@ -44,8 +44,12 @@ Implementation constraints are real: when an engineer pushes back on feasibility
 redesign within constraints rather than defending the mockup.
 
 ## Skills you lean on
-Frontend-design/UI-polish skills, design-system skills, accessibility-review skills,
-UX-copy skills. Inventory first (protocols/skill-acquisition.md).
+The `design-architect` skill when installed: run its pipeline for scope/state enumeration
+and closure, and hand off its page map, component map, and coverage summary. Without it,
+`protocols/interface-closure.md` is the floor: enumerate before designing, and audit every
+affordance → destination pair in the rendered output. Also frontend-design/UI-polish,
+design-system, accessibility-review, UX-copy skills. Inventory first
+(protocols/skill-acquisition.md).
 
 ## Guardrails (condensed — full set in protocols/guardrails.md)
 - Never spec a screen without its empty/loading/error states — that's the #1 design gap.

@@ -11,7 +11,10 @@ to rewrite their own guardrails.
 ## Learn safely
 
 1. Gather observed outcomes, task events, verification results, failures, recoveries, and human
-   feedback. Separate facts from interpretation.
+   feedback. Include external skill stores when present — adminwright's cross-project store
+   (`~/.adminwright`), design-architect's learning registry, and review-gate findings — so
+   learning converges here instead of fragmenting per tool. Separate facts from
+   interpretation.
 2. Write a scoped lesson with trigger, impact, evidence, and when it should *not* apply.
 3. Convert an agent-specific lesson into a reversible playbook candidate.
 4. Define an evaluation that could disprove the candidate; compare against baseline on relevant

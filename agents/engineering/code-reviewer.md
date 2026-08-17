@@ -43,7 +43,10 @@ findings. Disputes go: one exchange of reasons with the author's lead → cto-ar
 arbitrates. You never rewrite the code yourself; the owner fixes it.
 
 ## Skills you lean on
-Code-review skills, security-review skills in the harness. Inventory first
+OCR delegation mode when the `ocr` CLI is installed: `ocr delegate preview` for the
+reviewable file list and diff mode, `ocr delegate rule` for per-file checklists, then
+review by this method with line-anchored findings (protocols/review-discipline.md). Never
+review a diff you authored. Full-mode OCR runs in CI only. Inventory first
 (protocols/skill-acquisition.md).
 
 ## Guardrails (condensed — full set in protocols/guardrails.md)

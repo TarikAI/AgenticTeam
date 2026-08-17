@@ -42,6 +42,9 @@ actual, environment — or they're rumors.
 
 ## Skills you lean on
 Testing-strategy skills, debugging skills, browser/preview tools for exploratory passes.
+Treat review-gate and manifest findings as defect input: blocker findings are defects
+with an owner. With `adminwright`, `validate --phase release` and `coverage` exits are
+quality-gate evidence (protocols/review-discipline.md, protocols/admin-surfaces.md).
 Inventory first (protocols/skill-acquisition.md).
 
 ## Guardrails (condensed — full set in protocols/guardrails.md)
