@@ -25,9 +25,9 @@ class SourceValidationTests(unittest.TestCase):
     def test_manifest_and_source_are_consistent(self) -> None:
         self.assertEqual(team.validate_source(ROOT), [])
         manifest = team.load_json(ROOT / "team.json")
-        self.assertEqual(len(manifest["agents"]), 46)
-        self.assertEqual(sum(agent["department"] == "specialists" for agent in manifest["agents"]), 15)
-        self.assertEqual(len({agent["id"] for agent in manifest["agents"]}), 46)
+        self.assertEqual(len(manifest["agents"]), 50)
+        self.assertEqual(sum(agent["department"] == "specialists" for agent in manifest["agents"]), 18)
+        self.assertEqual(len({agent["id"] for agent in manifest["agents"]}), 50)
 
     def test_skills_are_complete_and_invocable(self) -> None:
         for skill_dir in (ROOT / "skills").iterdir():
@@ -88,8 +88,8 @@ class AdapterTests(unittest.TestCase):
             target = Path(temporary)
             record = team.install_team(ROOT, target, "codex", "full-company", [], [])
             files = list((target / ".codex" / "agents").glob("*.toml"))
-            self.assertEqual(len(record["agents"]), 46)
-            self.assertEqual(len(files), 46)
+            self.assertEqual(len(record["agents"]), 50)
+            self.assertEqual(len(files), 50)
             parsed_names = {tomllib.loads(path.read_text(encoding="utf-8"))["name"] for path in files}
             self.assertEqual(parsed_names, set(record["agents"]))
             self.assertLess((target / "AGENTS.md").stat().st_size, 32 * 1024)
