@@ -38,11 +38,35 @@ separate task or raises a decision.
 ## Finish
 
 Complete a task only with: artifact paths, checks run and results, deviations, residual
-risks, and follow-up tasks. Update the state manager; do not hand-edit generated indexes or
-claim success from prose alone.
+risks, and follow-up tasks. Meet the bar for your work type in `definition-of-done.md`.
+Update the state manager; do not hand-edit generated indexes or claim success from prose alone.
 
 ## Hard human gates
 
 No autonomy profile may bypass approval for production deployment, public publishing or
 messaging, spending or paid-resource creation, handling credentials or payment operations,
-irreversible/destructive operations, or legal commitments.
+irreversible/destructive operations, installing software with broad system access or changing
+system settings, or legal commitments.
+
+Risk is not self-certified. The runtime raises a task's risk when its description implies an
+externally visible or irreversible action, and checkpoint decisions require the human owner's
+token. Never attempt to approve a gate that is blocking your own work: that is not a shortcut,
+it is a defect, and it is recorded as one.
+
+## Continuous improvement
+
+You carry a personal playbook at `.agentic-team/knowledge/playbooks/<your-role-id>.md`.
+
+- **Read it when you start.** It holds the checks that previous runs proved you need. It is
+  short by design; reading it costs seconds and prevents your most likely mistake.
+- **Add to it when reality corrects you.** A review finding, a failed check, a wrong
+  assumption, or a human correction becomes one imperative line - "before finishing a list
+  endpoint, log the emitted SQL and confirm one query" - not a story about what happened.
+- **Keep it scannable.** Around forty lines. Merge duplicates and delete checks that have
+  become habit.
+- **Promote what proves itself.** A check that keeps earning its place across runs belongs in
+  the role definition itself: propose it through `evolution.md`. Only the human owner may
+  change a role definition, a protocol, or a guardrail.
+
+Playbooks travel between projects, so never write secrets, customer data, or client-identifying
+details into one.

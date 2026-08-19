@@ -1,7 +1,7 @@
 # Role Playbooks
 
 A playbook is one agent's personal, hard-won checklist — the things *that role* keeps
-getting wrong (or right) in real builds. It is Level 2 of `protocols/evolution.md`.
+getting wrong (or right) in real builds. It is Level 2 of `.agentic-team/protocols/evolution.md`.
 
 ## Why playbooks and not one big lessons file
 `lessons.md` is shared and grows without bound; nobody can read 400 lines before every

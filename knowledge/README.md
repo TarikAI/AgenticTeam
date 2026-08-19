@@ -17,7 +17,7 @@ master repo (or keep a shared location) so lessons compound.
   `CHANGELOG.md` (what was actually changed and why). Human-approved only.
 
 The evidence ladder from observation through human-approved promotion is defined in
-`protocols/evolution.md`. Read it before a retrospective.
+`.agentic-team/protocols/evolution.md`. Read it before a retrospective.
 
 ## Rules for lessons
 

@@ -1,6 +1,6 @@
 # Agent Evolution Proposals
 
-Level 3 of `protocols/evolution.md`: changes to **agent definition files** themselves.
+Level 3 of `.agentic-team/protocols/evolution.md`: changes to **agent definition files** themselves.
 Collected at retrospective by delivery-lead (engineering) and cmo (marketing), reviewed by
 ceo, **approved only by the human owner**. Applied to the master repo, not just one project.
 

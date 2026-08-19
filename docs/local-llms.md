@@ -56,21 +56,23 @@ wire_api = "chat"
 
 Then install the team as usual (`--harness codex` or `--harness opencode`). For custom or
 in-house runners, use `--harness generic`: role contracts land in
-`.agentic-team/agents/*.md`, skills in `.agents/skills/*`, and the router in `AGENTS.md` —
+`.agentic-team/agents/*.md`, skills in `.agents/skills/*`, and the router in both `AGENTS.md`
+(project root) and `.agentic-team/AGENTS.md` —
 read those files, send each role's contract as the system prompt, and drive
 `.agentic-team/bin/agentic_team.py` for claims and gates. Claude Code and Gemini CLI are
 built around their own clouds; for local execution prefer Codex, OpenCode, or generic.
 
 ## Model selection by role tier
 
-`team.json` already encodes depth per role; map it to model size instead of paying one
-price for everything:
+`team.json` encodes depth per role; map it to model size instead of paying one price for
+everything. The exact membership below is generated from `team.json` - check it there rather
+than trusting a hand-written summary:
 
 | Tier | Roles (examples) | Local model class |
 |---|---|---|
-| `fast` | tech-writer, marketing execution roles, skill-scout | ~7–9B instruct |
-| `standard` | engineers, specialists, ux-ui-designer | ~14–32B instruct, tool-calling capable |
-| `deep` | cto-architect, ceo, security-engineer, qa-lead, code-reviewer, leads | largest you can serve (70B-class or better) |
+| `fast` (6 roles) | content-marketer, email-marketing-specialist, skill-scout, social-media-manager, tech-writer, ugc-creative | ~7–9B instruct |
+| `standard` (26 roles) | ai-ml-engineer, analytics-engineer, backend-engineer, backend-lead, brand-strategist, customer-success-strategist ... | ~14–32B instruct, tool-calling capable |
+| `deep` (18 roles) | accessibility-specialist, build-integrator, ceo, cmo, code-reviewer, compliance-advisor ... | largest you can serve (70B-class or better) |
 
 Requirements that matter more than raw size: function/tool calling (the orchestrator
 drives the state CLI through tool calls), instruction following over long prompts (each

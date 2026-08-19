@@ -9,18 +9,49 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is a first-class target: the installer bug that shipped in v2 only
+        # reproduced there, because `python3` resolves to the Microsoft Store stub.
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
+
       - name: Validate source
         run: python scripts/agentic_team.py validate
+
       - name: Run runtime and adapter tests
         run: python -m unittest discover -s tests -v
+
       - name: Check shell wrapper syntax
+        shell: bash
         run: bash -n scripts/install.sh
+
+      # A syntax check never caught the interpreter bug. Actually install, on both OSes.
+      - name: Install every harness via install.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          for harness in claude-code codex opencode antigravity gemini-cli pi generic; do
+            target="$(mktemp -d)/proj"
+            bash scripts/install.sh --target "$target" --harness "$harness" --preset platform-core
+            test -d "$target/.agentic-team" || { echo "no bus for $harness" >&2; exit 1; }
+          done
+
+      - name: Install via install.ps1 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'ps-install'
+          ./scripts/install.ps1 -Target $target -Harness codex -Preset platform-core
+          if (-not (Test-Path (Join-Path $target '.agentic-team'))) { throw 'install.ps1 produced no bus' }
+
       - name: Preflight skills report
         run: python scripts/preflight_skills.py
 

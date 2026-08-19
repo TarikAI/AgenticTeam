@@ -2,7 +2,7 @@
 
 The floor discipline for designing any user-facing interface — with or without the
 `design-architect` skill installed. Closure means every affordance goes somewhere real.
-`protocols/admin-surfaces.md` adds the control-plane contract for admin screens; this
+`admin-surfaces.md` adds the control-plane contract for admin screens; this
 protocol governs interface design itself.
 
 ## The contract

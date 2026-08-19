@@ -41,6 +41,40 @@ class SourceValidationTests(unittest.TestCase):
             interface = (skill_dir / "agents" / "openai.yaml").read_text(encoding="utf-8")
             self.assertIn(f"${skill_dir.name}", interface)
 
+    def test_documented_role_counts_match_the_manifest(self) -> None:
+        """A count written by hand drifts the moment the roster changes."""
+        manifest = team.load_json(ROOT / "team.json")
+        total = len(manifest["agents"])
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        for claimed in re.findall(r"All (\d+) roles", readme):
+            self.assertEqual(int(claimed), total, f"README claims {claimed} roles, manifest has {total}")
+        for claimed in re.findall(r"\*\*(\d+) roles\*\*", readme):
+            self.assertEqual(int(claimed), total, f"README claims {claimed} roles, manifest has {total}")
+        departments = {}
+        for agent in manifest["agents"]:
+            departments[agent["department"]] = departments.get(agent["department"], 0) + 1
+        specialists = departments.get("specialists", 0)
+        for claimed in re.findall(r"\*\*(\d+) conditional specialists", readme):
+            self.assertEqual(int(claimed), specialists)
+
+    def test_agent_contract_covers_every_absolute_human_gate(self) -> None:
+        """The floor agents actually read must not be shorter than the floor in policy."""
+        policy = team.load_json(ROOT / "config" / "policies.json")
+        contract = (ROOT / "protocols" / "agent-contract.md").read_text(encoding="utf-8").lower()
+        keywords = {
+            "production deployment": "production deployment",
+            "public publishing or messaging real people": "publishing",
+            "spending money or creating paid resources": "spending",
+            "handling real credentials or payment methods": "credential",
+            "destructive or irreversible data operations": "irreversible",
+            "installing software with broad system access or modifying system settings": "broad system access",
+            "legal or contractual commitments": "legal",
+        }
+        for gate in policy["absolute_human_gates"]:
+            needle = keywords.get(gate)
+            self.assertIsNotNone(needle, f"policy gate '{gate}' has no contract keyword mapping")
+            self.assertIn(needle, contract, f"agent-contract.md does not cover the '{gate}' gate")
+
     def test_documentation_local_links_resolve(self) -> None:
         checked = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
         for document in checked:
@@ -57,7 +91,7 @@ class AdapterTests(unittest.TestCase):
             "claude-code": ".claude/agents/ceo.md",
             "codex": ".codex/agents/ceo.toml",
             "opencode": ".opencode/agents/ceo.md",
-            "antigravity": ".agents/roles/ceo.md",
+            "antigravity": ".agents/agents/ceo.md",
             "gemini-cli": ".gemini/agents/ceo.md",
             "pi": ".pi/prompts/agentic-build.md",
             "generic": ".agentic-team/agents/ceo.md",
@@ -70,10 +104,85 @@ class AdapterTests(unittest.TestCase):
                 self.assertTrue((target / relative).is_file())
                 self.assertTrue((target / ".agentic-team" / "bin" / "agentic_team.py").is_file())
                 self.assertTrue((target / ".agentic-team" / "protocols" / "fusion.md").is_file())
-                self.assertTrue((target / team.load_json(ROOT / "team.json")["harnesses"][harness]["skill_dir"] / "agentic-build" / "SKILL.md").is_file())
+                # Skill dir is asserted as a literal per harness, not read back out of
+                # team.json - reading the manifest would make this assertion a tautology.
+                skill_dirs = {
+                    "claude-code": ".claude/skills",
+                    "codex": ".agents/skills",
+                    "opencode": ".agents/skills",
+                    "antigravity": ".agents/skills",
+                    "gemini-cli": ".agents/skills",
+                    "pi": ".pi/skills",
+                    "generic": ".agents/skills",
+                }
+                self.assertTrue((target / skill_dirs[harness] / "agentic-build" / "SKILL.md").is_file())
+                # Every harness must end up with at least one root instruction file.
+                self.assertTrue(
+                    any((target / name).is_file() for name in ("AGENTS.md", "CLAUDE.md", "GEMINI.md")),
+                    f"{harness} wrote no root instruction file",
+                )
                 for router in (target / "AGENTS.md", target / "CLAUDE.md", target / "GEMINI.md"):
                     if router.exists():
                         self.assertLess(router.stat().st_size, 32 * 1024)
+
+    def test_harness_native_conventions_hold(self) -> None:
+        """Each harness only loads files that match its own conventions.
+
+        These assertions are literals on purpose: a compiler that writes to the wrong
+        directory or omits required frontmatter installs cleanly and then does nothing.
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary)
+            team.install_team(ROOT, target, "antigravity", "platform-core", [], [])
+            agent = (target / ".agents" / "agents" / "ceo.md").read_text(encoding="utf-8")
+            self.assertTrue(agent.startswith("---"), "antigravity agent needs YAML frontmatter")
+            self.assertIn("name: ceo", agent)
+            self.assertIn("description:", agent)
+            rule = (target / ".agents" / "rules" / "agentic-team.md").read_text(encoding="utf-8")
+            self.assertIn("trigger:", rule, "an antigravity rule without a trigger may never load")
+            self.assertLessEqual(len(rule), 12000, "antigravity rules are capped at 12000 characters")
+            for workflow in (target / ".agents" / "workflows").glob("*.md"):
+                body = workflow.read_text(encoding="utf-8")
+                self.assertIn("description:", body, f"{workflow.name} would not register as a command")
+                self.assertLessEqual(len(body), 12000)
+            self.assertFalse((target / ".agents" / "roles").exists(), "stale role directory")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary)
+            team.install_team(ROOT, target, "opencode", "platform-core", [], [])
+            body = (target / ".opencode" / "agents" / "code-reviewer.md").read_text(encoding="utf-8")
+            self.assertIn("mode:", body, "opencode needs a mode to know this is a subagent")
+            self.assertIn("edit: deny", body, "read-only role lost its opencode sandbox")
+
+    def test_read_only_roles_state_their_constraint_in_the_prompt(self) -> None:
+        """Not every harness can express a tool allowlist, so the constraint travels in text."""
+        for harness, relative in (
+            ("gemini-cli", ".gemini/agents/code-reviewer.md"),
+            ("antigravity", ".agents/agents/code-reviewer.md"),
+            ("generic", ".agentic-team/agents/code-reviewer.md"),
+        ):
+            with self.subTest(harness=harness), tempfile.TemporaryDirectory() as temporary:
+                target = Path(temporary)
+                team.install_team(ROOT, target, harness, "platform-core", [], [])
+                self.assertIn("ACCESS CONSTRAINT", (target / relative).read_text(encoding="utf-8"))
+
+    def test_compiled_protocol_references_resolve_in_the_target(self) -> None:
+        """A compiled agent must not point at a protocol path that does not exist."""
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary)
+            team.install_team(ROOT, target, "claude-code", "platform-core", [], [])
+            referenced = set()
+            for definition in (target / ".claude" / "agents").glob("*.md"):
+                body = definition.read_text(encoding="utf-8")
+                referenced.update(re.findall(r"\.agentic-team/protocols/[a-z0-9-]+\.md", body))
+                self.assertNotRegex(
+                    body,
+                    r"(?<![\w./-])protocols/[a-z0-9-]+\.md",
+                    f"{definition.name} has an unresolved protocol path",
+                )
+            self.assertTrue(referenced, "expected compiled agents to reference protocols")
+            for reference in sorted(referenced):
+                self.assertTrue((target / reference).is_file(), f"dangling protocol reference: {reference}")
 
     def test_codex_toml_is_valid_and_read_only_is_constrained(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -143,10 +252,15 @@ class RuntimeTests(unittest.TestCase):
         return team.init_run(self.project, "Test project", "test-run", autonomy, entry, "bmad-progressive")
 
     @staticmethod
-    def task_args(task_id: str, owner: str, depends: list[str] | None = None, risk: str = "R1", path: list[str] | None = None) -> argparse.Namespace:
+    def owner_token(run_dir: Path) -> str:
+        """The token a real human would hold; it lives outside the project by design."""
+        return team.owner_token_path(run_dir.name).read_text(encoding="utf-8").strip()
+
+    @staticmethod
+    def task_args(task_id: str, owner: str, depends: list[str] | None = None, risk: str = "R1", path: list[str] | None = None, title: str | None = None) -> argparse.Namespace:
         return argparse.Namespace(
             id=task_id,
-            title=f"Task {task_id}",
+            title=title or f"Task {task_id}",
             objective=f"Deliver {task_id}",
             owner=owner,
             stage="04_build",
@@ -223,7 +337,9 @@ class RuntimeTests(unittest.TestCase):
         state = team.load_state(run)
         checkpoint = state["checkpoints"][0]
         self.assertEqual(state["status"], "waiting-human")
-        team.approve_checkpoint(self.project, run, checkpoint["id"], "human-owner", "Approved staged action")
+        team.approve_checkpoint(
+            self.project, run, checkpoint["id"], "human-owner", "Approved staged action", self.owner_token(run)
+        )
         team.claim_task(self.project, run, "DEPLOY", "devops-engineer", 60)
         self.assertEqual(team.load_state(run)["tasks"]["DEPLOY"]["status"], "claimed")
 
@@ -232,16 +348,56 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(team.load_state(run)["stage"], "03_readiness")
         self.assertEqual(team.advance_stage(self.project, run), "waiting-human")
         state = team.load_state(run)
-        team.approve_checkpoint(self.project, run, state["checkpoints"][0]["id"], "human-owner", "Ready")
+        team.approve_checkpoint(
+            self.project, run, state["checkpoints"][0]["id"], "human-owner", "Ready", self.owner_token(run)
+        )
         self.assertEqual(team.advance_stage(self.project, run), "04_build")
 
     def test_human_can_reject_checkpoint_and_block_run(self) -> None:
         run = self.new_run("supervised")
         checkpoint = team.create_checkpoint(self.project, run, "Accept migration?", "Use reversible migration", "R2", "decision")
-        team.reject_checkpoint(self.project, run, checkpoint, "human-owner", "Revise rollback plan")
+        team.reject_checkpoint(
+            self.project, run, checkpoint, "human-owner", "Revise rollback plan", self.owner_token(run)
+        )
         state = team.load_state(run)
         self.assertEqual(state["status"], "blocked")
         self.assertEqual(state["checkpoints"][0]["status"], "rejected")
+
+    def test_agent_cannot_approve_the_gate_that_blocks_it(self) -> None:
+        run = self.new_run("autonomous")
+        team.add_task(self.project, run, self.task_args("DEPLOY", "devops-engineer", risk="R3"))
+        with self.assertRaises(team.TeamError):
+            team.claim_task(self.project, run, "DEPLOY", "devops-engineer", 60)
+        checkpoint = team.load_state(run)["checkpoints"][0]["id"]
+        token = self.owner_token(run)
+        # named as the agent: refused even holding the token
+        with self.assertRaises(team.TeamError):
+            team.approve_checkpoint(self.project, run, checkpoint, "devops-engineer", "self", token)
+        # posing as a human without the token: refused
+        with self.assertRaises(team.TeamError):
+            team.approve_checkpoint(self.project, run, checkpoint, "human-owner", "self", None)
+        # wrong token: refused
+        with self.assertRaises(team.TeamError):
+            team.approve_checkpoint(self.project, run, checkpoint, "human-owner", "self", "not-the-token")
+        self.assertEqual(team.load_state(run)["checkpoints"][0]["status"], "pending")
+
+    def test_declared_risk_cannot_hide_an_external_action(self) -> None:
+        run = self.new_run("autonomous")
+        team.add_task(self.project, run, self.task_args("SHIP", "devops-engineer", risk="R1", title="deploy to production"))
+        task = team.load_state(run)["tasks"]["SHIP"]
+        self.assertEqual(task["declared_risk"], "R1")
+        self.assertEqual(task["risk"], "R3", "a deploy labelled R1 must still be gated")
+        with self.assertRaises(team.TeamError):
+            team.claim_task(self.project, run, "SHIP", "devops-engineer", 60)
+
+    def test_rejected_run_blocks_further_claims(self) -> None:
+        run = self.new_run("supervised")
+        team.add_task(self.project, run, self.task_args("WORK", "fullstack-engineer", risk="R1"))
+        checkpoint = team.create_checkpoint(self.project, run, "Proceed?", "Hold", "R2", "decision")
+        team.reject_checkpoint(self.project, run, checkpoint, "human-owner", "Stop", self.owner_token(run))
+        self.assertEqual(team.load_state(run)["status"], "blocked")
+        with self.assertRaises(team.TeamError):
+            team.claim_task(self.project, run, "WORK", "fullstack-engineer", 60)
 
     def test_fusion_enforces_independence_and_full_sequence(self) -> None:
         run = self.new_run()

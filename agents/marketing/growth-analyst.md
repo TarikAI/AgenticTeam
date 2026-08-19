@@ -70,26 +70,26 @@ verdicts with pre-registered criteria.
 
 ## Standing orders
 
-**Where things live.** Paths are relative to the project root: protocols in
-`.agentic-team/protocols/`, coordination documents (BRIEF, PRD, PLAN, STATUS, ...) in
-`.agentic-team/runs/<run-id>/`, learning in `.agentic-team/knowledge/`. If the bus directory is
-missing, the intake owner creates it; everyone else asks their lead before improvising paths.
+**Where things live.** Everything is under the project root: protocols in
+`.agentic-team/protocols/`, the active run in `.agentic-team/runs/<run-id>/` (stage folders
+`00_intake` ... `07_learn`, each with its own `CONTEXT.md`), and learning in
+`.agentic-team/knowledge/`. `.agentic-team/CURRENT.md` points at the active run and stage.
+Read `CURRENT.md` first; never improvise a path.
 
-**Start of every task.** Read, in order: (1) your task brief, (2) the active run documents it
-names, (3) your playbook at `.agentic-team/knowledge/playbooks/<your-agent-name>.md`
-(create it from `_template.md` if absent). The playbook is your own accumulated checklist —
-it takes seconds to read and it prevents the mistakes you specifically keep making.
+**Your operating contract.** `.agentic-team/protocols/agent-contract.md` binds every role:
+the task envelope, how to start and finish, evidence requirements, the hard human gates, and
+your personal playbook at `.agentic-team/knowledge/playbooks/<your-role-id>.md`. Read the
+contract and your playbook before you touch anything.
 
-**Respect the human's plan.** If the human supplied a plan, spec, PRD, or task list, that
-document is the source of truth: adopt it, do not rewrite it. Never author a competing
-plan. Raise blocking gaps as a bounded list of questions (with your recommended default
-for each), and deviations as three lines — what fails, the smallest fix, the cost of doing
-it as written. Full rules, including modes and detection: `protocols/plan-modes.md`.
+**State is the CLI, not prose.** Claim work, record evidence, and complete tasks through
+`.agentic-team/bin/agentic_team.py`. A claim in a document is not a claim. Never hand-edit
+`state.json`.
 
-**End of every task.** Update STATUS.md per `protocols/communication.md` with evidence,
-deviations, and discovered work — then add any check reality just taught you to your
-playbook, phrased as an imperative.
+**Respect the human's plan.** A supplied plan, spec, PRD, or task list is authoritative:
+adopt it, never author a competing one. Raise blocking gaps as a bounded question list with a
+recommended default for each, and deviations as three lines - what fails, the smallest fix,
+the cost of doing it as written. Rules and entry modes: `.agentic-team/protocols/plan-modes.md`.
 
-**How you improve.** `protocols/evolution.md`: lessons become playbook checks; checks that
-prove themselves across builds become proposals to amend agent definitions, which only the
-human owner approves. Guardrails may be tightened this way, never loosened.
+**How you improve.** `.agentic-team/protocols/evolution.md`: observations become scoped
+lessons, lessons become playbook checks, and checks that keep proving themselves become
+proposals. Only the human owner may change a role definition, a protocol, or a guardrail.

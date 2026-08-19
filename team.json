@@ -91,7 +91,7 @@
     "claude-code":{"agent_dir":".claude/agents","skill_dir":".claude/skills","native_subagents":true},
     "codex":{"agent_dir":".codex/agents","skill_dir":".agents/skills","native_subagents":true},
     "opencode":{"agent_dir":".opencode/agents","skill_dir":".agents/skills","native_subagents":true},
-    "antigravity":{"agent_dir":".agents","skill_dir":".agents/skills","workflow_dir":".agents/workflows","rule_dir":".agents/rules","native_subagents":false},
+    "antigravity":{"agent_dir":".agents/agents","skill_dir":".agents/skills","workflow_dir":".agents/workflows","rule_dir":".agents/rules","native_subagents":true},
     "gemini-cli":{"agent_dir":".gemini/agents","skill_dir":".agents/skills","native_subagents":true},
     "pi":{"context_file":"AGENTS.md","skill_dir":".pi/skills","prompt_dir":".pi/prompts","native_subagents":false},
     "generic":{"agent_dir":".agentic-team/agents","skill_dir":".agents/skills","native_subagents":false}

@@ -2,7 +2,7 @@
 
 The floor discipline for any admin console, back office, ops tool, or internal control
 surface — with or without the `adminwright` skill installed. When the skill is present,
-route to it and follow its manifest machinery (`protocols/skill-acquisition.md`); this
+route to it and follow its manifest machinery (`skill-acquisition.md`); this
 protocol is the always-on contract either way.
 
 ## The contract

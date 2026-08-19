@@ -1,7 +1,7 @@
 # Review discipline
 
 The floor procedure for reviewing any diff or existing code — with or without the
-`open-code-review` (OCR) tooling installed. `protocols/coding-standards.md` owns what to
+`open-code-review` (OCR) tooling installed. `coding-standards.md` owns what to
 check; this protocol owns how to review and how findings are reported.
 
 ## Procedure

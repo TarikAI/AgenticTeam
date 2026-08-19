@@ -16,7 +16,7 @@ Required examples:
 - Production/availability target: SRE and release manager.
 - High traffic or latency target: performance engineer.
 - Admin/moderation/operations: platform admin engineer — through the `adminwright` skill
-  when installed; `protocols/admin-surfaces.md` is the floor either way.
+  when installed; `admin-surfaces.md` is the floor either way.
 - User-generated content or moderation: trust and safety specialist designs the policy
   and workflows; platform admin engineer builds the tooling.
 - Payments, marketplace, or chargeback exposure: fraud risk analyst with the security
@@ -24,9 +24,9 @@ Required examples:
 - AI/LLM/RAG features: eval engineer alongside ai-ml-engineer — quality claims need an
   evaluation that could have failed.
 - UI system design or redesign: ux-ui-designer with the `design-architect` skill when
-  installed; `protocols/interface-closure.md` is the floor either way.
+  installed; `interface-closure.md` is the floor either way.
 - Any diff, PR, or pre-release review: code-reviewer using OCR delegation when the `ocr`
-  CLI is installed; `protocols/review-discipline.md` is the floor either way.
+  CLI is installed; `review-discipline.md` is the floor either way.
 - Regulated claim: compliance advisor, explicitly advisory and not legal counsel.
 - Fusion request: fusion moderator plus at least two domain-diverse contributors.
 - Progressive-context/BMAD request: context engineer.

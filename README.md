@@ -127,7 +127,7 @@ high-cost decisions. It is not used for routine tasks where debate would only ad
 
 | Preset | Purpose |
 |---|---|
-| `full-company` | All 46 roles; specialists still activate conditionally. |
+| `full-company` | All 50 roles; specialists still activate conditionally. |
 | `full-platform` | Leadership, engineering, support, and every specialist. |
 | `platform-core` | Compact core product delivery organization. |
 | `fusion-product-council` | Multi-lens product/technical Fusion planning. |

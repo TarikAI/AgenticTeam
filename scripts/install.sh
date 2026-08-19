@@ -21,14 +21,33 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-command -v python3 >/dev/null 2>&1 || { echo "Python 3 is required." >&2; exit 1; }
+# Resolve a Python that actually RUNS. On Windows, `python3` resolves to the Microsoft
+# Store alias stub: `command -v` finds it, every invocation then fails with exit 49.
+# So probe candidates by executing one, not by checking that the name exists.
+PY_BIN=""
+for candidate in python3 python py; do
+  command -v "$candidate" >/dev/null 2>&1 || continue
+  if [ "$candidate" = "py" ]; then
+    if py -3 -c "import sys; sys.exit(0 if sys.version_info[:2] >= (3, 10) else 1)" >/dev/null 2>&1; then
+      PY_BIN="py -3"; break
+    fi
+    continue
+  fi
+  if "$candidate" -c "import sys; sys.exit(0 if sys.version_info[:2] >= (3, 10) else 1)" >/dev/null 2>&1; then
+    PY_BIN="$candidate"; break
+  fi
+done
+if [ -z "$PY_BIN" ]; then
+  echo "Python 3.10+ is required but no working interpreter was found (tried python3, python, py -3)." >&2
+  exit 1
+fi
 
 if [ "$LIST" -eq 1 ]; then
-  python3 "$CLI" --source "$ROOT" list agents
+  $PY_BIN "$CLI" --source "$ROOT" list agents
   printf '\nPresets:\n'
-  python3 "$CLI" --source "$ROOT" list presets
+  $PY_BIN "$CLI" --source "$ROOT" list presets
   printf '\nHarnesses:\n'
-  python3 "$CLI" --source "$ROOT" list harnesses
+  $PY_BIN "$CLI" --source "$ROOT" list harnesses
   exit 0
 fi
 
@@ -40,7 +59,7 @@ if [ -n "$AGENTS" ]; then
   IFS=','
   for agent in $AGENTS; do set -- "$@" --only-agent "$agent"; done
   IFS=$old_ifs
-  python3 "$CLI" --source "$ROOT" install "$TARGET" --harness "$HARNESS" "$@"
+  $PY_BIN "$CLI" --source "$ROOT" install "$TARGET" --harness "$HARNESS" "$@"
 else
-  python3 "$CLI" --source "$ROOT" install "$TARGET" --harness "$HARNESS" --preset "$PRESET"
+  $PY_BIN "$CLI" --source "$ROOT" install "$TARGET" --harness "$HARNESS" --preset "$PRESET"
 fi

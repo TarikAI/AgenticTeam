@@ -16,9 +16,9 @@ task evidence, and integrated result.
    and inferred evidence.
 3. Run the review gate: with the `ocr` CLI, delegation mode over the run's full diff with
    complete file coverage (every file reviewed or skipped with reason); otherwise the
-   `protocols/review-discipline.md` floor by a non-author. With `adminwright`, manifest
+   `.agentic-team/protocols/review-discipline.md` floor by a non-author. With `adminwright`, manifest
    `validate --phase release` and `coverage` must exit 0; without it, the hand-made
-   equivalents per `protocols/admin-surfaces.md`. Zero open blocker findings for PASS;
+   equivalents per `.agentic-team/protocols/admin-surfaces.md`. Zero open blocker findings for PASS;
    blocker findings force FAIL or CONDITIONAL with named owners.
 4. Review changed behavior and boundaries, not just changed lines. Include failure, denial,
    rollback, migration, and recovery paths where applicable.

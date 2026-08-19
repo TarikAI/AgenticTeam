@@ -7,8 +7,10 @@ import argparse
 import contextlib
 import copy
 import datetime as dt
+import hashlib
 import json
 import os
+import secrets
 from pathlib import Path
 import re
 import shutil
@@ -90,7 +92,14 @@ def state_lock(run_dir: Path, timeout: float = 10.0) -> Iterator[None]:
             break
         except FileExistsError:
             if time.monotonic() >= deadline:
-                raise TeamError(f"Run state is busy: {lock_path}")
+                age = ""
+                with contextlib.suppress(OSError):
+                    held = time.time() - lock_path.stat().st_mtime
+                    age = f" (held for {int(held)}s)"
+                raise TeamError(
+                    f"Run state is busy: {lock_path}{age}. If no other command is running, the "
+                    "holder died; clear it with: agentic_team.py unlock --project <project>"
+                )
             time.sleep(0.05)
     try:
         yield
@@ -139,6 +148,11 @@ def resolve_preset(manifest: dict[str, Any], preset: str) -> list[dict[str, Any]
     if missing:
         raise TeamError(f"Preset '{preset}' references missing agents: {', '.join(sorted(missing))}")
     return selected
+
+
+def is_installed_bus(root: Path) -> bool:
+    """True when we are running from a project's .agentic-team copy rather than the source repo."""
+    return (root / "install-manifest.json").is_file() and not (root / "agents").is_dir()
 
 
 def validate_source(root: Path) -> list[str]:
@@ -209,6 +223,18 @@ def yaml_scalar(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+PROTOCOL_REF = re.compile(r"(?<![\w./-])protocols/([a-z0-9-]+\.md)")
+
+
+def resolve_protocol_refs(text: str) -> str:
+    """Rewrite bare `protocols/x.md` to the path it actually has in an installed project.
+
+    Source files use the repo-relative form; installed projects keep protocols under
+    `.agentic-team/`. Without this, every compiled agent points at a file that is not there.
+    """
+    return PROTOCOL_REF.sub(r".agentic-team/protocols/\1", text)
+
+
 def agent_prompt(agent: dict[str, Any], root: Path) -> tuple[str, str]:
     fields, body = compact_agent_body((root / agent["file"]).read_text(encoding="utf-8"))
     description = fields.get("description", agent["id"])
@@ -217,7 +243,15 @@ def agent_prompt(agent: dict[str, Any], root: Path) -> tuple[str, str]:
         f"Reports to: {agent['reports_to']}\nAccess: {agent['access']}\n"
         f"Capabilities: {', '.join(agent['capabilities'])}\n\n"
     )
-    return description, header + body
+    if agent["access"] == "read-only":
+        # Not every harness can express a tool allowlist, so the constraint also travels
+        # in the prompt where it is understood everywhere.
+        header += (
+            "ACCESS CONSTRAINT: you are a read-only role. Do not create, edit, or delete "
+            "project files, and do not run commands that mutate state. Report findings and "
+            "hand changes to the owning role.\n\n"
+        )
+    return description, resolve_protocol_refs(header + body)
 
 
 def managed_router() -> str:
@@ -226,7 +260,9 @@ def managed_router() -> str:
         "# AgenticTeam\n\n"
         "Read `.agentic-team/AGENTS.md`, then `.agentic-team/CURRENT.md` and the active stage "
         "`CONTEXT.md`. Use `.agentic-team/bin/agentic_team.py` for durable task state. "
-        "Do not bypass hard human gates or replace a human-supplied plan.\n"
+        "Role contracts live in this project (see `.agentic-team/install-manifest.json` for the "
+        "compiled location); adopt the relevant role before acting. Installed skills describe the "
+        "operating procedures. Do not bypass hard human gates or replace a human-supplied plan.\n"
         f"{MANAGED_END}"
     )
 
@@ -341,35 +377,78 @@ def emit_gemini(target: Path, selected: list[dict[str, Any]], root: Path) -> lis
 
 def emit_antigravity(target: Path, selected: list[dict[str, Any]], root: Path) -> list[str]:
     written: list[str] = []
-    roles = target / ".agents" / "roles"
-    index = ["# AgenticTeam role index", "", "Use these role contracts when dispatching bounded work:", ""]
+    # Antigravity loads named agents from .agents/agents/<name>.md. The older .agents/roles/
+    # layout is not a directory it scans, so contracts placed there were never loaded.
+    agents_dir = target / ".agents" / "agents"
     for agent in selected:
         description, prompt = agent_prompt(agent, root)
-        path = roles / f"{agent['id']}.md"
-        write_text(path, f"# {agent['id']}\n\n{prompt}")
+        content = (
+            "---\n"
+            f"name: {agent['id']}\n"
+            f"description: {yaml_scalar(description)}\n"
+            "subagent: true\n"
+            "mainAgent: true\n"
+            "model: inherit\n"
+            "---\n\n" + prompt
+        )
+        path = agents_dir / f"{agent['id']}.md"
+        write_text(path, content)
         written.append(str(path.relative_to(target)))
-        index.append(f"- [{agent['id']}](roles/{agent['id']}.md) — {description}")
-    write_text(target / ".agents" / "agents.md", "\n".join(index))
     rule = (
+        "---\n"
+        "trigger: always_on\n"
+        "---\n\n"
         "# AgenticTeam coordination\n\n"
-        "Read `.agentic-team/AGENTS.md`, the current run pointer, and the active stage contract. "
-        "Treat planning mode as analysis only and execution mode as authorization only within the "
-        "selected autonomy profile. State changes go through the AgenticTeam CLI.\n"
+        "Read `.agentic-team/AGENTS.md`, then `.agentic-team/CURRENT.md` and the active stage\n"
+        "`CONTEXT.md`. Role contracts are installed as named agents in `.agents/agents/`; dispatch\n"
+        "bounded work to them instead of performing every role yourself. Durable state changes go\n"
+        "through `.agentic-team/bin/agentic_team.py`.\n\n"
+        "A human-supplied plan is authoritative. When this harness generates an implementation\n"
+        "plan artifact, that artifact must be a faithful transcription of the supplied plan - same\n"
+        "scope, same sequence, nothing invented - and execution starts immediately. Do not pause to\n"
+        "re-approve a plan the human already wrote; pause only at the hard human gates.\n"
     )
-    write_text(target / ".agents" / "rules" / "agentic-team.md", rule)
+    rule_path = target / ".agents" / "rules" / "agentic-team.md"
+    write_text(rule_path, rule)
+    written.append(str(rule_path.relative_to(target)))
     workflows = {
-        "start-platform.md": "Use the installed `agentic-build` skill. Initialize or resume a run, route specialists, execute, integrate, verify, and report.",
-        "execute-given-plan.md": "Use entry mode `execute-only`. Preserve the supplied plan and create bounded task packets without a competing plan.",
-        "fusion.md": "Use the installed `fusion-council` skill and the CLI fusion workspace. Keep proposals independent before reveal.",
-        "progressive-context.md": "Use `bmad-progressive`; load only the router, current stage contract, and named inputs.",
-        "verify.md": "Use `agentic-verify` with a verifier independent from the builder.",
-        "resume.md": "Read `.agentic-team/CURRENT.md`, inspect CLI status, reconcile leases, and resume the active stage.",
+        "start-platform.md": (
+            "Start or resume a complete platform build",
+            "Use the installed `agentic-build` skill. Initialize or resume a run, route specialists, "
+            "execute, integrate, verify, and report.",
+        ),
+        "execute-given-plan.md": (
+            "Build from a plan the user already wrote, without re-planning",
+            "Use entry mode `execute-only`. Preserve the supplied plan as the authority and derive "
+            "bounded task packets from it. Do not author a competing plan.",
+        ),
+        "fusion.md": (
+            "Run an independent Fusion council on a high-stakes decision",
+            "Use the installed `fusion-council` skill and the CLI fusion workspace. Keep proposals "
+            "independent before reveal.",
+        ),
+        "progressive-context.md": (
+            "Load only the current stage contract and its named inputs",
+            "Use `bmad-progressive`; load only the router, current stage contract, and named inputs.",
+        ),
+        "verify.md": (
+            "Independently verify the integrated result",
+            "Use `agentic-verify` with a verifier independent from the builder.",
+        ),
+        "resume.md": (
+            "Recover and resume an interrupted run",
+            "Read `.agentic-team/CURRENT.md`, inspect CLI status, reconcile leases, and resume the "
+            "active stage.",
+        ),
     }
-    for filename, value in workflows.items():
+    for filename, (description, body) in workflows.items():
+        title = filename.removesuffix(".md").replace("-", " ").title()
         path = target / ".agents" / "workflows" / filename
-        write_text(path, f"# {filename.removesuffix('.md').replace('-', ' ').title()}\n\n{value}")
+        write_text(path, f"---\ndescription: {description}\n---\n\n# {title}\n\n{body}")
         written.append(str(path.relative_to(target)))
-    return written + [".agents/agents.md", ".agents/rules/agentic-team.md"]
+    # Antigravity also reads a workspace-root AGENTS.md, as every other harness here does.
+    upsert_managed_block(target / "AGENTS.md", managed_router())
+    return written + ["AGENTS.md"]
 
 
 def emit_pi(target: Path, selected: list[dict[str, Any]], root: Path) -> list[str]:
@@ -403,7 +482,8 @@ def emit_generic(target: Path, selected: list[dict[str, Any]], root: Path) -> li
         path = out / f"{agent['id']}.md"
         write_text(path, prompt)
         written.append(str(path.relative_to(target)))
-    return written
+    upsert_managed_block(target / "AGENTS.md", managed_router())
+    return written + ["AGENTS.md"]
 
 
 def install_team(
@@ -471,6 +551,18 @@ def install_team(
     }
     written = emitters[harness](target, selected, root)
     current_files = set(written)
+    previous_skill_dir = previous_record.get("skill_dir")
+    current_skill_dir = manifest["harnesses"][harness]["skill_dir"]
+    if previous_skill_dir and previous_skill_dir != current_skill_dir:
+        stale_skills = (target / previous_skill_dir).resolve()
+        try:
+            stale_skills.relative_to(target.resolve())
+        except ValueError as exc:
+            raise TeamError(f"Unsafe stale skill path in install manifest: {previous_skill_dir}") from exc
+        if stale_skills.is_dir():
+            # Claude Code auto-loads .claude/skills, so a leftover tree keeps running
+            # against coordination paths the new harness may have re-pointed.
+            shutil.rmtree(stale_skills, ignore_errors=True)
     for relative in set(previous_record.get("generated_files", [])) - current_files:
         candidate = (target / relative).resolve()
         try:
@@ -621,8 +713,18 @@ def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_
         "events": [],
     }
     append_event(state, "run-created", stage=stage, autonomy=autonomy, entry_mode=entry_mode)
+    token_path = issue_owner_token(run_dir.name, state)
     write_json_atomic(run_dir / "state.json", state)
     update_current(bus, state)
+    print(
+        f"Owner token written to {token_path}",
+        file=sys.stderr,
+    )
+    print(
+        "Keep it outside this project and do not paste it into an agent session; "
+        "it is what proves a checkpoint decision came from you.",
+        file=sys.stderr,
+    )
     return run_dir
 
 
@@ -636,6 +738,13 @@ def update_current(bus: Path, state: dict[str, Any]) -> None:
         f"State: `.agentic-team/runs/{state['run_id']}/state.json`\n"
     )
     write_text(bus / "CURRENT.md", content)
+
+
+def is_current_run(project: Path, run_dir: Path) -> bool:
+    pointer = project_bus(project) / "CURRENT.md"
+    if not pointer.is_file():
+        return True
+    return run_dir.name in pointer.read_text(encoding="utf-8")
 
 
 def save_state(project: Path, run_dir: Path, state: dict[str, Any]) -> None:
@@ -704,14 +813,21 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
         missing = [dep for dep in args.depends_on if dep not in state["tasks"]]
         if missing:
             raise TeamError(f"Unknown dependencies: {', '.join(missing)}")
+        objective = args.objective or args.title
+        floor = derive_risk_floor(args.title, objective, args.stage, args.path)
+        effective_risk = args.risk
+        if RISK_ORDER[floor] > RISK_ORDER[args.risk]:
+            effective_risk = floor
         task = {
             "id": args.id,
             "title": args.title,
-            "objective": args.objective or args.title,
+            "objective": objective,
             "owner": args.owner,
             "stage": args.stage,
             "status": "pending",
-            "risk": args.risk,
+            "risk": effective_risk,
+            "declared_risk": args.risk,
+            "risk_floor": floor,
             "depends_on": args.depends_on,
             "owned_paths": args.path,
             "inputs": args.input,
@@ -723,7 +839,11 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
         }
         state["tasks"][args.id] = task
         refresh_ready(state)
-        append_event(state, "task-added", task=args.id, owner=args.owner)
+        append_event(state, "task-added", task=args.id, owner=args.owner, risk=effective_risk)
+        if effective_risk != args.risk:
+            append_event(
+                state, "risk-raised", task=args.id, declared=args.risk, effective=effective_risk
+            )
         save_state(project, run_dir, state)
         template = (project_bus(project) / "templates" / "task.md").read_text(encoding="utf-8")
         write_text(
@@ -744,6 +864,50 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
         )
 
 
+# Words that betray an externally-visible or irreversible action regardless of how
+# the calling agent chose to label the task. Risk is never taken on trust alone.
+RISK_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "R4",
+        (
+            "drop table", "drop database", "truncate", "delete production", "purge",
+            "force push", "force-push", "rewrite history", "credential", "secret key",
+            "api key", "payment", "card number", "wire transfer", "contract", "legal",
+        ),
+    ),
+    (
+        "R3",
+        (
+            "deploy", "release to", "publish", "ship to production", "go live",
+            "send email", "send sms", "broadcast", "post to", "announce",
+            "purchase", "buy ", "spend", "billing", "invoice", "provision",
+            "register domain", "dns", "campaign launch",
+        ),
+    ),
+    (
+        "R2",
+        ("migration", "migrate", "install", "dependency", "upgrade", "refactor across", "schema change"),
+    ),
+)
+
+
+def derive_risk_floor(title: str, objective: str, stage: str, paths: list[str]) -> str:
+    """Lowest risk this task may legitimately claim, inferred from what it says it does.
+
+    The declared --risk is a *request*; this is the floor it cannot go below. An agent
+    labelling "deploy to production" as R1 does not get to skip the gate.
+    """
+    haystack = " ".join([title or "", objective or "", " ".join(paths or [])]).lower()
+    floor = "R0"
+    for level, needles in RISK_SIGNALS:
+        if any(needle in haystack for needle in needles):
+            if RISK_ORDER[level] > RISK_ORDER[floor]:
+                floor = level
+    if stage == "06_release" and RISK_ORDER[floor] < RISK_ORDER["R3"]:
+        floor = "R3"
+    return floor
+
+
 def paths_overlap(left: str, right: str) -> bool:
     a = left.replace("\\", "/").strip("/")
     b = right.replace("\\", "/").strip("/")
@@ -762,6 +926,16 @@ def claim_task(project: Path, run_dir: Path, task_id: str, agent: str, lease_min
         if task["status"] != "ready":
             raise TeamError(f"Task {task_id} is {task['status']}, not ready")
         policy = load_json(project_bus(project) / "config" / "policies.json")["profiles"][state["autonomy"]]
+        floor = derive_risk_floor(
+            task.get("title", ""), task.get("objective", ""), task.get("stage", ""), task.get("owned_paths", [])
+        )
+        if RISK_ORDER[floor] > RISK_ORDER[task["risk"]]:
+            task["risk"] = floor
+            append_event(state, "risk-raised", task=task_id, effective=floor)
+        if state.get("status") == "blocked":
+            raise TeamError(
+                "Run is blocked by a human rejection. Resolve the rejected checkpoint before claiming work."
+            )
         requires_human = task["risk"] in policy["pause_at"] or task["risk"] in {"R3", "R4"}
         approved = any(
             item.get("kind") == "risk"
@@ -904,23 +1078,86 @@ def create_checkpoint(project: Path, run_dir: Path, question: str, recommendatio
         return checkpoint_id
 
 
-def approve_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str, decision: str) -> None:
+def owner_token_path(run_id: str) -> Path:
+    """Owner tokens live OUTSIDE the project, so a workspace-scoped agent cannot read them."""
+    return Path.home() / ".agentic-team" / "owner-tokens" / f"{run_id}.token"
+
+
+def issue_owner_token(run_id: str, state: dict[str, Any]) -> Path:
+    token = secrets.token_urlsafe(24)
+    state["owner_token_sha256"] = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    path = owner_token_path(run_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(token + chr(10), encoding="utf-8")
+    with contextlib.suppress(OSError, NotImplementedError):
+        os.chmod(path, 0o600)
+    return path
+
+
+def assert_human_authority(project: Path, state: dict[str, Any], by: str, token: str | None) -> None:
+    """A checkpoint decision must come from a human, not from the agent it is gating.
+
+    Three independent barriers, because a filesystem cannot authenticate on its own:
+      1. the approver may not name an installed agent;
+      2. a headless caller must present the owner token, which is stored outside the project;
+      3. an interactive terminal is accepted as the human channel when no token exists yet.
+    """
+    approver = (by or "").strip()
+    if not approver:
+        raise TeamError("--by is required and must name the responsible human")
+    manifest = project_bus(project) / "team.json"
+    if manifest.is_file():
+        installed = load_json(manifest).get("installation", {}).get("installed_agents", [])
+        lowered = {str(item).lower() for item in installed}
+        probe = approver.lower()
+        if probe in lowered or any(probe.startswith(f"{name} ") or f"({name}" in probe for name in lowered):
+            raise TeamError(
+                f"'{by}' is an installed agent. Checkpoint decisions require a human approver; "
+                "agents may not approve the gates that block them."
+            )
+    digest = state.get("owner_token_sha256")
+    hint = owner_token_path(state.get("run_id", "<run-id>"))
+    if digest:
+        # An agent shares the operator's terminal, so a TTY proves nothing here.
+        # Possession of the out-of-project token is the only accepted proof.
+        if not token:
+            raise TeamError(
+                "This decision requires the owner token. Pass --token with the value stored at "
+                f"{hint}. Agents must not read that path."
+            )
+        if not secrets.compare_digest(hashlib.sha256(token.encode("utf-8")).hexdigest(), digest):
+            raise TeamError("Invalid owner token.")
+        return
+    # Legacy runs created before tokens existed: fall back to an interactive channel.
+    if sys.stdin.isatty():
+        return
+    raise TeamError(
+        "This run predates owner tokens and cannot be decided headlessly. "
+        "Re-run the decision from an interactive terminal."
+    )
+
+
+def approve_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str, decision: str, token: str | None = None) -> None:
     with state_lock(run_dir):
         state = load_state(run_dir)
+        assert_human_authority(project, state, by, token)
         checkpoint = next((item for item in state["checkpoints"] if item["id"] == checkpoint_id), None)
         if not checkpoint:
             raise TeamError(f"Unknown checkpoint: {checkpoint_id}")
         if checkpoint["status"] != "pending":
             raise TeamError(f"Checkpoint {checkpoint_id} is already {checkpoint['status']}")
         checkpoint.update(status="approved", approved_by=by, decision=decision, approved_at=utcnow())
-        state["status"] = "active"
+        still_rejected = any(item["status"] == "rejected" for item in state["checkpoints"])
+        pending = any(item["status"] == "pending" for item in state["checkpoints"])
+        state["status"] = "blocked" if still_rejected else ("waiting-human" if pending else "active")
         append_event(state, "checkpoint-approved", checkpoint=checkpoint_id, by=by)
         save_state(project, run_dir, state)
 
 
-def reject_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str, decision: str) -> None:
+def reject_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str, decision: str, token: str | None = None) -> None:
     with state_lock(run_dir):
         state = load_state(run_dir)
+        assert_human_authority(project, state, by, token)
         checkpoint = next((item for item in state["checkpoints"] if item["id"] == checkpoint_id), None)
         if not checkpoint:
             raise TeamError(f"Unknown checkpoint: {checkpoint_id}")
@@ -932,9 +1169,60 @@ def reject_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str,
         save_state(project, run_dir, state)
 
 
+def clear_stale_lock(run_dir: Path, max_age_seconds: int = 0) -> str:
+    """Remove a lock left behind by a process that died mid-command."""
+    lock_path = run_dir / ".state.lock"
+    if not lock_path.exists():
+        return "No lock held."
+    held = 0.0
+    with contextlib.suppress(OSError):
+        held = time.time() - lock_path.stat().st_mtime
+    if max_age_seconds and held < max_age_seconds:
+        raise TeamError(
+            f"Lock is only {int(held)}s old; another command may still be running. "
+            "Re-run with --force if you are sure."
+        )
+    lock_path.unlink()
+    return f"Cleared stale lock held for {int(held)}s."
+
+
+def reopen_task(project: Path, run_dir: Path, task_id: str, reason: str) -> None:
+    """Return a failed or wedged task to the queue so a stage is never permanently stuck."""
+    with state_lock(run_dir):
+        state = load_state(run_dir)
+        task = state["tasks"].get(task_id)
+        if not task:
+            raise TeamError(f"Unknown task: {task_id}")
+        if task["status"] == "done":
+            raise TeamError(f"Task {task_id} is already complete")
+        task.update(status="pending", claimed_by=None, lease_expires_at=None, attempts=0)
+        task["reopened_reason"] = reason
+        refresh_ready(state)
+        append_event(state, "task-reopened", task=task_id, reason=reason)
+        save_state(project, run_dir, state)
+
+
+def cancel_task(project: Path, run_dir: Path, task_id: str, reason: str) -> None:
+    """Descope a task the human no longer wants, so it stops blocking the stage gate."""
+    with state_lock(run_dir):
+        state = load_state(run_dir)
+        task = state["tasks"].get(task_id)
+        if not task:
+            raise TeamError(f"Unknown task: {task_id}")
+        task.update(status="cancelled", claimed_by=None, lease_expires_at=None)
+        task["cancelled_reason"] = reason
+        refresh_ready(state)
+        append_event(state, "task-cancelled", task=task_id, reason=reason)
+        save_state(project, run_dir, state)
+
+
 def advance_stage(project: Path, run_dir: Path) -> str:
     with state_lock(run_dir):
         state = load_state(run_dir)
+        if state.get("status") == "blocked":
+            raise TeamError(
+                "Run is blocked by a human rejection. Resolve the rejected checkpoint before advancing."
+            )
         current = state["stage"]
         open_tasks = [task["id"] for task in state["tasks"].values() if task["stage"] == current and task["status"] != "completed"]
         if open_tasks:
@@ -1139,7 +1427,16 @@ def generate_report(project: Path, run_dir: Path) -> Path:
 def doctor(project: Path) -> list[str]:
     findings: list[str] = []
     bus = project_bus(project)
-    required = ["team.json", "AGENTS.md", "CURRENT.md", "bin/agentic_team.py", "config/policies.json"]
+    required = [
+        "team.json",
+        "AGENTS.md",
+        "CURRENT.md",
+        "bin/agentic_team.py",
+        "config/policies.json",
+        "protocols/guardrails.md",
+        "protocols/agent-contract.md",
+        "protocols/plan-modes.md",
+    ]
     for relative in required:
         if not (bus / relative).is_file():
             findings.append(f"missing .agentic-team/{relative}")
@@ -1154,6 +1451,14 @@ def doctor(project: Path) -> list[str]:
             findings.append(f"install references unknown agents: {', '.join(sorted(missing_agents))}")
     with contextlib.suppress(TeamError):
         run_dir = find_run(project, None)
+        lock_path = run_dir / ".state.lock"
+        if lock_path.exists():
+            held = 0
+            with contextlib.suppress(OSError):
+                held = int(time.time() - lock_path.stat().st_mtime)
+            findings.append(
+                f"run state lock held for {held}s; if no command is running, clear it with 'unlock'"
+            )
         state = load_state(run_dir)
         if state.get("version") != VERSION:
             findings.append(f"active run version is {state.get('version')}, expected {VERSION}")
@@ -1251,17 +1556,33 @@ def build_parser() -> argparse.ArgumentParser:
     approve = sub.add_parser("approve", help="Record explicit human checkpoint approval")
     add_common_run_args(approve)
     approve.add_argument("--checkpoint", required=True)
-    approve.add_argument("--by", required=True)
+    approve.add_argument("--by", required=True, help="Name of the responsible human (never an agent id)")
     approve.add_argument("--decision", required=True)
+    approve.add_argument("--token", help="Owner token; required when running without an interactive terminal")
 
     reject = sub.add_parser("reject", help="Record explicit human rejection and block the run for correction")
     add_common_run_args(reject)
     reject.add_argument("--checkpoint", required=True)
-    reject.add_argument("--by", required=True)
+    reject.add_argument("--by", required=True, help="Name of the responsible human (never an agent id)")
+    reject.add_argument("--token", help="Owner token; required when running without an interactive terminal")
     reject.add_argument("--decision", required=True)
 
     advance = sub.add_parser("advance", help="Advance after task and policy gates pass")
     add_common_run_args(advance)
+
+    unlock = sub.add_parser("unlock", help="Clear a state lock left by a process that died")
+    add_common_run_args(unlock)
+    unlock.add_argument("--force", action="store_true", help="Clear even a recently touched lock")
+
+    reopen = sub.add_parser("reopen", help="Return a failed or wedged task to the queue")
+    add_common_run_args(reopen)
+    reopen.add_argument("--task", required=True)
+    reopen.add_argument("--reason", required=True)
+
+    cancel = sub.add_parser("cancel", help="Descope a task so it stops blocking the stage gate")
+    add_common_run_args(cancel)
+    cancel.add_argument("--task", required=True)
+    cancel.add_argument("--reason", required=True)
 
     fusion = sub.add_parser("fusion-init", help="Create an independent fusion council workspace")
     add_common_run_args(fusion)
@@ -1307,6 +1628,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         root = source_root(args.source) if args.command in {"validate", "list", "install"} else None
         if args.command == "validate":
+            if is_installed_bus(root):
+                raise TeamError(
+                    "This is the installed copy of the CLI, which has no role source tree. "
+                    "Run 'validate' from the AgenticTeam source checkout, or use "
+                    "'doctor --project .' to check this installation."
+                )
             errors = validate_source(root)
             if errors:
                 print("AgenticTeam validation failed:", file=sys.stderr)
@@ -1374,13 +1701,29 @@ def main(argv: list[str] | None = None) -> int:
                 checkpoint_id = create_checkpoint(project, run_dir, args.question, args.recommendation, args.risk, args.kind)
                 print(checkpoint_id)
             elif args.command == "approve":
-                approve_checkpoint(project, run_dir, args.checkpoint, args.by, args.decision)
+                approve_checkpoint(project, run_dir, args.checkpoint, args.by, args.decision, args.token)
                 print(f"Approved {args.checkpoint}")
             elif args.command == "reject":
-                reject_checkpoint(project, run_dir, args.checkpoint, args.by, args.decision)
+                reject_checkpoint(project, run_dir, args.checkpoint, args.by, args.decision, args.token)
                 print(f"Rejected {args.checkpoint}; run is blocked for correction")
             elif args.command == "advance":
-                print(advance_stage(project, run_dir))
+                outcome = advance_stage(project, run_dir)
+                print(outcome)
+                if outcome == "waiting-human":
+                    # Non-zero so that `advance && next-step` cannot walk through a gate.
+                    print(
+                        "Stopped at a human gate: approve the open checkpoint before continuing.",
+                        file=sys.stderr,
+                    )
+                    return 2
+            elif args.command == "unlock":
+                print(clear_stale_lock(run_dir, 0 if args.force else 30))
+            elif args.command == "reopen":
+                reopen_task(project, run_dir, args.task, args.reason)
+                print(f"Reopened {args.task}")
+            elif args.command == "cancel":
+                cancel_task(project, run_dir, args.task, args.reason)
+                print(f"Cancelled {args.task}")
             elif args.command == "fusion-init":
                 fusion_init(project, run_dir, args)
                 print(f"Created fusion session {args.id}")

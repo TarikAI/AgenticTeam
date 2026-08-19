@@ -11,9 +11,9 @@ Run `scripts/preflight_skills.py` at run start, or check the paths below by hand
 
 | Capability | Skill | Detection | Floor without it |
 |---|---|---|---|
-| Admin consoles / control surfaces | `adminwright` | `<skill-dir>/adminwright/SKILL.md` | `protocols/admin-surfaces.md` |
-| Complete UI system design | `design-architect` | `<skill-dir>/design-architect/SKILL.md` | `protocols/interface-closure.md` |
-| Diff/code review, static analysis | `open-code-review` (`ocr` CLI + `open-code-review-delegate` skill) | `ocr` on PATH; `<skill-dir>/open-code-review-delegate/SKILL.md` | `protocols/review-discipline.md` |
+| Admin consoles / control surfaces | `adminwright` | `<skill-dir>/adminwright/SKILL.md` | `admin-surfaces.md` |
+| Complete UI system design | `design-architect` | `<skill-dir>/design-architect/SKILL.md` | `interface-closure.md` |
+| Diff/code review, static analysis | `open-code-review` (`ocr` CLI + `open-code-review-delegate` skill) | `ocr` on PATH; `<skill-dir>/open-code-review-delegate/SKILL.md` | `review-discipline.md` |
 
 Skill directories are harness-specific (`.claude/skills`, `.agents/skills`, `.pi/skills` — see
 `team.json` harnesses) plus the user-global skills directory. Installing the `ocr` CLI

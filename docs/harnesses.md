@@ -8,14 +8,38 @@ installation also receives the same `.agentic-team/` coordination bus and workfl
 | Claude Code | `.claude/agents/*.md` | `.claude/skills/*` | managed block in `CLAUDE.md` |
 | Codex | `.codex/agents/*.toml` | `.agents/skills/*` | compact managed block in `AGENTS.md` |
 | OpenCode | `.opencode/agents/*.md` | `.agents/skills/*` | permissions/mode frontmatter + `AGENTS.md` |
-| Antigravity | `.agents/roles/*.md` | `.agents/skills/*` | `.agents/rules` and `.agents/workflows` |
+| Antigravity | `.agents/agents/*.md` | `.agents/skills/*` | `trigger: always_on` rule in `.agents/rules`, commands in `.agents/workflows`, managed block in `AGENTS.md` |
 | Gemini CLI | `.gemini/agents/*.md` | `.agents/skills/*` | managed block in `GEMINI.md` |
 | Pi | `.agentic-team/agents/*.md` | `.pi/skills/*` | root `AGENTS.md` + `.pi/prompts` |
-| Generic | `.agentic-team/agents/*.md` | `.agents/skills/*` | portable role contracts |
+| Generic | `.agentic-team/agents/*.md` | `.agents/skills/*` | portable role contracts + managed block in `AGENTS.md` |
 
-The compiler marks read-only roles appropriately where the harness supports native permission or
-sandbox fields. It strips duplicated legacy standing orders and points every role to the compact
-shared contract.
+The compiler marks read-only roles using each harness's own mechanism where one exists:
+a `tools` allowlist for Claude Code, `sandbox_mode = "read-only"` for Codex, and
+`permission.edit: deny` for OpenCode. Antigravity and Gemini CLI do not have a tool vocabulary
+this project pins, so read-only roles additionally carry an explicit `ACCESS CONSTRAINT`
+paragraph in the compiled prompt, which every harness understands. Protocol references are
+rewritten to their installed `.agentic-team/protocols/...` paths at compile time.
+
+The compiler replaces the per-role standing-orders block with a pointer to
+`.agentic-team/protocols/agent-contract.md`, which carries the task envelope, evidence rules,
+hard human gates, and the per-role playbook loop.
+
+## A harness that is not on this list
+
+`team.json` defines exactly seven targets. Anything else - zcode, Cursor, Windsurf, an
+in-house runner, or a harness released after this version - is **not** a recognised
+`--harness` value and the installer will reject it.
+
+Use `--harness generic` for those. It writes portable role contracts to
+`.agentic-team/agents/*.md`, the coordination bus to `.agentic-team/`, skills to
+`.agents/skills/*`, and a managed router block into the project's root `AGENTS.md`, which is
+the closest thing to a cross-tool standard. Point the harness at `AGENTS.md`, load the role
+contract you want as a system prompt, and drive `.agentic-team/bin/agentic_team.py` for
+claims, evidence, and gates.
+
+If a harness has its own native agent format worth compiling to, add it to `team.json` and
+give it an emitter in `scripts/agentic_team.py`; the adapter tests will then hold it to that
+harness's real conventions.
 
 ## Install examples
 
