@@ -48,10 +48,14 @@ messaging, spending or paid-resource creation, handling credentials or payment o
 irreversible/destructive operations, installing software with broad system access or changing
 system settings, or legal commitments.
 
-Risk is not self-certified. The runtime raises a task's risk when its description implies an
-externally visible or irreversible action, and checkpoint decisions require the human owner's
-token. Never attempt to approve a gate that is blocking your own work: that is not a shortcut,
-it is a defect, and it is recorded as one.
+Risk is not self-certified. Declare what a task does and where (`add-task --action --target`);
+the runtime derives the risk from policy and raises it for sensitive paths and for wording that
+describes operating on the world. Only the human owner can lower it (`waive`). Checkpoint
+decisions require the owner's token and are signed into a ledger outside the project, so an
+edited `state.json` approves nothing. Never attempt to approve a gate that is blocking your own
+work, and never read `~/.agentic-team/`: that is not a shortcut, it is a defect, and a refused
+attempt is recorded as one. Raise decisions with facts: every agent checkpoint names the
+alternatives, impact, evidence, and rollback.
 
 ## Continuous improvement
 

@@ -5,9 +5,13 @@ profile when a run is created; changes are recorded as decisions.
 
 | Profile | Normal behavior | Required pauses |
 |---|---|---|
-| `autonomous` | Plan, implement, test, repair, and continue without routine confirmation. | High/critical risk and every hard human gate. Release approval remains human. |
-| `supervised` | Continue through reversible work and checkpoint material deviations. | Structural deviations, high/critical risk, hard gates. |
-| `hitl` | Present decisions at product, architecture, readiness, and release boundaries. | Stage gates, medium+ risk, hard gates. |
+| `autonomous` | Plan, implement, test, repair, and continue without routine confirmation. Deviations are recorded, not paused on. Architecture exits after an independent review. | R3/R4 tasks and every hard human gate. Release approval remains human. |
+| `supervised` | Continue through reversible work. Product and architecture exit after a Fusion council or an independent review. | Deviation checkpoints, R3/R4 tasks, hard gates. |
+| `hitl` | Present decisions at product, architecture, readiness, and release boundaries. | Stage gates, R2+ tasks, hard gates. |
+
+The exact gate values live in `config/policies.json` (`product_gate`, `architecture_gate`,
+`readiness_gate`, `release_gate`, `deviation`, `pause_at`); the runtime reads them and nothing
+else.
 
 ## Risk classes
 
@@ -20,14 +24,17 @@ profile when a run is created; changes are recorded as decisions.
 - **R4 — irreversible/sensitive:** destructive operations, credentials, payment movement,
   legal commitments, or safety-critical actions.
 
-`config/policies.json` is the machine-readable authority. If prose and policy disagree, use
-the safer requirement and raise the mismatch.
+`config/policies.json` is the machine-readable authority (`risk_levels`, and `risk.matrix` for
+how an action and target map to a level). If prose and policy disagree, use the safer
+requirement and raise the mismatch.
 
 ## Checkpoint format
 
-Every pause states: decision, recommendation, alternatives, impact of delay, evidence, and
-the smallest response needed from the human. Approved checkpoints are immutable events in
-run state.
+Every agent-raised pause states the question, recommendation, alternatives, impact, evidence,
+and rollback; the CLI refuses a checkpoint without them. Stage and risk gates are created by
+the CLI with the facts it can see (artifacts and their hashes, task states, evidence). Human
+decisions are appended to an HMAC-signed, hash-chained ledger outside the project; they are
+tamper-evident (`audit verify`), and gates read them from the ledger rather than from state.
 
 ## Failure behavior
 

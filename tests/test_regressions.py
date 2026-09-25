@@ -51,7 +51,7 @@ class Base(unittest.TestCase):
 
     @staticmethod
     def token(run_dir: Path) -> str:
-        return team.owner_token_path(run_dir.name).read_text(encoding="utf-8").strip()
+        return team.owner_token_file(team.load_state(run_dir)).read_text(encoding="utf-8").strip()
 
     def fusion(self, run_dir: Path, **overrides) -> None:
         values = dict(
@@ -116,10 +116,10 @@ class FusionRegressions(Base):
 class LifecycleRegressions(Base):
     def test_R05_rejection_can_be_resolved_by_the_human(self) -> None:
         run = self.run_("supervised")
-        checkpoint = team.create_checkpoint(self.project, run, "Q?", "rec", "R2", "decision")
+        checkpoint = team.create_checkpoint(self.project, run, "Q?", "rec", "R2", "decision", details={"alternatives": "wait", "impact": "delay", "evidence": "notes", "rollback": "revert"})
         team.reject_checkpoint(self.project, run, checkpoint, "Owner", "no", self.token(run))
         self.assertEqual(team.load_state(run)["status"], "blocked-rejection")
-        follow_up = team.create_checkpoint(self.project, run, "Fixed?", "rec", "R2", "decision")
+        follow_up = team.create_checkpoint(self.project, run, "Fixed?", "rec", "R2", "decision", details={"alternatives": "wait", "impact": "delay", "evidence": "notes", "rollback": "revert"})
         team.approve_checkpoint(self.project, run, follow_up, "Owner", "yes", self.token(run))
         self.assertEqual(team.load_state(run)["status"], "blocked-rejection", "approval must not clear a rejection")
         with self.assertRaises(team.TeamError):
@@ -177,7 +177,7 @@ class LifecycleRegressions(Base):
 
     def test_R14_pending_checkpoint_blocks_advance(self) -> None:
         run = self.run_()
-        team.create_checkpoint(self.project, run, "Which vendor?", "Vendor A", "R2", "decision")
+        team.create_checkpoint(self.project, run, "Which vendor?", "Vendor A", "R2", "decision", details={"alternatives": "wait", "impact": "delay", "evidence": "notes", "rollback": "revert"})
         self.assertEqual(team.advance_stage(self.project, run), "waiting-human")
         self.assertEqual(team.load_state(run)["stage"], "04_build")
         self.assertEqual(team.load_state(run)["status"], "waiting-human")
@@ -189,7 +189,7 @@ class LifecycleRegressions(Base):
             team.claim_task(self.project, run, "A", "backend-engineer", 60)
             team.fail_task(self.project, run, "A", "backend-engineer", "boom")
         self.assertEqual(team.load_state(run)["status"], "blocked-failure")
-        checkpoint = team.create_checkpoint(self.project, run, "Unrelated?", "yes", "R1", "decision")
+        checkpoint = team.create_checkpoint(self.project, run, "Unrelated?", "yes", "R1", "decision", details={"alternatives": "wait", "impact": "delay", "evidence": "notes", "rollback": "revert"})
         team.approve_checkpoint(self.project, run, checkpoint, "Owner", "ok", self.token(run))
         self.assertEqual(team.load_state(run)["status"], "blocked-failure")
         with self.assertRaises(team.BlockedError) as raised:
@@ -241,11 +241,12 @@ class LifecycleRegressions(Base):
         run_cli(self.project, "add-task", "--project", project, "--id", "D", "--title", "deploy to production",
                 "--owner", "devops-engineer", "--path", "infra")
         self.assertEqual(run_cli(self.project, "claim", "--project", project, "--task", "D", "--agent", "devops-engineer")[0], 2)
-        code, _, err = run_cli(self.project, "checkpoint", "--project", project, "--question", "q", "--recommendation", "r")
+        code, _, err = run_cli(self.project, "checkpoint", "--project", project, "--question", "q", "--recommendation", "r",
+                               "--alternatives", "a", "--impact", "i", "--evidence", "e", "--rollback", "r")
         checkpoint = _.strip()
-        token = team.owner_token_path("reg").read_text(encoding="utf-8").strip()
+        token = team.owner_token_file(team.load_state(team.find_run(self.project, None))).read_text(encoding="utf-8").strip()
         run_cli(self.project, "reject", "--project", project, "--checkpoint", checkpoint, "--by", "Owner",
-                "--decision", "no", "--token", token)
+                "--decision", "no", "--token-stdin", stdin=token + "\n")
         self.assertEqual(run_cli(self.project, "advance", "--project", project)[0], 3)
 
     def test_R22_atomic_write_survives_a_concurrent_reader(self) -> None:
@@ -268,7 +269,7 @@ class LifecycleRegressions(Base):
 
     def test_R26_doctor_reports_blocked_runs_and_drift(self) -> None:
         run = self.run_("supervised")
-        checkpoint = team.create_checkpoint(self.project, run, "Q?", "rec", "R2", "decision")
+        checkpoint = team.create_checkpoint(self.project, run, "Q?", "rec", "R2", "decision", details={"alternatives": "wait", "impact": "delay", "evidence": "notes", "rollback": "revert"})
         team.reject_checkpoint(self.project, run, checkpoint, "Owner", "no", self.token(run))
         router = self.project / "AGENTS.md"
         router.write_text(router.read_text(encoding="utf-8").replace("AgenticTeam", "Tampered"), encoding="utf-8")
@@ -278,7 +279,7 @@ class LifecycleRegressions(Base):
 
     def test_R27_refused_authority_is_recorded(self) -> None:
         run = self.run_()
-        checkpoint = team.create_checkpoint(self.project, run, "Q?", "rec", "R2", "decision")
+        checkpoint = team.create_checkpoint(self.project, run, "Q?", "rec", "R2", "decision", details={"alternatives": "wait", "impact": "delay", "evidence": "notes", "rollback": "revert"})
         with self.assertRaises(team.TeamError):
             team.approve_checkpoint(self.project, run, checkpoint, "Owner", "self-approval", "forged")
         events = [event["type"] for event in team.load_state(run)["events"]]

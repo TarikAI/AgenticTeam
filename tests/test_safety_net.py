@@ -14,7 +14,7 @@ HARNESSES = ["claude-code", "codex", "opencode", "antigravity", "gemini-cli", "p
 
 class HomeIsolationTests(unittest.TestCase):
     def test_owner_material_never_touches_the_real_home(self) -> None:
-        token_path = team.owner_token_path("any-run")
+        token_path = team.owner_token_path("any-run.abc")
         self.assertEqual(os.environ["AGENTIC_TEAM_HOME"], str(TEST_HOME))
         self.assertTrue(str(token_path).startswith(str(TEST_HOME)), token_path)
         self.assertNotEqual(TEST_HOME.resolve(), (Path.home() / ".agentic-team").resolve())

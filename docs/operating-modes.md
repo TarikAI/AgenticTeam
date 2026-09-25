@@ -2,9 +2,11 @@
 
 ## Autonomy
 
-`autonomous` continues through reversible local work, repairs within retry budget, and records
-assumptions. `supervised` additionally pauses for structural deviations. `hitl` pauses at product,
-architecture, readiness, medium-risk, and release checkpoints.
+`autonomous` continues through reversible local work, repairs within retry budget, records
+assumptions and deviations, and exits architecture after an independent review. `supervised`
+additionally pauses on deviation checkpoints and exits product/architecture only after a Fusion
+council or independent review. `hitl` pauses at product, architecture, readiness, R2+ tasks,
+and release. The values are data in `config/policies.json`.
 
 All profiles stop for production deploys, public publishing/messaging, spending or paid resources,
 real credentials/payment methods, destructive/irreversible operations, and legal commitments.

@@ -76,16 +76,47 @@ state; do not edit `state.json` manually.
 | `3` | The run is blocked: an unresolved rejection or an exhausted task needs a human. |
 | `64` | Usage error (unknown command or flag). |
 
-## Checkpoint decisions require the owner token
+## Human decisions: the owner token and the decision ledger
 
 `init-run` issues an owner token and writes it **outside the project**, under
-`~/.agentic-team/owner-tokens/<run-id>.token` (override the folder with `AGENTIC_TEAM_HOME`).
-`approve`, `reject`, `resolve`, `cancel`, human `reopen`, and a human-sponsored `fusion-close` require it:
+`~/.agentic-team/owner-tokens/<run-id>.<uid>.token` (override the folder with `AGENTIC_TEAM_HOME`).
+It also binds the token's hash outside the project (`~/.agentic-team/runs/`). `approve`,
+`reject`, `resolve`, `waive`, `cancel`, human `reopen`, `migrate`, and a human-sponsored
+`fusion-close` require the token; each decision is appended to an HMAC-signed, hash-chained
+ledger at `~/.agentic-team/ledger/`. Gates read the ledger, not `state.json`, so an edited state
+file cannot approve anything, and a mismatched owner key makes every gated command refuse.
 
-```text
-python .agentic-team/bin/agentic_team.py approve --project . --checkpoint CP-001 \
-  --by "Your Name" --decision "approved after review" --token "$(cat ~/.agentic-team/owner-tokens/<run-id>.token)"
+Never put the token in argv (shell history, process lists). In your own terminal:
+
+```powershell
+python .agentic-team/bin/agentic_team.py approve --project . --checkpoint CP-001 --by "Your Name" --decision "approved after review" --token-file "$HOME\.agentic-team\owner-tokens\<run-id>.<uid>.token"
 ```
 
-Two rules make the gate meaningful: `--by` may not name an installed agent, and an agent must
-never be granted read access to the token path. Configure your harness permissions accordingly.
+```bash
+python .agentic-team/bin/agentic_team.py approve --project . --checkpoint CP-001 --by "Your Name" --decision "approved after review" --token-file ~/.agentic-team/owner-tokens/<run-id>.<uid>.token
+```
+
+Omit `--token-file` in an interactive terminal and you are prompted without echo;
+`--token-stdin` reads one line from stdin. `--token VALUE` still works but warns.
+
+| Command | Use |
+|---|---|
+| `waive --requirement risk:<task> --level R1 --reason R --by NAME` | Lower one task's effective risk (only a human may). |
+| `waive --requirement stage-exit:<stage>:<check> --reason R --by NAME` | Waive one named stage-exit requirement. |
+| `audit verify --by NAME --token-file F` | Recompute every ledger signature and chain link and compare state with the ledger. |
+| `migrate --by NAME --token-file F` | Upgrade a v2 run: bind the owner key and sign its past decisions. |
+
+Rules that make the gate meaningful: `--by` may not name an installed agent, and an agent must
+never be able to read `~/.agentic-team/`. The installer's harness rules (see
+`docs/harnesses.md`) deny that path; this protects against shortcuts and prompt-injected
+self-approval, not against deliberately malicious code running unsandboxed as your user.
+
+## Risk: action and target
+
+`add-task --action A --target T` declares what a task does and where. `config/policies.json`
+maps the pair to R0-R4 (`risk.matrix`), owned paths such as CI definitions, migrations, and
+dependency manifests raise the floor (`risk.path_rules`), and wording that describes operating
+on the world ("--prod", "terraform apply") raises it further (`risk.backstop`). `--risk` is a
+requested floor; the runtime never lowers below what it derives, and only a human `waive` can.
+Agent checkpoints (`--kind decision|deviation|injection|budget`) must carry `--alternatives`,
+`--impact`, `--evidence`, and `--rollback`; stage and risk gates are written by the CLI itself.
