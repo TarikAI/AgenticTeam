@@ -1,5 +1,6 @@
 """Tests for the local LLM endpoint checker (docs/local-llms.md)."""
 
+import helpers  # noqa: F401  (isolates AGENTIC_TEAM_HOME)
 import sys
 import unittest
 from pathlib import Path

@@ -10,15 +10,14 @@ import re
 import subprocess
 import sys
 import tempfile
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    tomllib = None
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("agentic_team", ROOT / "scripts" / "agentic_team.py")
-assert SPEC and SPEC.loader
-team = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(team)
+from helpers import ROOT, team  # isolates AGENTIC_TEAM_HOME before anything runs
 
 
 class SourceValidationTests(unittest.TestCase):
@@ -184,6 +183,7 @@ class AdapterTests(unittest.TestCase):
             for reference in sorted(referenced):
                 self.assertTrue((target / reference).is_file(), f"dangling protocol reference: {reference}")
 
+    @unittest.skipIf(tomllib is None, "tomllib requires Python 3.11+")
     def test_codex_toml_is_valid_and_read_only_is_constrained(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary)
@@ -192,6 +192,7 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(definition["name"], "security-engineer")
             self.assertEqual(definition["sandbox_mode"], "read-only")
 
+    @unittest.skipIf(tomllib is None, "tomllib requires Python 3.11+")
     def test_full_company_codex_package_parses_all_roles(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary)

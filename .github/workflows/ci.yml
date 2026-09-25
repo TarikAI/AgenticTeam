@@ -14,12 +14,12 @@ jobs:
       matrix:
         # Windows is a first-class target: the installer bug that shipped in v2 only
         # reproduced there, because `python3` resolves to the Microsoft Store stub.
-        os: [ubuntu-latest, windows-latest]
-        python-version: ["3.11", "3.13"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.12", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -64,12 +64,12 @@ jobs:
     if: vars.ENABLE_OCR_REVIEW == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Install ocr CLI
         run: npm install -g @alibaba-group/open-code-review
       - name: Run OCR review
