@@ -195,9 +195,9 @@ class AdapterTests(unittest.TestCase):
     def test_codex_toml_is_valid_and_read_only_is_constrained(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary)
-            team.install_team(ROOT, target, "codex", "audit", [], [])
-            definition = tomllib.loads((target / ".codex" / "agents" / "security-engineer.toml").read_text(encoding="utf-8"))
-            self.assertEqual(definition["name"], "security-engineer")
+            team.install_team(ROOT, target, "codex", "audit", [], ["compliance-advisor"])
+            definition = tomllib.loads((target / ".codex" / "agents" / "compliance-advisor.toml").read_text(encoding="utf-8"))
+            self.assertEqual(definition["name"], "compliance-advisor")
             self.assertEqual(definition["sandbox_mode"], "read-only")
 
     @unittest.skipIf(tomllib is None, "tomllib requires Python 3.11+")

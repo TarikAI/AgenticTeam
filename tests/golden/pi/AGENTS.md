@@ -1,5 +1,15 @@
 <!-- AGENTIC-TEAM:BEGIN -->
 # AgenticTeam
 
-Read `.agentic-team/AGENTS.md`, then `.agentic-team/CURRENT.md` and the active stage `CONTEXT.md`. Use `.agentic-team/bin/agentic_team.py` for durable task state. Role contracts live in this project (see `.agentic-team/install-manifest.json` for the compiled location); adopt the relevant role before acting. Installed skills describe the operating procedures. Do not bypass hard human gates or replace a human-supplied plan.
+This project is coordinated by AgenticTeam. Keep this file short.
+
+1. Read `.agentic-team/CURRENT.md` to locate the active run and stage.
+2. Read that stage's `CONTEXT.md`.
+3. Read only the task envelope and files named by the context contract.
+4. Use `.agentic-team/bin/agentic_team.py` for all task/checkpoint state changes.
+5. Follow `.agentic-team/protocols/agent-contract.md`, `autonomy.md`, and `runtime.md`.
+
+Do not hand-edit run `state.json` or generated indexes. Human-supplied plans remain authoritative.
+Production deploys, public actions, spending, credentials/payment, destructive operations, and
+legal commitments always require explicit human approval.
 <!-- AGENTIC-TEAM:END -->

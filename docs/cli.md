@@ -26,7 +26,9 @@ The harness orchestrator normally invokes these. Humans can use them to inspect 
 |---|---|
 | `validate` | Check manifest, role files, presets, workflows, skills, and required contracts. |
 | `list agents\|presets\|harnesses` | Inspect installable capabilities. |
-| `install <target> --harness H --preset P` | Compile a native package and durable bus. |
+| `install <target> --harness H --preset P [--model-profile M] [--force]` | Compile a native package and durable bus. Stops if a generated file was edited locally (`--force` backs it up). |
+| `uninstall <target> [--purge]` | Remove generated files, managed blocks, skills, and installer-owned settings; keeps `knowledge/` and `runs/` unless `--purge`. |
+| `guard [--harness H] [--scope review --agent A]` | Harness `PreToolUse` hook entry point (reads the tool call JSON on stdin). |
 
 ## Run commands (run against an installed project)
 

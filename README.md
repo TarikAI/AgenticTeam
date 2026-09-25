@@ -35,8 +35,9 @@ and durable artifacts so the work can survive parallelism, context loss, and hum
   `protocols/admin-surfaces.md`, `interface-closure.md`, and `review-discipline.md` carry the
   same disciplines internally, so the team builds and checks the same way with none of them
   present. See [the integration plan](docs/skills-integration-plan.md).
-- **Native compilers:** Claude Code, Codex, OpenCode, Google Antigravity, Gemini CLI, Pi, and a
-  generic portable format.
+- **Native compilers:** Claude Code, Codex, OpenCode, Google Antigravity, Gemini CLI, Pi, GitHub
+  Copilot, Cursor, Factory Droid, Kiro, Qwen Code, JetBrains Junie, and a generic portable format,
+  each with its native permission mechanism where one exists (see `docs/harnesses.md`).
 
 ## Architecture
 
