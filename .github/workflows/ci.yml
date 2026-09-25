@@ -52,6 +52,9 @@ jobs:
           ./scripts/install.ps1 -Target $target -Harness codex -Preset platform-core
           if (-not (Test-Path (Join-Path $target '.agentic-team'))) { throw 'install.ps1 produced no bus' }
 
+      - name: Team evaluation scenarios
+        run: python evals/run_scenarios.py
+
       - name: Preflight skills report
         run: python scripts/preflight_skills.py
 

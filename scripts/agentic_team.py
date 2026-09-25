@@ -3346,7 +3346,9 @@ def fusion_session(state: dict[str, Any], fusion_id: str) -> dict[str, Any]:
     return session
 
 
-def fusion_submit(project: Path, run_dir: Path, fusion_id: str, kind: str, agent: str, evidence: str) -> str:
+def fusion_submit(
+    project: Path, run_dir: Path, fusion_id: str, kind: str, agent: str, evidence: str, file: str | None = None
+) -> str:
     with state_lock(run_dir):
         state = load_state(run_dir)
         session = fusion_session(state, fusion_id)
@@ -3368,8 +3370,28 @@ def fusion_submit(project: Path, run_dir: Path, fusion_id: str, kind: str, agent
             raise TeamError(f"{agent} already submitted a {kind}; submissions are final (one revision is allowed during critiques)")
         if kind == "revision" and agent not in submissions["proposal"]:
             raise TeamError(f"{agent} has no proposal to revise")
-        submissions[kind][agent] = {"time": utcnow(), "evidence": evidence}
+        record: dict[str, Any] = {"time": utcnow(), "evidence": evidence}
+        if file:
+            # Commit: hash the submitted file now; reveal re-checks it, so nobody can quietly
+            # rewrite a proposal after reading the others.
+            path = (project.resolve() / file).resolve()
+            try:
+                path.relative_to(project.resolve())
+            except ValueError as exc:
+                raise TeamError("--file must be inside the project") from exc
+            if not path.is_file():
+                raise TeamError(f"--file does not exist: {file}")
+            record.update(file=path.relative_to(project.resolve()).as_posix(), sha256=file_sha256(path))
+        submissions[kind][agent] = record
         if kind == "proposal" and all(name in submissions["proposal"] for name in session["contributors"]):
+            changed = [
+                name
+                for name, item in submissions["proposal"].items()
+                if item.get("sha256")
+                and (not (project.resolve() / item["file"]).is_file() or file_sha256(project.resolve() / item["file"]) != item["sha256"])
+            ]
+            if changed:
+                raise TeamError(f"Proposal file(s) changed after submission: {', '.join(changed)}; the council cannot reveal")
             session["status"] = "critiques"
         elif kind == "critique" and all(name in submissions["critique"] for name in session["contributors"]):
             session["status"] = "synthesis"
@@ -4109,6 +4131,7 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--kind", choices=list(FUSION_PHASE_OF), required=True)
     submit.add_argument("--agent", required=True)
     submit.add_argument("--evidence", required=True)
+    submit.add_argument("--file", help="Submitted file; its hash is recorded and re-checked at reveal (commit-reveal)")
 
     close_fusion = sub.add_parser("fusion-close", help="Record the sponsor's final council decision")
     add_common_run_args(close_fusion)
@@ -4377,7 +4400,7 @@ def main(argv: list[str] | None = None) -> int:
                 fusion_init(project, run_dir, args)
                 print(f"Created fusion session {args.id}")
             elif args.command == "fusion-submit":
-                status_after = fusion_submit(project, run_dir, args.fusion, args.kind, args.agent, args.evidence)
+                status_after = fusion_submit(project, run_dir, args.fusion, args.kind, args.agent, args.evidence, args.file)
                 print(f"Fusion {args.fusion}: {status_after}")
             elif args.command == "fusion-close":
                 fusion_close(project, run_dir, args.fusion, args.sponsor, args.decision, args.by, args.token)
