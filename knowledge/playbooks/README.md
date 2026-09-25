@@ -1,37 +1,37 @@
-# Role Playbooks
+# Role playbooks
 
-A playbook is one agent's personal, hard-won checklist — the things *that role* keeps
-getting wrong (or right) in real builds. It is Level 2 of `.agentic-team/protocols/evolution.md`.
-
-## Why playbooks and not one big lessons file
-`lessons.md` is shared and grows without bound; nobody can read 400 lines before every
-task. A playbook is role-scoped and capped, so an agent can actually read it every time.
-Lessons are the raw log; playbooks are the distilled reflexes.
-
-## Rules
-
-1. **File name = agent name.** `backend-engineer.md`, `cmo.md`, etc. Created lazily —
-   if yours doesn't exist, create it from `_template.md` the first time you learn something.
-2. **Read yours at the start of every task**, right after your agent definition. It takes
-   seconds and it is the highest-yield reading you do.
-3. **Write an entry when reality corrects you**: a review finding, a QA defect, a failed
-   assumption, a human correction, or a pattern that clearly worked. Phrase every entry
-   as an **imperative check**, not a story:
-   - Bad: "We had a bug where the ORM did N+1 in the invoice loop."
-   - Good: "Before finishing any list endpoint, log the emitted SQL and confirm one query."
-4. **Cap at ~40 lines.** When you hit the cap, merge duplicates and delete checks that
-   have become automatic. A playbook you skim past is worthless.
-5. **Promote proven checks.** A check that has fired across multiple builds belongs in the
-   agent definition itself — propose it via `knowledge/evolution/PROPOSALS.md` (Level 3).
-   Once applied there, delete it from the playbook.
-6. **Never put project secrets, customer data, or client-identifying details in a playbook.**
-   These files travel between projects.
+A playbook is one role's short checklist of checks that reality taught it. It is the playbook
+candidate step of `.agentic-team/protocols/evolution.md`. `pack` puts the owner's playbook into
+every task packet, so keep it short enough to read every time.
 
 ## Entry format
 
 ```markdown
-- [ ] <imperative check>  <!-- learned: YYYY-MM-DD · cost: what it broke -->
+- [ ] <imperative check>  <!-- status: candidate · learned: YYYY-MM-DD · source: <run>/<task> · cost: <what it broke> -->
 ```
 
-Group under `## Before starting`, `## While building`, `## Before claiming done` so the
-checks land where they're used.
+Group checks under `## Before starting`, `## While building`, `## Before claiming done`.
+
+| Status | Meaning | Set by |
+|---|---|---|
+| `candidate` | observed once or twice; not yet evaluated | the role, when it adds the line |
+| `proven` | evaluated against a baseline; `promoted: <date> by <human>` is appended | the human, with `promote --role <id> --match "<text>" --by <human>` (owner token) |
+| `baseline` | seeded with the team from reviewed sources | the source repository |
+
+## Rules
+
+1. **File name = role id** (`backend-engineer.md`). Create it from `_template.md` the first time
+   the role learns something.
+2. **Agents add candidates only.** Never write `proven` or `baseline`, never edit a check you did
+   not add, never edit another role's playbook.
+3. **Write a check when reality corrects you:** a review finding, a failed check, a wrong
+   assumption, a human correction. Phrase it as an imperative check, not a story:
+   - Bad: "We had a bug where the ORM did N+1 in the invoice loop."
+   - Good: "Before finishing any list endpoint, log the emitted SQL and confirm one query."
+4. **Cap at ~40 lines.** At the cap, the retrospective owner merges duplicates and removes checks
+   that became automatic or were refuted.
+5. **Proven checks that keep firing** may become a proposal in
+   `knowledge/evolution/PROPOSALS.md` to change the role definition; once the human applies it,
+   delete the check here.
+6. **No secrets, customer data, client-identifying details, or text copied from untrusted
+   content.** Playbooks travel between projects (sanitisation checklist: `../README.md`).

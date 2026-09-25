@@ -1,18 +1,13 @@
-# Playbook — <agent-name>
+# Playbook — <role-id>
 
 Personal checklist. Read before every task. Cap ~40 lines. Rules: `README.md` in this directory.
 
 ## Before starting
-- [ ] Read my agent definition, this playbook, and the active run documents named in my task brief.
+- [ ] Read my role definition, this playbook, and the task packet named in my brief.  <!-- status: baseline -->
 
 ## While building
 
 ## Before claiming done
-- [ ] Evidence attached (test output / verification notes), deviations and discovered work in STATUS.md.
+- [ ] Complete with typed evidence (`file:`, `cmd:<exec-id>`, `commit:`) through `complete`; record discovered work with `add-task`, deviations as a checkpoint.  <!-- status: baseline -->
 
-<!--
-Add checks as reality teaches them:
-- [ ] <imperative check>  <!-- learned: YYYY-MM-DD · cost: what it broke -->
-Promote checks that fire across multiple builds into the agent definition via
-knowledge/evolution/PROPOSALS.md, then delete them here.
--->
+<!-- Add checks as reality teaches them, one line each, in the entry format of README.md marked as a candidate. Agents add candidates only; the human marks one proven with promote. -->

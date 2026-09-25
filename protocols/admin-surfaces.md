@@ -32,5 +32,5 @@ protocol is the always-on contract either way.
 
 Produce the same artifacts by hand: a capability→operation→policy→audit trace table, an
 authorization matrix (role × capability × scope), the static-value registry, a
-state-coverage list per screen, and evidence links recorded in task state. Vertical
+state-coverage list per screen, and typed evidence on each task (`complete --evidence`). Vertical
 slices only — never a screen without its server operation and policy.

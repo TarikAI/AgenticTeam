@@ -69,10 +69,15 @@ state manager; do not hand-edit generated indexes or claim success from prose al
 
 ## Hard human gates
 
-No autonomy profile may bypass approval for production deployment, public publishing or
-messaging, spending or paid-resource creation, handling credentials or payment operations,
-irreversible/destructive operations, installing software with broad system access or changing
-system settings, or legal commitments.
+No autonomy profile may bypass approval for these seven (`guardrails.md`):
+
+- production deployment;
+- public publishing or messaging real people;
+- spending money or creating paid resources;
+- handling real credentials or payment methods;
+- destructive or irreversible data operations;
+- installing software with broad system access or modifying system settings;
+- legal or contractual commitments.
 
 Risk is not self-certified. Declare what a task does and where (`add-task --action --target`);
 the runtime derives the risk from policy and raises it for sensitive paths and for wording that

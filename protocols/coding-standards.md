@@ -1,14 +1,15 @@
 # Coding Standards
 
 Baseline standards for all code this team produces, in any stack. `ARCHITECTURE.md`
-may tighten these per project; it may not loosen them without a recorded decision.
+may tighten these per project; it may not loosen them without an ADR the human approved.
 
 ## Staying current (mandatory)
 - Before pinning any framework/library version, verify the current stable version and its
   breaking changes via official docs or the registry (npm, PyPI, crates.io, ...). Do not
   trust training-data memory for versions or APIs.
 - Prefer boring, mainstream, actively-maintained dependencies. Every new dependency must
-  earn its place — record non-obvious choices in `DECISIONS.md`.
+  earn its place — record non-obvious choices as an ADR in `_decisions/ADR-NNN.md`;
+  adding one is an `add-dependency` task (`supply-chain.md`).
 
 ## Languages & typing
 - Use typed languages/modes: TypeScript over JS (strict mode on), Python with type hints
@@ -31,11 +32,11 @@ may tighten these per project; it may not loosen them without a recorded decisio
 - Indexes justified by real query patterns; no premature denormalization.
 - PII identified and minimized; encryption at rest for secrets; soft-delete where recovery matters.
 
-## Security (see also guardrails §2)
+## Security (see also `guardrails.md` and `secrets-and-sensitive-data.md`)
 - Parameterized queries only. Output encoding against XSS. CSRF protection on state-changing
   browser routes. Rate limiting on auth and expensive endpoints.
 - Modern password hashing (argon2/bcrypt), short-lived tokens, least-privilege service accounts.
-- Dependencies scanned (npm audit / pip-audit / osv) during hardening.
+- Dependencies scanned (npm audit / pip-audit / osv-scanner) in `05_verify`, run through `exec`.
 
 ## Testing
 - Test pyramid: many fast unit tests, focused integration tests on real seams (db, API),
@@ -44,8 +45,8 @@ may tighten these per project; it may not loosen them without a recorded decisio
 - Tests must run headless with one command from a clean checkout (`npm test`, `pytest`, ...).
 
 ## Frontend
-- Accessibility is not optional: semantic HTML, keyboard navigable, WCAG 2.1 AA contrast,
-  labels on all inputs.
+- Accessibility is not optional: semantic HTML, keyboard navigable, WCAG 2.2 AA (contrast,
+  visible focus, target size), labels on all inputs.
 - Responsive by default; performance budgets (bundle size, LCP) noted in ARCHITECTURE.md.
 - Design tokens/theme in one place; no scattered magic colors or spacing.
 

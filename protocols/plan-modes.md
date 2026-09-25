@@ -12,7 +12,7 @@ and learning artifacts.
 
 ## `plan-given`
 
-Preserve the supplied document or path as immutable authority. Run one bounded conformance pass
+Preserve the supplied document or path as the authority; do not edit it. Run one bounded conformance pass
 for contradictions, genuinely blocking gaps, and safety/data/approval conflicts. Create tasks that
 cite their exact source section. Do not substitute stack, scope, sequence, or architecture merely
 for preference. Begin at readiness by default.
@@ -23,12 +23,31 @@ When the user says “just build,” convert their authority into task envelopes
 Record only assumptions necessary to keep moving. Do not create a competing PRD or architecture.
 Quality, verification, and hard human gates still apply.
 
-## Deviations
+## Blocking gaps: one bounded question list
 
-Continue non-blocked work. Record: what fails, evidence/reason, smallest fix, consequence of doing
-it as written, and whether the active autonomy profile permits the change. Mechanical corrections
-may proceed when policy allows; structural changes to human authority require a checkpoint. An
-unrecorded deviation is a defect even when the code runs.
+Ask once, not in a drip. Collect every genuinely blocking gap into one numbered list (at most
+about seven questions), each with a recommended default, and state that silence means "use the
+defaults". Raise it as one `checkpoint --kind decision` whose recommendation is the defaults.
+Keep working on everything the questions do not block.
+
+## Deviations: three lines
+
+When the plan cannot be followed as written, state it in exactly three lines and record it with
+`checkpoint --kind deviation`:
+
+```text
+Fails as written: <what breaks, with evidence>
+Smallest fix: <the minimal change>
+Cost of doing it as written: <consequence>
+```
+
+```text
+python .agentic-team/bin/agentic_team.py checkpoint --project . --kind deviation --question "Fails as written: ..." --recommendation "Smallest fix: ..." --impact "Cost of doing it as written: ..." --alternatives "Do it as written" --evidence cmd:T-014-2 --rollback "Revert the fix commit"
+```
+
+`supervised` and `hitl` pause on it; `autonomous` records it and continues (`autonomy.md`).
+Mechanical corrections may proceed when policy allows; structural changes to the human's plan
+always need the human. An unrecorded deviation is a defect even when the code runs.
 
 ## Forced-planning harnesses
 

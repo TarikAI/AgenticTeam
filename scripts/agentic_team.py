@@ -1499,7 +1499,8 @@ def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_
         "event_count": 0,
         "events_head": "0" * 64,
     }
-    append_event(state, "run-created", stage=active_stage, autonomy=autonomy, entry_mode=entry_mode)
+    state["base_sha"] = git_head(project.resolve())
+    append_event(state, "run-created", stage=active_stage, autonomy=autonomy, entry_mode=entry_mode, base_sha=state["base_sha"])
     token_path = issue_owner_token(home_key(state), state)
     bind_owner_key(home_key(state), state["owner_token_sha256"], name)
     write_state(run_dir, state)
@@ -1956,6 +1957,9 @@ def claim_task(project: Path, run_dir: Path, task_id: str, agent: str, lease_min
             conflict = claims_conflict(task, other)
             if conflict:
                 raise TeamError(f"Cannot claim {task_id}: {conflict}")
+        maximum = int(load_policy(project).get("budgets", {}).get("max_lease_minutes", MAX_LEASE_MINUTES))
+        if lease_minutes < 1 or lease_minutes > maximum:
+            raise TeamError(f"--lease-minutes must be between 1 and {maximum}")
         expires = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=lease_minutes)
         task.update(
             status="claimed",
@@ -2978,10 +2982,12 @@ def verdict_problems(project: Path, run_dir: Path, state: dict[str, Any], name: 
             problems.append(f"verifier {role} built 04_build work; verification must be independent")
     integration = state.get("integration_sha")
     if integration:
+        # Remediation inside 05_verify moves HEAD; verifying the current HEAD is equally valid.
+        accepted = {integration.lower()} | ({head.lower()} if (head := git_head(project.resolve())) else set())
         if not sha or sha.group(1) == "none":
-            problems.append(f"{name} needs `Verified-SHA:` matching the integration commit {integration[:12]}")
-        elif not integration.lower().startswith(sha.group(1).lower()):
-            problems.append(f"Verified-SHA {sha.group(1)} is not the integration commit {integration[:12]}")
+            problems.append(f"{name} needs `Verified-SHA:` matching the integration commit {integration[:12]} or the current HEAD")
+        elif not any(candidate.startswith(sha.group(1).lower()) for candidate in accepted):
+            problems.append(f"Verified-SHA {sha.group(1)} is not the integration commit {integration[:12]} or the current HEAD")
     return problems
 
 
@@ -3329,7 +3335,7 @@ def fusion_init(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
         write_text(base / "proposals" / f"{agent}.md", proposal.format(agent=agent))
         write_text(base / "critiques" / f"{agent}.md", critique.format(agent=agent))
     write_text(base / "synthesis.md", (templates / "fusion-synthesis.md").read_text(encoding="utf-8"))
-    write_text(base / "dissent.md", "# Dissent ledger\n\nRecord material unresolved arguments and consequences if they are correct.")
+    write_text(base / "dissent.md", (templates / "fusion-dissent.md").read_text(encoding="utf-8").replace("{{council}}", args.id))
     write_text(base / "decision.md", (templates / "fusion-decision.md").read_text(encoding="utf-8"))
 
 
@@ -3406,21 +3412,85 @@ def fusion_close(
         write_text(decision_path, text + f"\n\n## Recorded decision\n\n{decision}\n\n- Decided by: {by or sponsor}\n- Time: {utcnow()}\n")
 
 
-def learn(project: Path, run_dir: Path, title: str, evidence: str, lesson: str, scope: str, counterexample: str) -> Path:
+CONFIDENCE = ("low", "medium", "high")
+
+
+def learn(
+    project: Path,
+    run_dir: Path,
+    title: str,
+    evidence: str,
+    lesson: str,
+    scope: str,
+    counterexample: str,
+    roles: list[str] | None = None,
+    trigger: str = "",
+    confidence: str = "medium",
+    task: str | None = None,
+) -> Path:
+    """Record a candidate lesson: in the run (full record) and in the knowledge index (filterable)."""
+    if confidence not in CONFIDENCE:
+        raise TeamError(f"--confidence must be one of {', '.join(CONFIDENCE)}")
+    installed = installed_agents(project)
+    roles = [role.strip() for role in (roles or []) if role.strip()] or ["all"]
+    unknown = [role for role in roles if role != "all" and role not in installed]
+    if unknown:
+        raise TeamError(f"--roles names roles that are not installed: {', '.join(unknown)}")
+    state = load_state(run_dir)
+    if task and task not in state["tasks"]:
+        raise TeamError(f"Unknown task: {task}")
     timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     path = run_dir / "07_learn" / f"lesson-{timestamp}-{slug(title)}.md"
     content = (
-        f"# {title}\n\n- Source run: `{run_dir.name}`\n- Scope: {scope}\n- Recorded: {utcnow()}\n\n"
+        f"# {title}\n\n- Source run: `{run_dir.name}`" + (f" · task `{task}`" if task else "") + "\n"
+        f"- Roles: {', '.join(roles)}\n- Trigger: {trigger or 'not stated'}\n- Confidence: {confidence}\n"
+        f"- Scope: {scope}\n- Recorded: {utcnow()}\n\n"
         f"## Evidence\n\n{evidence}\n\n## Scoped lesson\n\n{lesson}\n\n"
         f"## Counterexample / when not to apply\n\n{counterexample}\n\n"
         "## Promotion status\n\nCandidate only. Evaluate against a baseline and obtain human approval before changing team policy.\n"
     )
     write_text(path, content)
+    index = project_bus(project) / "knowledge" / "lessons.md"
+    entry = (
+        f"### [{dt.date.today().isoformat()}] [roles: {', '.join(roles)}] {title}\n"
+        f"- status: candidate · confidence: {confidence} · source: {run_dir.name}" + (f"/{task}" if task else "") + "\n"
+        f"- trigger: {trigger or 'not stated'}\n- lesson: {lesson}\n- evidence: {evidence}\n"
+        f"- not when: {counterexample}\n"
+    )
+    existing = index.read_text(encoding="utf-8") if index.is_file() else "# Lessons Learned\n"
+    marker = "<!-- Newest entries first."
+    if marker in existing:
+        head, _, tail = existing.partition(marker)
+        rest = tail.split("-->", 1)
+        updated = head + marker + rest[0] + "-->\n\n" + entry + (rest[1] if len(rest) > 1 else "")
+    else:
+        updated = existing.rstrip() + "\n\n" + entry
+    write_text(index, updated)
     with state_lock(run_dir):
         state = load_state(run_dir)
-        append_event(state, "lesson-recorded", path=str(path.relative_to(run_dir)))
+        append_event(state, "lesson-recorded", path=str(path.relative_to(run_dir)), roles=roles, confidence=confidence)
         save_state(project, run_dir, state)
     return path
+
+
+def promote_check(project: Path, run_dir: Path, role: str, match: str, by: str, token: str | None) -> str:
+    """Human: mark one candidate playbook check as proven (it may then feed a PROPOSALS entry)."""
+    playbook = project_bus(project) / "knowledge" / "playbooks" / f"{role}.md"
+    if not playbook.is_file():
+        raise TeamError(f"No playbook for {role}")
+    with state_lock(run_dir):
+        state = load_state(run_dir)
+        human_decision(project, run_dir, state, by, token, f"promote {role}")
+        lines = playbook.read_text(encoding="utf-8").splitlines()
+        hits = [index for index, line in enumerate(lines) if match in line and "status: candidate" in line]
+        if len(hits) != 1:
+            raise TeamError(f"Expected exactly one candidate check matching '{match}' in {role}.md; found {len(hits)}")
+        lines[hits[0]] = lines[hits[0]].replace("status: candidate", f"status: proven · promoted: {dt.date.today().isoformat()} by {by}")
+        write_text(playbook, "\n".join(lines))
+        append_ledger(home_key(state), token, action="promote", subject=f"{role}:{match}", by=by)
+        append_event(state, "check-promoted", role=role, match=match, by=by)
+        save_state(project, run_dir, state)
+        return lines[hits[0]]
 
 
 def render_status(state: dict[str, Any], brief: bool = False) -> str:
@@ -3618,9 +3688,27 @@ def resolve_token(args: argparse.Namespace) -> str | None:
     if getattr(args, "token", None):
         print("warning: --token puts the owner token in shell history; prefer --token-file or the prompt", file=sys.stderr)
         return args.token
-    if getattr(args, "by", None) and sys.stdin.isatty():
+    if getattr(args, "by", None) and interactive_console():
         return getpass.getpass("Owner token: ").strip() or None
     return None
+
+
+def interactive_console() -> bool:
+    """True only for a real terminal. On Windows the NUL device reports isatty() too, and a
+    prompt there would block an automated caller forever."""
+    if not sys.stdin or not sys.stdin.isatty():
+        return False
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        import msvcrt
+
+        handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+        mode = ctypes.c_uint32()
+        return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
+    except (ImportError, OSError, AttributeError, ValueError):
+        return False
 
 
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "write_file", "replace", "edit"}
@@ -4036,6 +4124,16 @@ def build_parser() -> argparse.ArgumentParser:
     learning.add_argument("--lesson", required=True)
     learning.add_argument("--scope", required=True)
     learning.add_argument("--counterexample", required=True)
+    learning.add_argument("--roles", default="", help="Comma-separated role ids the lesson applies to (default: all)")
+    learning.add_argument("--trigger", default="", help="The situation that should bring this lesson to mind")
+    learning.add_argument("--confidence", choices=["low", "medium", "high"], default="medium")
+    learning.add_argument("--task", help="Task the evidence comes from")
+
+    promote = sub.add_parser("promote", help="Human marks a candidate playbook check as proven")
+    add_common_run_args(promote)
+    promote.add_argument("--role", required=True)
+    promote.add_argument("--match", required=True, help="Unique text of the candidate check")
+    add_human_args(promote)
 
     report = sub.add_parser("report", help="Generate DELIVERY-EVIDENCE.md from durable state")
     add_common_run_args(report)
@@ -4285,8 +4383,13 @@ def main(argv: list[str] | None = None) -> int:
                 fusion_close(project, run_dir, args.fusion, args.sponsor, args.decision, args.by, args.token)
                 print(f"Completed fusion session {args.fusion}")
             elif args.command == "learn":
-                path = learn(project, run_dir, args.title, args.evidence, args.lesson, args.scope, args.counterexample)
+                path = learn(
+                    project, run_dir, args.title, args.evidence, args.lesson, args.scope, args.counterexample,
+                    args.roles.split(","), args.trigger, args.confidence, args.task,
+                )
                 print(path)
+            elif args.command == "promote":
+                print(promote_check(project, run_dir, args.role, args.match, args.by, args.token))
             elif args.command == "report":
                 print(generate_report(project, run_dir))
         return EXIT_OK

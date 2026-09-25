@@ -1,6 +1,6 @@
 # Agent Evolution Proposals
 
-Level 3 of `.agentic-team/protocols/evolution.md`: changes to **agent definition files** themselves.
+The proposal step of `.agentic-team/protocols/evolution.md`: changes to **agent definition files** themselves.
 Collected at retrospective by delivery-lead (engineering) and cmo (marketing), reviewed by
 ceo, **approved only by the human owner**. Applied to the master repo, not just one project.
 
@@ -15,7 +15,10 @@ ceo, **approved only by the human owner**. Applied to the master repo, not just 
 
 ```
 ### P-001 · <agent-name>: <one-line change>
-- evidence: <lessons refs / defect ids / how many times the playbook check fired>
+- evidence: <lesson entries / defect ids / how many times the playbook check fired>
+- evaluation: <scenario suite result before/after, or the A/B runs (team-evaluation.md)>
+- rollback: <how to revert>
+- version: <AgenticTeam version that ships it>
 - section: <which section of the agent file>
 - change: <exact wording to add/replace>
 - risk: <what this could make worse>

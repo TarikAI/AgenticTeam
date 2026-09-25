@@ -94,7 +94,7 @@ class DocCliConsistencyTests(unittest.TestCase):
         commands, global_flags = parser_surface()
         problems = []
         for source, number, command, line in documented_invocations():
-            tail = line.split("agentic_team.py", 1)[1]
+            tail = line.split("agentic_team.py", 1)[1].split(" -- ", 1)[0]  # flags after -- belong to the wrapped command
             words = tail.split()
             name = command
             if len(words) > 1 and f"{words[0]} {words[1]}" in commands:
