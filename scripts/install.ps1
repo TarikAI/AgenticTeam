@@ -13,6 +13,8 @@ param(
   [string]$Target,
   [ValidateSet('claude-code','codex','opencode','antigravity','gemini-cli','pi','generic','copilot','cursor','factory','kiro','qwen-code','junie')]
   [string]$Harness = 'claude-code',
+  [ValidateSet('inherit','balanced','max-quality','economy')]
+  [string]$ModelProfile,
   [switch]$List
 )
 
@@ -55,6 +57,7 @@ if ($List) {
 if (-not $Target) { throw 'Provide -Target <project path>, or use -List.' }
 
 $arguments = @($Cli, '--source', $Root, 'install', $Target, '--harness', $Harness)
+if ($ModelProfile) { $arguments += @('--model-profile', $ModelProfile) }
 if ($Agents) {
   foreach ($agent in $Agents) {
     foreach ($name in ($agent -split ',' | Where-Object { $_ })) {

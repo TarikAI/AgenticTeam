@@ -9,6 +9,7 @@ TARGET=""
 HARNESS="claude-code"
 AGENTS=""
 LIST=0
+PROFILE_ARGS=()
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -16,6 +17,7 @@ while [ "$#" -gt 0 ]; do
     --target) TARGET="$2"; shift 2 ;;
     --harness) HARNESS="$2"; shift 2 ;;
     --agents) AGENTS="$2"; shift 2 ;;
+    --model-profile) PROFILE_ARGS=(--model-profile "$2"); shift 2 ;;
     --list) LIST=1; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -59,7 +61,7 @@ if [ -n "$AGENTS" ]; then
   IFS=','
   for agent in $AGENTS; do set -- "$@" --only-agent "$agent"; done
   IFS=$old_ifs
-  $PY_BIN "$CLI" --source "$ROOT" install "$TARGET" --harness "$HARNESS" "$@"
+  $PY_BIN "$CLI" --source "$ROOT" install "$TARGET" --harness "$HARNESS" "${PROFILE_ARGS[@]}" "$@"
 else
-  $PY_BIN "$CLI" --source "$ROOT" install "$TARGET" --harness "$HARNESS" --preset "$PRESET"
+  $PY_BIN "$CLI" --source "$ROOT" install "$TARGET" --harness "$HARNESS" --preset "$PRESET" "${PROFILE_ARGS[@]}"
 fi

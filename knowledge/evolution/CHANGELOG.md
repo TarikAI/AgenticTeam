@@ -13,6 +13,41 @@ team's constitution changed and why. Append-only.
 
 ---
 
+## 2026-09-25 - v3.0.0 upgrade
+
+Applied from `docs/v3-upgrade-plan.md` (phases P0-P9; progress and deviations in
+`docs/v3-progress.md`), approved by the human owner. Every defect row R-01..R-39 has a
+regression test.
+
+**Authority and safety**
+- Human decisions are HMAC-signed into a ledger outside the project and bound to an owner key;
+  gates read the ledger, so an edited `state.json` approves nothing (`audit verify` detects
+  tampering). Tokens are passed by file, stdin, or prompt, never argv.
+- Risk comes from `--action`/`--target`, raised by sensitive paths and a word-boundary
+  backstop; only a human `waive` lowers it. Policy command rules feed `exec`, the harness guard
+  hook, and OpenCode permission maps.
+- Stage and risk checkpoints are CLI-authored; agent checkpoints must carry alternatives, impact,
+  evidence, and rollback. `supervised` differs from `autonomous` (deviations pause).
+
+**Runtime correctness**
+- Rejections resolve (`resolve`); cancel/reopen are human decisions that actually unblock;
+  Fusion phases, independence, and commit-reveal are enforced; claims need the installed owner,
+  the current stage, owned paths, and the concurrency cap; `--run` no longer repoints
+  CURRENT.md; exit codes 0/1/2/3/64; Windows replace retries; word-based specialist routing.
+- Stage exit contracts, typed evidence with `exec` capture, `--check` acceptance commands,
+  verifier independence, integration SHA.
+- `events.jsonl` hash chain, `log`, `metrics`, budgets, `next`, `board`, `pack`, `brief`.
+
+**Harnesses and roster**
+- Access classes (read-only, research, review, workspace-write, orchestrate), model profiles,
+  skill preloads, settings/hook merge, guard hook, `uninstall`, local-edit protection; six new
+  targets (Copilot, Cursor, Factory, Kiro, Qwen Code, Junie); Antigravity workflows became
+  skills ahead of their 2026-11-01 retirement.
+- All 50 roles rewritten: specialist skeleton, single artifact/verdict ownership, descriptions
+  with trigger and exclusion clauses, v1 vocabulary removed, Standing orders removed.
+- Shared law aligned with the runtime; eight new protocols; skills are runbooks; learning loop
+  with candidate/proven/baseline and a human `promote`; six deterministic eval scenarios in CI.
+
 ## 2026-08-19 - Audit remediation (v2.0.1)
 
 Applied after a full repository audit. Every item below was reproduced before the fix and

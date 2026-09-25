@@ -1,6 +1,6 @@
 # AgenticTeam v3 upgrade plan
 
-Status: **proposed** · 2026-09-25 · baseline `main` @ `d0fb6cf` (v2.0.1: 50 roles, 7 harness
+Status: **implemented** in v3.0.0 (progress, evidence, and deviations: `docs/v3-progress.md`) · planned 2026-09-25 · baseline `main` @ `d0fb6cf` (v2.0.1: 50 roles, 7 harness
 targets, 50 tests green on Python 3.14).
 
 Evidence base: four independent audits run on 2026-09-25 (runtime probe, full roster review,

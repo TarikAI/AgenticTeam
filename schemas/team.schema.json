@@ -3,73 +3,242 @@
   "$id": "https://agenticteam.local/schemas/team.schema.json",
   "title": "AgenticTeam manifest",
   "type": "object",
-  "required": ["version", "name", "description", "defaults", "agents", "presets", "workflows", "harnesses"],
+  "required": [
+    "version",
+    "name",
+    "description",
+    "defaults",
+    "agents",
+    "presets",
+    "workflows",
+    "harnesses"
+  ],
   "properties": {
-    "$schema": {"type": "string"},
-    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-    "name": {"type": "string", "minLength": 1},
-    "description": {"type": "string", "minLength": 1},
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
     "defaults": {
       "type": "object",
-      "required": ["harness", "preset", "autonomy", "entry_mode", "context_method"],
+      "required": [
+        "harness",
+        "preset",
+        "autonomy",
+        "entry_mode",
+        "context_method"
+      ],
       "properties": {
-        "autonomy": {"enum": ["autonomous", "supervised", "hitl"]},
-        "entry_mode": {"enum": ["idea", "plan-given", "execute-only"]},
-        "context_method": {"enum": ["adaptive", "bmad-progressive"]},
-        "context_target_tokens": {"type": "object"}
+        "autonomy": {
+          "enum": [
+            "autonomous",
+            "supervised",
+            "hitl"
+          ]
+        },
+        "entry_mode": {
+          "enum": [
+            "idea",
+            "plan-given",
+            "execute-only"
+          ]
+        },
+        "context_method": {
+          "enum": [
+            "adaptive",
+            "bmad-progressive"
+          ]
+        },
+        "context_target_tokens": {
+          "type": "object"
+        },
+        "model_profile": {
+          "type": "string"
+        }
       }
     },
     "agents": {
       "type": "array",
       "minItems": 1,
-      "items": {"$ref": "#/$defs/agent"}
+      "items": {
+        "$ref": "#/$defs/agent"
+      }
     },
     "presets": {
       "type": "object",
       "minProperties": 1,
-      "additionalProperties": {"$ref": "#/$defs/preset"}
+      "additionalProperties": {
+        "$ref": "#/$defs/preset"
+      }
     },
-    "workflows": {"type": "object", "minProperties": 1},
-    "harnesses": {"type": "object", "minProperties": 1},
+    "workflows": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "harnesses": {
+      "type": "object",
+      "minProperties": 1
+    },
     "installation": {
       "type": "object",
-      "required": ["harness", "preset", "installed_agents", "installed_at"],
+      "required": [
+        "harness",
+        "preset",
+        "installed_agents",
+        "installed_at"
+      ],
       "properties": {
-        "installed_agents": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+        "installed_agents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
       }
+    },
+    "model_profiles": {
+      "type": "object"
     }
   },
   "$defs": {
     "agent": {
       "type": "object",
-      "required": ["id", "file", "department", "tier", "access", "reports_to", "capabilities"],
+      "required": [
+        "id",
+        "file",
+        "department",
+        "tier",
+        "access",
+        "reports_to",
+        "capabilities"
+      ],
       "properties": {
-        "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
-        "file": {"type": "string", "pattern": "^agents/.+\\.md$"},
-        "department": {"type": "string", "minLength": 1},
-        "tier": {"enum": ["deep", "standard", "fast"]},
-        "access": {"enum": ["read-only", "research", "review", "workspace-write", "orchestrate"]},
-        "reports_to": {"type": "string", "minLength": 1},
-        "capabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
-        "activate_when": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
-        "limitations": {"type": "string"}
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^agents/.+\\.md$"
+        },
+        "department": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tier": {
+          "enum": [
+            "deep",
+            "standard",
+            "fast"
+          ]
+        },
+        "access": {
+          "enum": [
+            "read-only",
+            "research",
+            "review",
+            "workspace-write",
+            "orchestrate"
+          ]
+        },
+        "reports_to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "activate_when": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "limitations": {
+          "type": "string"
+        },
+        "preload_skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       },
       "additionalProperties": false
     },
     "preset": {
       "type": "object",
-      "required": ["description"],
+      "required": [
+        "description",
+        "kind"
+      ],
       "properties": {
-        "description": {"type": "string", "minLength": 1},
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
         "agents": {
           "oneOf": [
-            {"const": "all"},
-            {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+            {
+              "const": "all"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string"
+              }
+            }
           ]
         },
-        "departments": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+        "departments": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "kind": {
+          "enum": [
+            "build",
+            "fusion",
+            "audit",
+            "marketing"
+          ]
+        }
       },
-      "anyOf": [{"required": ["agents"]}, {"required": ["departments"]}],
+      "anyOf": [
+        {
+          "required": [
+            "agents"
+          ]
+        },
+        {
+          "required": [
+            "departments"
+          ]
+        }
+      ],
       "additionalProperties": false
     }
   }
