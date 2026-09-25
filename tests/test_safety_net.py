@@ -99,6 +99,8 @@ class DocCliConsistencyTests(unittest.TestCase):
             name = command
             if len(words) > 1 and f"{words[0]} {words[1]}" in commands:
                 name = f"{words[0]} {words[1]}"
+            if name in team.HELPER_COMMANDS:
+                continue  # helper commands own and validate their flags
             if name not in commands:
                 problems.append(f"{source}:{number}: unknown command '{command}'")
                 continue

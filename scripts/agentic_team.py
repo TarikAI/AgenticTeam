@@ -217,6 +217,80 @@ def is_installed_bus(root: Path) -> bool:
     return root.name == ".agentic-team" and (root / "bin" / "agentic_team.py").is_file()
 
 
+BANNED_ROLE_TERMS = (
+    "task board", "task evidence record", "hardening", "lessons.md", "decisions.md", "status.md",
+    "qa.md", "plan.md", "wcag 2.1", "phase gate", "## standing orders",
+)
+BANNED_ROLE_PATTERNS = (re.compile(r"\bphase \d"), re.compile(r"\bship phase\b"))
+SPECIALIST_HEADINGS = ["## When", "## Inputs", "## Procedure", "## Output", "## Done when", "## Hand-offs", "## Access"]
+LIFECYCLE_ARTIFACTS = (
+    "BRIEF.md", "ASSUMPTIONS.md", "PRD.md", "ARCHITECTURE.md", "DESIGN.md", "READINESS.md",
+    "VERIFICATION.md", "RELEASE.md", "RETROSPECTIVE.md", "DELIVERY-REPORT.md", "MARKETING.md",
+)
+TRIGGER_CLAUSE = re.compile(r"\b(Use (when|to|for|at|after|before|once)|Activate (when|for))\b")
+ROLE_TOKEN_BUDGET = (400, 2500)
+
+
+def roster_problems(root: Path, manifest: dict[str, Any]) -> list[str]:
+    """Lint every role file against the v3 roster rules (plan Appendix B)."""
+    problems: list[str] = []
+    ids = {agent["id"] for agent in manifest.get("agents", [])}
+    # Hyphenated names that are not roles: CLI subcommands, shipped skills, external skills.
+    not_roles = set(HELPER_COMMANDS) | {"design-architect", "open-code-review-delegate", "adminwright"}
+    not_roles |= {path.name for path in (root / "skills").iterdir()} if (root / "skills").is_dir() else set()
+    with contextlib.suppress(Exception):
+        not_roles |= {name for action in build_parser()._actions if isinstance(getattr(action, "choices", None), dict) for name in action.choices}
+    owners: dict[str, list[str]] = {name: [] for name in LIFECYCLE_ARTIFACTS}
+    for agent in manifest.get("agents", []):
+        path = root / agent["file"]
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        fields, body = parse_frontmatter(text)
+        label = agent["id"]
+        description = fields.get("description", "")
+        if len(description) > 300:
+            problems.append(f"{label}: description is {len(description)} characters (max 300)")
+        if not TRIGGER_CLAUSE.search(description):
+            problems.append(f"{label}: description needs a trigger clause (Use when/to/for..., Activate when)")
+        if "Not for" not in description:
+            problems.append(f"{label}: description needs an exclusion clause (Not for ... (use <id>))")
+        lowered = text.lower()
+        for term in BANNED_ROLE_TERMS:
+            if term in lowered:
+                problems.append(f"{label}: banned v1/v2 term '{term}'")
+        for pattern in BANNED_ROLE_PATTERNS:
+            if pattern.search(lowered):
+                problems.append(f"{label}: banned lifecycle term '{pattern.pattern}'")
+        if agent["department"] == "specialists":
+            positions = [body.find("\n" + heading + "\n") for heading in SPECIALIST_HEADINGS]
+            if any(position < 0 for position in positions) or positions != sorted(positions):
+                problems.append(f"{label}: specialist sections must be {', '.join(SPECIALIST_HEADINGS)} in order")
+        for match in re.finditer(r"\*\*Owns:\*\*([^\n]+)", body):
+            for name in re.findall(r"[A-Z][A-Z-]+\.md", match.group(1)):
+                if name in owners and "_marketing/" not in match.group(1).split(name)[0][-12:]:
+                    owners[name].append(label)
+        for mention in set(re.findall(r"`([a-z]+(?:-[a-z]+)+)`", body)):
+            if mention.endswith(("-md", "-json")) or mention in ids or mention in not_roles or not re.search(
+                r"-(engineer|lead|manager|designer|strategist|specialist|analyst|advisor|mapper|moderator|integrator|agent|scout|writer|marketer|creative|architect)$",
+                mention,
+            ):
+                continue
+            problems.append(f"{label}: mentions unknown role id `{mention}`")
+        tokens = estimate_prompt_tokens(agent, root)
+        low, high = ROLE_TOKEN_BUDGET
+        if not low <= tokens <= high:
+            problems.append(f"{label}: compiled prompt is ~{tokens} tokens (expected {low}-{high})")
+    for name, found in owners.items():
+        if len(found) != 1:
+            problems.append(f"{name} must have exactly one owner (**Owns:** line); found {found or 'none'}")
+    return problems
+
+
+def estimate_prompt_tokens(agent: dict[str, Any], root: Path) -> int:
+    return len(agent_prompt(agent, root)[1]) // 4
+
+
 def validate_source(root: Path) -> list[str]:
     errors: list[str] = []
     manifest = load_json(root / "team.json")
@@ -278,6 +352,7 @@ def validate_source(root: Path) -> list[str]:
     for relative in required:
         if not (root / relative).is_file():
             errors.append(f"missing required file: {relative}")
+    errors.extend(roster_problems(root, manifest))
     return errors
 
 
