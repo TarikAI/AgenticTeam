@@ -2,7 +2,7 @@
 name: fullstack-engineer
 description: "Senior full-stack generalist. Use for small builds, MVPs, and prototypes where one agent owns everything end-to-end, or as a flex engineer on larger builds for vertical-slice features that span database to UI."
 subagent: true
-mainAgent: true
+mainAgent: false
 model: inherit
 ---
 

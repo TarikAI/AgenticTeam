@@ -2,7 +2,7 @@
 name: research-agent
 description: "Research specialist. Use for market/competitor scans, technology evaluations, current-standards verification, user-expectation research, and any question where the team needs verified, current, cited information rather than model memory."
 subagent: true
-mainAgent: true
+mainAgent: false
 model: inherit
 ---
 

@@ -10,9 +10,9 @@ Accepts findings in either schema used by the team:
 Produces:
 - a gate verdict per agentic-verify: PASS (zero blockers), CONDITIONAL (zero blockers,
   one or more majors), FAIL (any blocker)
-- remediation task packets (JSON) plus suggested `add-task` command lines for the
-  orchestrator to run. This script never writes run state itself — the runtime CLI is
-  the single state writer.
+- remediation task packets (JSON), runnable `add-task` command lines (--commands), or
+  the tasks added directly through the runtime (--apply). Owners are always installed
+  roles that may write; a read-only reviewer is named as re-verifier, never as owner.
 
 Exit codes: 0 = PASS, 1 = CONDITIONAL or FAIL (findings exist), 2 = usage/IO error.
 Zero findings is a data point, not a verdict: report what was checked separately.
@@ -20,6 +20,8 @@ Zero findings is a data point, not a verdict: report what was checked separately
 
 import argparse
 import json
+import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -73,66 +75,180 @@ def verdict(findings):
     return "PASS"
 
 
-def task_owner(finding):
-    if finding["category"] in SECURITY_CATEGORIES:
-        return "security-engineer"
-    return "code-owner"  # orchestrator routes to the owning lead/engineer
+FRONTEND_SUFFIXES = (".tsx", ".jsx", ".ts", ".js", ".vue", ".svelte", ".css", ".scss", ".html")
+BACKEND_SUFFIXES = (".py", ".go", ".java", ".kt", ".rb", ".rs", ".cs", ".php", ".sql")
+WRITE_ACCESS = {"workspace-write", "orchestrate"}
+FALLBACK_OWNERS = ("fullstack-engineer", "backend-engineer", "frontend-engineer", "delivery-lead")
+UNASSIGNED = "UNASSIGNED"
 
 
-def task_id(index):
-    return f"remediate-{index:03d}"
+def _normalized(path):
+    return str(path).replace("\\", "/").strip("/").lower()
 
 
-def build_tasks(findings):
-    """Group minor/nit findings into one batched task; one task per blocker/major."""
+def _covers(owned, file):
+    owned, file = _normalized(owned), _normalized(file)
+    return bool(owned) and (file == owned or file.startswith(owned + "/"))
+
+
+def resolve_owner(finding, context=None):
+    """Pick an installed role that may WRITE the fix; never a read-only reviewer.
+
+    Order: the owner of the task whose owned paths cover the file, then a role by file
+    type, then generalists. Returns UNASSIGNED when no writable role is installed.
+    """
+    context = context or {}
+    installed = context.get("installed")  # {id: access}; None = assume the default roster
+
+    def writable(agent_id):
+        if installed is None:
+            return True
+        return installed.get(agent_id) in WRITE_ACCESS
+
+    for task in (context.get("tasks") or {}).values():
+        if any(_covers(owned, finding["file"]) for owned in task.get("owned_paths", [])) and writable(task["owner"]):
+            return task["owner"]
+    suffix = Path(finding["file"]).suffix.lower()
+    preferred = []
+    if suffix in FRONTEND_SUFFIXES:
+        preferred.append("frontend-engineer")
+    elif suffix in BACKEND_SUFFIXES:
+        preferred.append("backend-engineer")
+    for agent_id in preferred + list(FALLBACK_OWNERS):
+        if writable(agent_id) and (installed is None or agent_id in installed):
+            return agent_id
+    return UNASSIGNED
+
+
+def _next_ids(count, taken):
+    ids, number = [], 1
+    while len(ids) < count:
+        candidate = f"remediate-{number:03d}"
+        if candidate not in taken:
+            ids.append(candidate)
+        number += 1
+    return ids
+
+
+def build_tasks(findings, context=None, stage=None):
+    """One task per blocker/major; minor and nit findings are batched into one task."""
+    context = context or {}
+    individual = [f for f in findings if f["severity"] in ("blocker", "major")]
+    batched = [f for f in findings if f["severity"] in ("minor", "nit")]
+    ids = _next_ids(len(individual) + (1 if batched else 0), set((context.get("tasks") or {}).keys()))
     tasks = []
-    batched = []
-    for index, finding in enumerate(findings, start=1):
+
+    def summary(finding):
         anchor = f"{finding['file']}:{finding['line']}" if finding["line"] else finding["file"]
-        summary = f"[{finding['severity'].upper()}] {anchor} — {finding['claim']}"
-        if finding["severity"] in ("minor", "nit"):
-            batched.append(summary)
-            continue
+        return f"[{finding['severity'].upper()}] {anchor} - {finding['claim']}"
+
+    for finding in individual:
+        inputs = [f"finding: {json.dumps(finding['raw'], ensure_ascii=False)}"]
+        if finding["category"] in SECURITY_CATEGORIES:
+            inputs.append("re-verify: security-engineer reviews the fix (security finding)")
         tasks.append({
-            "id": task_id(len(tasks) + 1),
-            "owner": task_owner(finding),
+            "id": ids[len(tasks)],
+            "title": summary(finding),
+            "owner": resolve_owner(finding, context),
+            "stage": stage,
             "risk": "R1",
-            "summary": summary,
+            "paths": [finding["file"]],
+            "inputs": inputs,
             "acceptance": [
                 f"Fix: {finding['fix'] or finding['claim']}",
                 "Regression test that fails before the fix and passes after",
                 "Re-run the review gate on the touched files",
             ],
-            "evidence": [f"finding: {json.dumps(finding['raw'], ensure_ascii=False)}"],
+            "evidence_contract": ["test output showing the regression test passing", "review gate re-run result"],
         })
     if batched:
+        files = sorted({finding["file"] for finding in batched})
         tasks.append({
-            "id": task_id(len(tasks) + 1),
-            "owner": "code-owner",
+            "id": ids[len(tasks)],
+            "title": f"Batched minor/nit review findings ({len(batched)})",
+            "owner": resolve_owner(batched[0], context),
+            "stage": stage,
             "risk": "R1",
-            "summary": f"Batched minor/nit review findings ({len(batched)})",
+            "paths": files,
+            "inputs": [summary(finding) for finding in batched],
             "acceptance": ["Each finding fixed or explicitly waived with a reason"],
-            "evidence": batched,
+            "evidence_contract": ["list of findings with fix or waiver"],
         })
     return tasks
 
 
-def add_task_command(task):
-    acceptance = " && ".join(task["acceptance"])
-    evidence = " && ".join(task["evidence"])
-    return (
-        f'python .agentic-team/bin/agentic_team.py add-task --project . '
-        f'--owner {task["owner"]} --risk {task["risk"]} '
-        f'--summary "{task["summary"]}" --acceptance "{acceptance}" --evidence "{evidence}"'
-    )
+def add_task_argv(task, project="."):
+    """argv (after the CLI path) for one task; every flag exists in `add-task`."""
+    argv = ["add-task", "--project", project, "--id", task["id"], "--title", task["title"], "--owner", task["owner"],
+            "--risk", task["risk"]]
+    if task.get("stage"):
+        argv += ["--stage", task["stage"]]
+    for path in task.get("paths", []):
+        argv += ["--path", path]
+    for value in task.get("inputs", []):
+        argv += ["--input", value]
+    for value in task.get("acceptance", []):
+        argv += ["--acceptance", value]
+    for value in task.get("evidence_contract", []):
+        argv += ["--evidence-contract", value]
+    return argv
+
+
+def quote(value, shell):
+    if shell == "powershell":
+        return "'" + value.replace("'", "''") + "'"
+    return shlex.quote(value)
+
+
+def add_task_command(task, shell="bash", project="."):
+    cli = ".agentic-team/bin/agentic_team.py"
+    return " ".join(["python", cli] + [quote(part, shell) for part in add_task_argv(task, project)])
+
+
+def load_context(project, run=None):
+    """Installed roles, current stage, and existing tasks of an installed project."""
+    bus = Path(project) / ".agentic-team"
+    manifest = json.loads((bus / "team.json").read_text(encoding="utf-8"))
+    wanted = set(manifest.get("installation", {}).get("installed_agents", []))
+    installed = {a["id"]: a.get("access") for a in manifest.get("agents", []) if not wanted or a["id"] in wanted}
+    run_id = run
+    if not run_id:
+        current = (bus / "CURRENT.md").read_text(encoding="utf-8") if (bus / "CURRENT.md").exists() else ""
+        match = re.search(r"Run: `([^`]+)`", current)
+        run_id = match.group(1) if match else None
+    state = {}
+    if run_id and (bus / "runs" / run_id / "state.json").is_file():
+        state = json.loads((bus / "runs" / run_id / "state.json").read_text(encoding="utf-8"))
+    return {"installed": installed, "tasks": state.get("tasks", {}), "stage": state.get("stage"), "run": run_id}
+
+
+def apply_tasks(tasks, project, run=None):
+    """Add the tasks through the runtime itself (the single state writer)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import agentic_team  # noqa: E402
+
+    project_path = Path(project)
+    run_dir = agentic_team.find_run(project_path, run)
+    for task in tasks:
+        args = argparse.Namespace(
+            id=task["id"], title=task["title"], objective=None, owner=task["owner"], stage=task.get("stage"),
+            risk=task["risk"], depends_on=[], path=task.get("paths", []), exclusive=False,
+            input=task.get("inputs", []), acceptance=task.get("acceptance", []),
+            evidence_contract=task.get("evidence_contract", []),
+        )
+        agentic_team.add_task(project_path, run_dir, args)
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(prog="findings-to-tasks", description=__doc__.splitlines()[0])
     parser.add_argument("findings", help="findings JSON file (array, either schema)")
     parser.add_argument("--output", help="write task packets JSON here (default: stdout only)")
-    parser.add_argument("--commands", action="store_true",
-                        help="print suggested add-task command lines")
+    parser.add_argument("--commands", action="store_true", help="print runnable add-task command lines")
+    parser.add_argument("--shell", choices=["bash", "powershell"], default="bash", help="quoting for --commands")
+    parser.add_argument("--project", help="installed project: resolve owners and stage from its roster and run")
+    parser.add_argument("--run", help="run id (default: CURRENT.md)")
+    parser.add_argument("--stage", help="stage for remediation tasks (default: the run's current stage)")
+    parser.add_argument("--apply", action="store_true", help="add the tasks to the run (requires --project)")
     args = parser.parse_args(argv)
 
     try:
@@ -145,6 +261,9 @@ def main(argv=None):
     except ValueError as exc:
         parser.error(str(exc))
 
+    context = load_context(args.project, args.run) if args.project else {}
+    stage = args.stage or context.get("stage")
+    tasks = build_tasks(findings, context, stage)
     result = {
         "total_findings": len(findings),
         "by_severity": {
@@ -152,7 +271,7 @@ def main(argv=None):
             for level in ("blocker", "major", "minor", "nit")
         },
         "verdict": verdict(findings),
-        "tasks": build_tasks(findings),
+        "tasks": tasks,
     }
     text = json.dumps(result, indent=2, ensure_ascii=False)
     if args.output:
@@ -160,10 +279,21 @@ def main(argv=None):
         print(f"Task packets written: {args.output}")
     else:
         print(text)
+    unassigned = [task["id"] for task in tasks if task["owner"] == UNASSIGNED]
+    if unassigned:
+        print(f"No installed writable role for: {', '.join(unassigned)}; assign an owner before adding.", file=sys.stderr)
     if args.commands:
-        print("\nSuggested add-task invocations (runtime CLI is the state writer):")
-        for task in result["tasks"]:
-            print("  " + add_task_command(task))
+        print("\nRunnable add-task invocations (the runtime CLI is the state writer):")
+        for task in tasks:
+            print("  " + add_task_command(task, args.shell, args.project or "."))
+    if args.apply:
+        if not args.project:
+            parser.error("--apply requires --project")
+        if unassigned:
+            print("Refusing to apply: unassigned tasks exist.", file=sys.stderr)
+            return 2
+        apply_tasks(tasks, args.project, args.run)
+        print(f"Added {len(tasks)} remediation task(s) to stage {stage}.")
     print(f"Review gate verdict: {result['verdict']}", file=sys.stderr)
     return 0 if result["verdict"] == "PASS" else 1
 

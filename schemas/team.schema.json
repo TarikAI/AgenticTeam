@@ -11,13 +11,12 @@
     "description": {"type": "string", "minLength": 1},
     "defaults": {
       "type": "object",
-      "required": ["harness", "preset", "autonomy", "entry_mode", "context_method", "max_concurrent_agents", "max_task_retries"],
+      "required": ["harness", "preset", "autonomy", "entry_mode", "context_method"],
       "properties": {
         "autonomy": {"enum": ["autonomous", "supervised", "hitl"]},
-        "entry_mode": {"enum": ["adaptive", "idea", "plan-given", "execute-only"]},
+        "entry_mode": {"enum": ["idea", "plan-given", "execute-only"]},
         "context_method": {"enum": ["adaptive", "bmad-progressive"]},
-        "max_concurrent_agents": {"type": "integer", "minimum": 1},
-        "max_task_retries": {"type": "integer", "minimum": 0}
+        "context_target_tokens": {"type": "object"}
       }
     },
     "agents": {

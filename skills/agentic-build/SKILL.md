@@ -18,11 +18,11 @@ prompt. Read `references/operating-guide.md` before starting or resuming a run.
    bypasses hard human gates.
 4. Use progressive context when explicitly requested, for large/regulated work, or when the
    cold walk test would otherwise fail.
-5. Initialize the run through `scripts/agentic_team.py`; never hand-edit state JSON.
+5. Initialize the run through `.agentic-team/bin/agentic_team.py`; never hand-edit state JSON.
 
 ## Orchestrate
 
-- Run `scripts/preflight_skills.py` at run start and record the capability report. Route
+- Run `.agentic-team/bin/agentic_team.py preflight` at run start and record the capability report. Route
   admin/control-surface work through `adminwright`, UI system design through
   `design-architect`, and diff reviews through OCR delegation when preflight finds them;
   the floor protocols (`admin-surfaces.md`, `interface-closure.md`, `review-discipline.md`)

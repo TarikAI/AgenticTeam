@@ -1,5 +1,6 @@
 ---
 trigger: always_on
+description: AgenticTeam coordination - router, run state CLI, and human gates
 ---
 
 # AgenticTeam coordination

@@ -8,7 +8,7 @@
     "version": {"type": "string"},
     "run_id": {"type": "string", "minLength": 1},
     "project": {"type": "string", "minLength": 1},
-    "status": {"enum": ["active", "waiting-human", "blocked", "verifying", "complete", "failed"]},
+    "status": {"enum": ["active", "waiting-human", "blocked", "blocked-rejection", "blocked-failure", "verifying", "complete", "closed", "failed"]},
     "autonomy": {"enum": ["autonomous", "supervised", "hitl"]},
     "entry_mode": {"enum": ["idea", "plan-given", "execute-only"]},
     "context_method": {"enum": ["adaptive", "bmad-progressive"]},
@@ -41,7 +41,7 @@
       "type": "object",
       "required": ["id", "status", "kind", "stage", "risk", "question", "recommendation", "created_at"],
       "properties": {
-        "status": {"enum": ["pending", "approved", "rejected"]},
+        "status": {"enum": ["pending", "approved", "rejected", "resolved"]},
         "risk": {"enum": ["R0", "R1", "R2", "R3", "R4"]}
       }
     },
