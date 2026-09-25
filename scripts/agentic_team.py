@@ -1078,9 +1078,15 @@ def create_checkpoint(project: Path, run_dir: Path, question: str, recommendatio
         return checkpoint_id
 
 
+def agentic_home() -> Path:
+    """Owner-held material lives here, outside every project (override: AGENTIC_TEAM_HOME)."""
+    override = os.environ.get("AGENTIC_TEAM_HOME")
+    return Path(override).expanduser() if override else Path.home() / ".agentic-team"
+
+
 def owner_token_path(run_id: str) -> Path:
     """Owner tokens live OUTSIDE the project, so a workspace-scoped agent cannot read them."""
-    return Path.home() / ".agentic-team" / "owner-tokens" / f"{run_id}.token"
+    return agentic_home() / "owner-tokens" / f"{run_id}.token"
 
 
 def issue_owner_token(run_id: str, state: dict[str, Any]) -> Path:

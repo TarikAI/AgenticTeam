@@ -1,5 +1,6 @@
 """Tests for the skill-integration bridge scripts (Phase 6 of the integration plan)."""
 
+import helpers  # noqa: F401  (isolates AGENTIC_TEAM_HOME)
 import json
 import sys
 import tempfile
