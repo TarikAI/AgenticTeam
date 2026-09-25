@@ -38,7 +38,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for harness in claude-code codex opencode antigravity gemini-cli pi generic; do
+          for harness in claude-code codex opencode antigravity gemini-cli pi generic copilot cursor factory kiro qwen-code junie; do
             target="$(mktemp -d)/proj"
             bash scripts/install.sh --target "$target" --harness "$harness" --preset platform-core
             test -d "$target/.agentic-team" || { echo "no bus for $harness" >&2; exit 1; }

@@ -48,7 +48,7 @@
         "file": {"type": "string", "pattern": "^agents/.+\\.md$"},
         "department": {"type": "string", "minLength": 1},
         "tier": {"enum": ["deep", "standard", "fast"]},
-        "access": {"enum": ["read-only", "workspace-write", "orchestrate"]},
+        "access": {"enum": ["read-only", "research", "review", "workspace-write", "orchestrate"]},
         "reports_to": {"type": "string", "minLength": 1},
         "capabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
         "activate_when": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},

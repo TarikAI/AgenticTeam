@@ -9,13 +9,14 @@
     "autonomy": "hitl",
     "entry_mode": "idea",
     "context_method": "adaptive",
-    "context_target_tokens": {"min": 2000, "max": 8000}
+    "context_target_tokens": {"min": 2000, "max": 8000},
+    "model_profile": "balanced"
   },
   "agents": [
-    {"id":"ceo","file":"agents/leadership/ceo.md","department":"leadership","tier":"deep","access":"orchestrate","reports_to":"human-owner","capabilities":["intake","routing","gates","arbitration","reporting"]},
+    {"id":"ceo","file":"agents/leadership/ceo.md","department":"leadership","tier":"deep","access":"orchestrate","reports_to":"human-owner","capabilities":["intake","routing","gates","arbitration","reporting"],"preload_skills":["agentic-build"]},
     {"id":"cto-architect","file":"agents/leadership/cto-architect.md","department":"leadership","tier":"deep","access":"workspace-write","reports_to":"ceo","capabilities":["architecture","contracts","technology-selection"]},
     {"id":"product-manager","file":"agents/leadership/product-manager.md","department":"leadership","tier":"deep","access":"workspace-write","reports_to":"ceo","capabilities":["product-definition","requirements","scope"]},
-    {"id":"delivery-lead","file":"agents/leadership/delivery-lead.md","department":"leadership","tier":"deep","access":"orchestrate","reports_to":"ceo","capabilities":["task-graph","dispatch","integration","retrospective"]},
+    {"id":"delivery-lead","file":"agents/leadership/delivery-lead.md","department":"leadership","tier":"deep","access":"orchestrate","reports_to":"ceo","capabilities":["task-graph","dispatch","integration","retrospective"],"preload_skills":["agentic-build"]},
 
     {"id":"backend-lead","file":"agents/engineering/backend-lead.md","department":"engineering","tier":"standard","access":"workspace-write","reports_to":"delivery-lead","capabilities":["backend","review","contracts"]},
     {"id":"backend-engineer","file":"agents/engineering/backend-engineer.md","department":"engineering","tier":"standard","access":"workspace-write","reports_to":"backend-lead","capabilities":["backend","api","services"]},
@@ -24,10 +25,10 @@
     {"id":"fullstack-engineer","file":"agents/engineering/fullstack-engineer.md","department":"engineering","tier":"standard","access":"workspace-write","reports_to":"delivery-lead","capabilities":["fullstack","vertical-slice","prototype"]},
     {"id":"database-engineer","file":"agents/engineering/database-engineer.md","department":"engineering","tier":"standard","access":"workspace-write","reports_to":"backend-lead","capabilities":["database","schema","migrations"]},
     {"id":"devops-engineer","file":"agents/engineering/devops-engineer.md","department":"engineering","tier":"standard","access":"workspace-write","reports_to":"delivery-lead","capabilities":["ci","infrastructure","deployment"]},
-    {"id":"security-engineer","file":"agents/engineering/security-engineer.md","department":"engineering","tier":"deep","access":"read-only","reports_to":"delivery-lead","capabilities":["threat-model","security-review","abuse-cases"]},
-    {"id":"qa-lead","file":"agents/engineering/qa-lead.md","department":"engineering","tier":"deep","access":"read-only","reports_to":"delivery-lead","capabilities":["test-strategy","acceptance","release-gate"]},
+    {"id":"security-engineer","file":"agents/engineering/security-engineer.md","department":"engineering","tier":"deep","access":"review","reports_to":"delivery-lead","capabilities":["threat-model","security-review","abuse-cases"]},
+    {"id":"qa-lead","file":"agents/engineering/qa-lead.md","department":"engineering","tier":"deep","access":"review","reports_to":"delivery-lead","capabilities":["test-strategy","acceptance","release-gate"],"preload_skills":["agentic-verify"]},
     {"id":"test-engineer","file":"agents/engineering/test-engineer.md","department":"engineering","tier":"standard","access":"workspace-write","reports_to":"qa-lead","capabilities":["test-automation","regression","e2e"]},
-    {"id":"code-reviewer","file":"agents/engineering/code-reviewer.md","department":"engineering","tier":"deep","access":"read-only","reports_to":"delivery-lead","capabilities":["code-review","correctness","maintainability"]},
+    {"id":"code-reviewer","file":"agents/engineering/code-reviewer.md","department":"engineering","tier":"deep","access":"review","reports_to":"delivery-lead","capabilities":["code-review","correctness","maintainability"]},
     {"id":"integration-engineer","file":"agents/engineering/integration-engineer.md","department":"engineering","tier":"standard","access":"workspace-write","reports_to":"backend-lead","capabilities":["integrations","webhooks","payments"]},
     {"id":"ai-ml-engineer","file":"agents/engineering/ai-ml-engineer.md","department":"engineering","tier":"standard","access":"workspace-write","reports_to":"backend-lead","capabilities":["ai","ml","evals","rag"]},
     {"id":"data-engineer","file":"agents/engineering/data-engineer.md","department":"engineering","tier":"standard","access":"workspace-write","reports_to":"backend-lead","capabilities":["data-pipeline","etl","warehouse","data-quality"]},
@@ -38,24 +39,24 @@
     {"id":"platform-admin-engineer","file":"agents/specialists/platform-admin-engineer.md","department":"specialists","tier":"standard","access":"workspace-write","reports_to":"delivery-lead","capabilities":["admin-console","backoffice","operations"],"activate_when":["admin-console","back-office","ops-console","internal-tools"]},
     {"id":"trust-and-safety-specialist","file":"agents/specialists/trust-and-safety-specialist.md","department":"specialists","tier":"standard","access":"workspace-write","reports_to":"product-manager","capabilities":["content-policy","moderation-workflows","appeals","abuse-response"],"activate_when":["user-generated-content","moderation","content-policy","trust-and-safety","comments","uploads","report-abuse"]},
     {"id":"fraud-risk-analyst","file":"agents/specialists/fraud-risk-analyst.md","department":"specialists","tier":"deep","access":"read-only","reports_to":"delivery-lead","capabilities":["fraud-detection","risk-rules","chargebacks","velocity-limits"],"activate_when":["payments","marketplace","fraud","chargebacks","financial-risk","checkout","refunds","payouts"]},
-    {"id":"eval-engineer","file":"agents/specialists/eval-engineer.md","department":"specialists","tier":"standard","access":"workspace-write","reports_to":"backend-lead","capabilities":["evals","golden-sets","model-regression","llm-quality"],"activate_when":["ai-features","llm","retrieval-augmented","evals","model-behavior","chatbot","embeddings","llm-feature","prompt"]},
+    {"id":"eval-engineer","file":"agents/specialists/eval-engineer.md","department":"specialists","tier":"deep","access":"workspace-write","reports_to":"backend-lead","capabilities":["evals","golden-sets","model-regression","llm-quality"],"activate_when":["ai-features","llm","retrieval-augmented","evals","model-behavior","chatbot","embeddings","llm-feature","prompt"]},
     {"id":"sre-engineer","file":"agents/specialists/sre-engineer.md","department":"specialists","tier":"deep","access":"workspace-write","reports_to":"delivery-lead","capabilities":["reliability","incidents","slo","backup"],"activate_when":["uptime","slo","sla","on-call","availability-target","incident-response"]},
-    {"id":"performance-engineer","file":"agents/specialists/performance-engineer.md","department":"specialists","tier":"deep","access":"read-only","reports_to":"delivery-lead","capabilities":["profiling","load-test","performance-budget"],"activate_when":["scale","latency","high-traffic","p95","throughput","load-test"]},
-    {"id":"accessibility-specialist","file":"agents/specialists/accessibility-specialist.md","department":"specialists","tier":"deep","access":"read-only","reports_to":"qa-lead","capabilities":["accessibility","wcag","assistive-tech"],"activate_when":["user-interface","public-sector","accessibility","wcag","web-ui","forms","dashboard"]},
-    {"id":"privacy-engineer","file":"agents/specialists/privacy-engineer.md","department":"specialists","tier":"deep","access":"read-only","reports_to":"delivery-lead","capabilities":["privacy","data-minimization","retention"],"activate_when":["pii","personal-data","health-data","financial-data","child-data","minors","gdpr"]},
-    {"id":"release-manager","file":"agents/specialists/release-manager.md","department":"specialists","tier":"standard","access":"orchestrate","reports_to":"delivery-lead","capabilities":["release","rollback","change-management"],"activate_when":["production-release","multi-service"]},
+    {"id":"performance-engineer","file":"agents/specialists/performance-engineer.md","department":"specialists","tier":"deep","access":"review","reports_to":"delivery-lead","capabilities":["profiling","load-test","performance-budget"],"activate_when":["scale","latency","high-traffic","p95","throughput","load-test"]},
+    {"id":"accessibility-specialist","file":"agents/specialists/accessibility-specialist.md","department":"specialists","tier":"deep","access":"review","reports_to":"qa-lead","capabilities":["accessibility","wcag","assistive-tech"],"activate_when":["user-interface","public-sector","accessibility","wcag","web-ui","forms","dashboard"]},
+    {"id":"privacy-engineer","file":"agents/specialists/privacy-engineer.md","department":"specialists","tier":"deep","access":"review","reports_to":"delivery-lead","capabilities":["privacy","data-minimization","retention"],"activate_when":["pii","personal-data","health-data","financial-data","child-data","minors","gdpr"]},
+    {"id":"release-manager","file":"agents/specialists/release-manager.md","department":"specialists","tier":"deep","access":"workspace-write","reports_to":"delivery-lead","capabilities":["release","rollback","change-management"],"activate_when":["production-release","multi-service"]},
     {"id":"analytics-engineer","file":"agents/specialists/analytics-engineer.md","department":"specialists","tier":"standard","access":"workspace-write","reports_to":"delivery-lead","capabilities":["product-analytics","events","metrics","experiments"],"activate_when":["analytics","experiments","event-tracking","a-b-test"]},
     {"id":"finops-engineer","file":"agents/specialists/finops-engineer.md","department":"specialists","tier":"standard","access":"read-only","reports_to":"delivery-lead","capabilities":["cost-model","cloud-cost","unit-economics"],"activate_when":["cloud-cost","high-volume","cost-ceiling","budget-cap"]},
     {"id":"localization-specialist","file":"agents/specialists/localization-specialist.md","department":"specialists","tier":"standard","access":"workspace-write","reports_to":"product-manager","capabilities":["i18n","l10n","rtl","locale-testing"],"activate_when":["multilingual","international","right-to-left","i18n","l10n","locale"]},
     {"id":"compliance-advisor","file":"agents/specialists/compliance-advisor.md","department":"specialists","tier":"deep","access":"read-only","reports_to":"ceo","capabilities":["compliance","evidence","policy-mapping"],"activate_when":["regulated","gdpr","hipaa","pci","soc2"],"limitations":"Advisory only; not a substitute for qualified legal counsel."},
-    {"id":"context-engineer","file":"agents/specialists/context-engineer.md","department":"specialists","tier":"deep","access":"workspace-write","reports_to":"delivery-lead","capabilities":["progressive-context","context-packs","prompt-architecture"],"activate_when":["bmad","progressive-context","large-project"]},
-    {"id":"system-mapper","file":"agents/specialists/system-mapper.md","department":"specialists","tier":"deep","access":"read-only","reports_to":"cto-architect","capabilities":["system-map","blast-radius","brownfield"],"activate_when":["existing-codebase","brownfield","legacy-migration","large-refactor"]},
-    {"id":"fusion-moderator","file":"agents/specialists/fusion-moderator.md","department":"specialists","tier":"deep","access":"orchestrate","reports_to":"ceo","capabilities":["fusion","debate","synthesis","dissent"],"activate_when":["fusion-mode","council-mode","debate"]},
+    {"id":"context-engineer","file":"agents/specialists/context-engineer.md","department":"specialists","tier":"deep","access":"workspace-write","reports_to":"delivery-lead","capabilities":["progressive-context","context-packs","prompt-architecture"],"activate_when":["bmad","progressive-context","large-project"],"preload_skills":["bmad-progressive"]},
+    {"id":"system-mapper","file":"agents/specialists/system-mapper.md","department":"specialists","tier":"deep","access":"review","reports_to":"cto-architect","capabilities":["system-map","blast-radius","brownfield"],"activate_when":["existing-codebase","brownfield","legacy-migration","large-refactor"]},
+    {"id":"fusion-moderator","file":"agents/specialists/fusion-moderator.md","department":"specialists","tier":"deep","access":"orchestrate","reports_to":"ceo","capabilities":["fusion","debate","synthesis","dissent"],"activate_when":["fusion-mode","council-mode","debate"],"preload_skills":["fusion-council"]},
     {"id":"customer-success-strategist","file":"agents/specialists/customer-success-strategist.md","department":"specialists","tier":"standard","access":"workspace-write","reports_to":"product-manager","capabilities":["onboarding","support","retention","service-design"],"activate_when":["customer-support","customer-onboarding","support-desk","churn"]},
 
-    {"id":"tech-writer","file":"agents/support/tech-writer.md","department":"support","tier":"fast","access":"workspace-write","reports_to":"delivery-lead","capabilities":["documentation","runbook","tutorial"]},
-    {"id":"research-agent","file":"agents/support/research-agent.md","department":"support","tier":"standard","access":"read-only","reports_to":"delivery-lead","capabilities":["research","sources","current-standards"]},
-    {"id":"skill-scout","file":"agents/support/skill-scout.md","department":"support","tier":"fast","access":"read-only","reports_to":"delivery-lead","capabilities":["skill-discovery","capability-audit","supply-chain"]},
+    {"id":"tech-writer","file":"agents/support/tech-writer.md","department":"support","tier":"standard","access":"workspace-write","reports_to":"delivery-lead","capabilities":["documentation","runbook","tutorial"]},
+    {"id":"research-agent","file":"agents/support/research-agent.md","department":"support","tier":"standard","access":"research","reports_to":"delivery-lead","capabilities":["research","sources","current-standards"]},
+    {"id":"skill-scout","file":"agents/support/skill-scout.md","department":"support","tier":"standard","access":"research","reports_to":"delivery-lead","capabilities":["skill-discovery","capability-audit","supply-chain"]},
 
     {"id":"cmo","file":"agents/marketing/cmo.md","department":"marketing","tier":"deep","access":"orchestrate","reports_to":"ceo","capabilities":["gtm","campaigns","marketing-routing"]},
     {"id":"brand-strategist","file":"agents/marketing/brand-strategist.md","department":"marketing","tier":"standard","access":"workspace-write","reports_to":"cmo","capabilities":["brand","positioning","voice"]},
@@ -65,7 +66,7 @@
     {"id":"ugc-creative","file":"agents/marketing/ugc-creative.md","department":"marketing","tier":"fast","access":"workspace-write","reports_to":"cmo","capabilities":["ugc","creative","scripts"]},
     {"id":"social-media-manager","file":"agents/marketing/social-media-manager.md","department":"marketing","tier":"fast","access":"workspace-write","reports_to":"cmo","capabilities":["social","community","calendar"]},
     {"id":"email-marketing-specialist","file":"agents/marketing/email-marketing-specialist.md","department":"marketing","tier":"fast","access":"workspace-write","reports_to":"cmo","capabilities":["email","lifecycle","deliverability"]},
-    {"id":"growth-analyst","file":"agents/marketing/growth-analyst.md","department":"marketing","tier":"standard","access":"read-only","reports_to":"cmo","capabilities":["growth","attribution","experiments"]}
+    {"id":"growth-analyst","file":"agents/marketing/growth-analyst.md","department":"marketing","tier":"standard","access":"review","reports_to":"cmo","capabilities":["growth","attribution","experiments"]}
   ],
   "presets": {
     "full-company": {"description":"Every available role; specialists activate conditionally.","agents":"all"},
@@ -85,13 +86,34 @@
     "verify":{"skill":"skills/agentic-verify"},
     "learn":{"skill":"skills/agentic-learn"}
   },
+  "model_profiles": {
+    "inherit": {},
+    "balanced": {
+      "claude-code": {"deep": {"model": "inherit", "effort": "high"}, "standard": {"model": "sonnet"}, "fast": {"model": "haiku"}},
+      "codex": {"deep": {"model_reasoning_effort": "high"}, "standard": {"model_reasoning_effort": "medium"}, "fast": {"model_reasoning_effort": "low"}}
+    },
+    "max-quality": {
+      "claude-code": {"deep": {"model": "opus", "effort": "high"}, "standard": {"model": "opus"}, "fast": {"model": "sonnet"}},
+      "codex": {"deep": {"model_reasoning_effort": "xhigh"}, "standard": {"model_reasoning_effort": "high"}, "fast": {"model_reasoning_effort": "medium"}}
+    },
+    "economy": {
+      "claude-code": {"deep": {"model": "sonnet"}, "standard": {"model": "haiku"}, "fast": {"model": "haiku"}},
+      "codex": {"deep": {"model_reasoning_effort": "medium"}, "standard": {"model_reasoning_effort": "low"}, "fast": {"model_reasoning_effort": "low"}}
+    }
+  },
   "harnesses": {
-    "claude-code":{"agent_dir":".claude/agents","skill_dir":".claude/skills","native_subagents":true},
-    "codex":{"agent_dir":".codex/agents","skill_dir":".agents/skills","native_subagents":true},
-    "opencode":{"agent_dir":".opencode/agents","skill_dir":".agents/skills","native_subagents":true},
-    "antigravity":{"agent_dir":".agents/agents","skill_dir":".agents/skills","workflow_dir":".agents/workflows","rule_dir":".agents/rules","native_subagents":true},
-    "gemini-cli":{"agent_dir":".gemini/agents","skill_dir":".agents/skills","native_subagents":true},
-    "pi":{"context_file":"AGENTS.md","skill_dir":".pi/skills","prompt_dir":".pi/prompts","native_subagents":false},
-    "generic":{"agent_dir":".agentic-team/agents","skill_dir":".agents/skills","native_subagents":false}
+    "claude-code":{"agent_dir":".claude/agents","skill_dir":".claude/skills","native_subagents":true,"docs":"https://code.claude.com/docs/en/sub-agents","verified":"2026-09-25"},
+    "codex":{"agent_dir":".codex/agents","skill_dir":".agents/skills","native_subagents":true,"docs":"https://learn.chatgpt.com/docs/agent-configuration/subagents","verified":"2026-09-25"},
+    "opencode":{"agent_dir":".opencode/agents","skill_dir":".agents/skills","native_subagents":true,"docs":"https://opencode.ai/docs/agents","verified":"2026-09-25"},
+    "antigravity":{"agent_dir":".agents/agents","skill_dir":".agents/skills","rule_dir":".agents/rules","native_subagents":true,"docs":"https://antigravity.google/docs/subagents","verified":"2026-09-25"},
+    "gemini-cli":{"agent_dir":".gemini/agents","skill_dir":".agents/skills","native_subagents":true,"docs":"https://github.com/google-gemini/gemini-cli/blob/main/docs/core/subagents.md","verified":"2026-09-25"},
+    "pi":{"context_file":"AGENTS.md","skill_dir":".pi/skills","prompt_dir":".pi/prompts","native_subagents":false,"docs":"https://github.com/earendil-works/pi","verified":"2026-09-25"},
+    "generic":{"agent_dir":".agentic-team/agents","skill_dir":".agents/skills","native_subagents":false,"docs":"https://agents.md","verified":"2026-09-25"},
+    "copilot":{"agent_dir":".github/agents","skill_dir":".agents/skills","native_subagents":true,"docs":"https://docs.github.com/en/copilot/reference/custom-agents-configuration","verified":"2026-09-25"},
+    "cursor":{"agent_dir":".cursor/agents","skill_dir":".agents/skills","native_subagents":true,"docs":"https://cursor.com/docs/subagents","verified":"2026-09-25"},
+    "factory":{"agent_dir":".factory/droids","skill_dir":".agents/skills","native_subagents":true,"docs":"https://docs.factory.ai/harness/subagents","verified":"2026-09-25"},
+    "kiro":{"agent_dir":".kiro/agents","skill_dir":".kiro/skills","native_subagents":true,"docs":"https://kiro.dev/docs/custom-agents/","verified":"2026-09-25"},
+    "qwen-code":{"agent_dir":".qwen/agents","skill_dir":".qwen/skills","native_subagents":true,"docs":"https://qwenlm.github.io/qwen-code-docs/en/users/features/sub-agents/","verified":"2026-09-25"},
+    "junie":{"agent_dir":".junie/agents","skill_dir":".junie/skills","native_subagents":true,"docs":"https://junie.jetbrains.com/docs/junie-cli-subagents.html","verified":"2026-09-25"}
   }
 }

@@ -333,85 +333,158 @@
       "regex": "\\bgit push\\b[^\\n]*(--force|\\s-f\\b|--force-with-lease)",
       "risk": "R4",
       "action": "data-destructive",
-      "reason": "force push rewrites shared history"
+      "reason": "force push rewrites shared history",
+      "globs": [
+        "git push --force*",
+        "git push * --force*",
+        "git push -f*",
+        "git push * -f*"
+      ]
     },
     {
       "regex": "\\bgit push\\b[^\\n]*\\b(main|master)\\b",
       "risk": "R3",
       "action": "publish",
-      "reason": "push to the default branch"
+      "reason": "push to the default branch",
+      "globs": [
+        "git push * main*",
+        "git push * master*"
+      ]
     },
     {
       "regex": "\\b(npm|pnpm|yarn) publish\\b|\\b(twine upload|poetry publish|cargo publish)\\b",
       "risk": "R3",
       "action": "publish",
-      "reason": "package publish"
+      "reason": "package publish",
+      "globs": [
+        "npm publish*",
+        "pnpm publish*",
+        "yarn publish*",
+        "twine upload*",
+        "poetry publish*",
+        "cargo publish*"
+      ]
     },
     {
       "regex": "\\bvercel\\b[^\\n]*--prod\\b|\\bnetlify deploy\\b[^\\n]*--prod\\b|\\bfly(ctl)? deploy\\b|\\bheroku\\b[^\\n]*\\b(deploy|releases)\\b",
       "risk": "R3",
       "action": "deploy",
-      "reason": "production deploy"
+      "reason": "production deploy",
+      "globs": [
+        "vercel *--prod*",
+        "npx vercel *--prod*",
+        "netlify deploy *--prod*",
+        "fly deploy*",
+        "flyctl deploy*"
+      ]
     },
     {
       "regex": "\\bterraform (apply|import)\\b|\\bpulumi up\\b|\\bcdk deploy\\b",
       "risk": "R3",
       "action": "infra-change",
-      "reason": "infrastructure apply"
+      "reason": "infrastructure apply",
+      "globs": [
+        "terraform apply*",
+        "terraform import*",
+        "pulumi up*",
+        "cdk deploy*"
+      ]
     },
     {
       "regex": "\\bterraform destroy\\b|\\bpulumi destroy\\b",
       "risk": "R4",
       "action": "data-destructive",
-      "reason": "infrastructure destroy"
+      "reason": "infrastructure destroy",
+      "globs": [
+        "terraform destroy*",
+        "pulumi destroy*"
+      ]
     },
     {
       "regex": "\\bkubectl (apply|delete|rollout|scale|patch)\\b|\\bhelm (install|upgrade|uninstall|rollback)\\b",
       "risk": "R3",
       "action": "deploy",
-      "reason": "cluster change"
+      "reason": "cluster change",
+      "globs": [
+        "kubectl apply*",
+        "kubectl delete*",
+        "kubectl rollout*",
+        "kubectl scale*",
+        "kubectl patch*",
+        "helm install*",
+        "helm upgrade*",
+        "helm uninstall*",
+        "helm rollback*"
+      ]
     },
     {
       "regex": "\\bdocker push\\b",
       "risk": "R3",
       "action": "publish",
-      "reason": "image publish"
+      "reason": "image publish",
+      "globs": [
+        "docker push*"
+      ]
     },
     {
       "regex": "\\bgh release create\\b|\\bgh pr merge\\b",
       "risk": "R3",
       "action": "publish",
-      "reason": "release or merge on the remote"
+      "reason": "release or merge on the remote",
+      "globs": [
+        "gh release create*",
+        "gh pr merge*"
+      ]
     },
     {
       "regex": "\\b(aws|gcloud|az)\\b[^\\n]*\\b(delete|remove|destroy|terminate)\\b",
       "risk": "R4",
       "action": "data-destructive",
-      "reason": "cloud resource deletion"
+      "reason": "cloud resource deletion",
+      "globs": [
+        "aws * delete*",
+        "gcloud * delete*",
+        "az * delete*"
+      ]
     },
     {
       "regex": "\\bdrop (table|database|schema)\\b|\\btruncate table\\b",
       "risk": "R4",
       "action": "data-destructive",
-      "reason": "destructive SQL"
+      "reason": "destructive SQL",
+      "globs": []
     },
     {
       "regex": "\\bnpm (install|i) (-g|--global)\\b|\\bsudo\\b|\\b(winget|choco|brew) install\\b",
       "risk": "R4",
       "action": "system-change",
-      "reason": "system-wide install"
+      "reason": "system-wide install",
+      "globs": [
+        "npm install -g*",
+        "npm i -g*",
+        "npm install --global*",
+        "sudo *",
+        "winget install*",
+        "choco install*",
+        "brew install*"
+      ]
     },
     {
       "regex": "\\bstripe\\b[^\\n]*--live\\b|\\bsk_live_",
       "risk": "R4",
       "action": "credential",
-      "reason": "live payment credentials"
+      "reason": "live payment credentials",
+      "globs": []
     },
     {
       "regex": "curl[^\\n|]*\\|\\s*(sh|bash)\\b",
       "risk": "R4",
       "action": "system-change",
-      "reason": "pipe remote script to a shell"
+      "reason": "pipe remote script to a shell",
+      "globs": [
+        "curl * | sh*",
+        "curl * | bash*"
+      ]
     }
   ],
   "absolute_human_gates": [

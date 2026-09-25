@@ -1,69 +1,120 @@
 # Harness-native installation
 
 The compiler keeps source roles portable and emits each harness's native representation. Every
-installation also receives the same `.agentic-team/` coordination bus and workflow skills.
+installation also receives the same `.agentic-team/` coordination bus (state CLI, protocols,
+templates, policy) and the workflow skills.
 
-| Harness | Generated roles | Skills | Router/integration |
-|---|---|---|---|
-| Claude Code | `.claude/agents/*.md` | `.claude/skills/*` | managed block in `CLAUDE.md` |
-| Codex | `.codex/agents/*.toml` | `.agents/skills/*` | compact managed block in `AGENTS.md` |
-| OpenCode | `.opencode/agents/*.md` | `.agents/skills/*` | permissions/mode frontmatter + `AGENTS.md` |
-| Antigravity | `.agents/agents/*.md` (`mainAgent: true` only for lead roles) | `.agents/skills/*` (commands ship as skills: `agentic-execute-plan`, `agentic-resume`) | `trigger: always_on` rule in `.agents/rules`, managed block in `AGENTS.md`. Workflows are not emitted: Antigravity retires `.agents/workflows` on 2026-11-01. |
-| Gemini CLI | `.gemini/agents/*.md` | `.agents/skills/*` | managed block in `GEMINI.md` |
-| Pi | `.agentic-team/agents/*.md` | `.pi/skills/*` | root `AGENTS.md` + `.pi/prompts` |
-| Generic | `.agentic-team/agents/*.md` | `.agents/skills/*` | portable role contracts + managed block in `AGENTS.md` |
+## Targets
 
-The compiler marks read-only roles using each harness's own mechanism where one exists:
-a `tools` allowlist for Claude Code, `sandbox_mode = "read-only"` for Codex, and
-`permission.edit: deny` for OpenCode. Antigravity and Gemini CLI do not have a tool vocabulary
-this project pins, so read-only roles additionally carry an explicit `ACCESS CONSTRAINT`
-paragraph in the compiled prompt, which every harness understands. Protocol references are
-rewritten to their installed `.agentic-team/protocols/...` paths at compile time.
+Formats were verified against each vendor's documentation on **2026-09-25** (`team.json` →
+`harnesses.<id>.docs` and `.verified`). Re-verify before changing an emitter; do not emit a
+field you cannot confirm from a primary source.
 
-The compiler replaces the per-role standing-orders block with a pointer to
-`.agentic-team/protocols/agent-contract.md`, which carries the task envelope, evidence rules,
-hard human gates, and the per-role playbook loop.
+| Harness (`--harness`) | Generated roles | Skills | Router / integration | Enforcement emitted |
+|---|---|---|---|---|
+| `claude-code` | `.claude/agents/*.md` | `.claude/skills/*` | `CLAUDE.md` block importing `@.agentic-team/AGENTS.md` | `.claude/settings.json`: deny rules + `PreToolUse` guard hook; per-role `tools`, subagent-scoped review hooks |
+| `codex` | `.codex/agents/*.toml` | `.agents/skills/*` | `AGENTS.md` block (router inlined) | `.codex/hooks.json` guard (loads only in a trusted project after `/hooks` review); `sandbox_mode` per access |
+| `opencode` | `.opencode/agents/*.md` | `.agents/skills/*` | `AGENTS.md` block | `permission` maps: `bash` patterns from policy command rules, `edit`, `webfetch`, `websearch`, `task` |
+| `antigravity` | `.agents/agents/*.md` (`mainAgent: true` only for lead roles) | `.agents/skills/*` (plus `agentic-execute-plan`, `agentic-resume` as commands) | `.agents/rules/agentic-team.md` (`trigger: always_on`), `AGENTS.md` block | text only (no reliable per-agent switch). Workflows are not emitted: Antigravity retires `.agents/workflows` on 2026-11-01 |
+| `gemini-cli` | `.gemini/agents/*.md` (strict schema: only allowed keys) | `.agents/skills/*` | `GEMINI.md` block | `tools` allowlists per access |
+| `pi` | `.agentic-team/agents/*.md` | `.pi/skills/*` | `AGENTS.md` block, `.pi/prompts/*.md` with `description` | text only |
+| `generic` | `.agentic-team/agents/*.md` | `.agents/skills/*` | `AGENTS.md` block | text only |
+| `copilot` | `.github/agents/*.agent.md` | `.agents/skills/*` | `AGENTS.md` block | `tools: ["read", "search"]` for read-only/research |
+| `cursor` | `.cursor/agents/*.md` | `.agents/skills/*` | `AGENTS.md` block | `readonly: true` for read-only/research; warns above 15 roles |
+| `factory` | `.factory/droids/*.md` | `.agents/skills/*` | `AGENTS.md` block | `tools: read-only` for read-only/research |
+| `kiro` | `.kiro/agents/*.json` (+ `prompts/*.md`) | `.kiro/skills/*` (Kiro does not read `.agents/skills`) | `.kiro/steering/agentic-team.md` (`inclusion: always`), `AGENTS.md` block | `tools: ["read"]` for read-only/research |
+| `qwen-code` | `.qwen/agents/*.md` (Qwen tool names) | `.qwen/skills/*` | `AGENTS.md` block | `tools` allowlists for read-only/research |
+| `junie` | `.junie/agents/*.md` | `.junie/skills/*` | `AGENTS.md` block | `tools` allowlists for read-only/research/review |
 
-## A harness that is not on this list
+Collisions to know about: `.claude/agents/` is also read by Cursor (which ignores `tools`, so a
+read-only role loses its restriction there) and GitHub Copilot; `.agents/agents/` is also read by
+Devin Desktop (formerly Windsurf). Roo Code has shut down; Windsurf is now Devin Desktop and needs
+only `--harness generic`.
 
-`team.json` defines exactly seven targets. Anything else - zcode, Cursor, Windsurf, an
-in-house runner, or a harness released after this version - is **not** a recognised
-`--harness` value and the installer will reject it.
+## Access classes
 
-Use `--harness generic` for those. It writes portable role contracts to
-`.agentic-team/agents/*.md`, the coordination bus to `.agentic-team/`, skills to
-`.agents/skills/*`, and a managed router block into the project's root `AGENTS.md`, which is
-the closest thing to a cross-tool standard. Point the harness at `AGENTS.md`, load the role
-contract you want as a system prompt, and drive `.agentic-team/bin/agentic_team.py` for
-claims, evidence, and gates.
+| Access | Meaning | Claude Code tools |
+|---|---|---|
+| `read-only` | Inspect files; return findings in the final message. | `Read, Grep, Glob` |
+| `research` | read-only plus web search/fetch (fetched pages are untrusted data). | `+ WebSearch, WebFetch` |
+| `review` | Inspect, run commands, use the web; write only under `.agentic-team/runs/` and its own playbook. | `Read, Grep, Glob, Bash, Write, Edit, WebSearch, WebFetch` + a subagent hook that denies other writes |
+| `workspace-write` | Edit the project within owned paths. | `Read, Write, Edit, Grep, Glob, Bash, WebSearch, WebFetch` |
+| `orchestrate` | workspace-write plus delegation. | `+ Agent` (subagents may spawn subagents up to three levels deep) |
 
-If a harness has its own native agent format worth compiling to, add it to `team.json` and
-give it an emitter in `scripts/agentic_team.py`; the adapter tests will then hold it to that
-harness's real conventions.
+Every harness also receives the constraint as text in the compiled prompt (`ACCESS CONSTRAINT`),
+because not every harness can enforce it.
 
-## Install examples
+## Model profiles
+
+`install --model-profile` maps each role's `tier` (deep, standard, fast) to harness settings
+(`team.json` → `model_profiles`). Default `balanced`:
+
+| Profile | Claude Code deep / standard / fast | Codex `model_reasoning_effort` |
+|---|---|---|
+| `inherit` | inherit / inherit / inherit (v2 behaviour) | unset |
+| `balanced` | inherit + `effort: high` / `sonnet` / `haiku` | high / medium / low |
+| `max-quality` | `opus` + high / `opus` / `sonnet` | xhigh / high / medium |
+| `economy` | `sonnet` / `haiku` / `haiku` | medium / low / low |
+
+Other harnesses keep the session model unless a profile gives them a provider-qualified model id.
+
+## The guard hook
+
+`agentic_team.py guard` reads the harness's `PreToolUse` JSON on stdin and denies:
+
+- any read or write of `~/.agentic-team` (owner tokens, bound keys, the decision ledger);
+- writes to `.agentic-team/runs/**/state.json`, `events.jsonl`, and `_evidence/` (only the CLI
+  writes them), including shell redirections;
+- shell commands that match a policy command rule at R3/R4 (deploys, publishes, force pushes,
+  `terraform apply`, global installs, ...) unless a claimed task of that action has a
+  human-approved risk checkpoint;
+- for review roles, writes outside the run folder and the role's own playbook;
+- during a Fusion council's proposal phase, a contributor reading another contributor's proposal.
+
+It answers with the documented `hookSpecificOutput.permissionDecision: "deny"` JSON. `doctor`
+runs a self-test that feeds the guard a read of the owner-token folder and expects a denial.
+
+What this does and does not protect: see `protocols/harness-security.md`. Hooks and deny rules
+stop shortcuts and prompt-injected self-approval; they are not a sandbox. For unattended
+autonomous runs, use an OS sandbox (Claude Code's sandbox runs on macOS, Linux, and WSL2 — not
+native Windows), WSL2, a dev container, or a separate OS account.
+
+## Installing, reinstalling, removing
 
 ```powershell
 .\scripts\install.ps1 -Target C:\projects\app -Harness claude-code -Preset full-platform
 .\scripts\install.ps1 -Target C:\projects\app -Harness codex -Preset fusion-product-council
-.\scripts\install.ps1 -Target C:\projects\app -Harness antigravity -Preset regulated-platform
 ```
 
 ```bash
 ./scripts/install.sh --target ~/projects/app --harness opencode --preset full-platform
-./scripts/install.sh --target ~/projects/app --harness gemini-cli --preset audit
+python scripts/agentic_team.py install ~/projects/app --harness claude-code --preset platform-core --model-profile economy
+python scripts/agentic_team.py uninstall ~/projects/app
 ```
 
-Reinstalling updates managed roles, protocols, templates, and skills. Existing root instructions
-outside the marked block remain untouched. Project `knowledge/` remains project-owned and is not
-overwritten.
+- Reinstalling updates managed roles, protocols, templates, and skills. Text outside the managed
+  block in `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` stays untouched, and so do settings entries the
+  installer did not write (it records what it owns in `install-manifest.json`).
+- A generated file you edited locally is never silently overwritten: reinstall stops and names
+  it; `--force` backs it up under `.agentic-team/backup/` first.
+- `uninstall` removes generated files, managed blocks, installed skills, and the installer's
+  settings entries; it keeps `knowledge/` and `runs/` unless `--purge`.
+- A project-owned `.agentic-team/config/policies.local.json` may tighten the policy (more pauses,
+  lower caps, human gates, extra command rules); it can never loosen it.
+
+## A harness that is not on this list
+
+Use `--harness generic`. It writes portable role contracts to `.agentic-team/agents/*.md`, the
+bus to `.agentic-team/`, skills to `.agents/skills/*`, and the router inline into `AGENTS.md`,
+the closest thing to a cross-tool standard. To add a native target, add it to `team.json` with
+its `docs` and `verified` fields and give it an emitter in `scripts/agentic_team.py`; literal-path
+adapter tests and golden snapshots then hold it to that harness's real conventions.
 
 ## Provider differences
 
 Native subagent support, model selection, concurrency, worktrees, permission prompts, and skill
 discovery differ between providers. AgenticTeam compiles definitions and enforces durable state;
-it does not claim that providers share one scheduling API. When native parallel delegation is not
-available, execute role contracts sequentially against the same task graph.
-
-Always keep the provider's own safety prompts enabled. AgenticTeam's autonomy profile narrows when
-the team asks the human; it cannot and should not weaken harness security boundaries.
+it does not claim that providers share one scheduling API. When native parallel delegation is
+not available, execute role contracts sequentially against the same task graph. Always keep the
+provider's own safety prompts enabled: the autonomy profile narrows when the team asks the human;
+it cannot and should not weaken harness security boundaries.

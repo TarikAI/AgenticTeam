@@ -73,4 +73,4 @@ and human-facing summaries. Every summary ends with: current phase, % confidence
 plan, and the single next decision (if any) needed from the human.
 
 ## Shared operating contract
-Follow the installed project router and `.agentic-team/protocols/agent-contract.md`. Use the state CLI for claims and completion; obey the selected autonomy policy and hard human gates.
+Follow `.agentic-team/AGENTS.md` and `.agentic-team/protocols/agent-contract.md`. Use `.agentic-team/bin/agentic_team.py` to claim, run checks (`exec`), and complete with typed evidence; obey the autonomy policy and the hard human gates.

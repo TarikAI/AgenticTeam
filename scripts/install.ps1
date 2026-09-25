@@ -11,7 +11,7 @@ param(
   [string]$Preset = 'full-company',
   [string[]]$Agents,
   [string]$Target,
-  [ValidateSet('claude-code','codex','opencode','antigravity','gemini-cli','pi','generic')]
+  [ValidateSet('claude-code','codex','opencode','antigravity','gemini-cli','pi','generic','copilot','cursor','factory','kiro','qwen-code','junie')]
   [string]$Harness = 'claude-code',
   [switch]$List
 )
