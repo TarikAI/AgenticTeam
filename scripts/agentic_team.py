@@ -710,7 +710,69 @@ def load_state(run_dir: Path) -> dict[str, Any]:
 
 
 def append_event(state: dict[str, Any], event_type: str, **details: Any) -> None:
-    state.setdefault("events", []).append({"time": utcnow(), "type": event_type, **details})
+    """Queue an event; the next state write appends it to the run's hash-chained events.jsonl."""
+    state.setdefault("_new_events", []).append({"time": utcnow(), "type": event_type, **details})
+
+
+def events_path(run_dir: Path) -> Path:
+    return run_dir / "events.jsonl"
+
+
+def read_events(run_dir: Path) -> list[dict[str, Any]]:
+    path = events_path(run_dir)
+    events: list[dict[str, Any]] = []
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                events.append(json.loads(line))
+    legacy = load_json(run_dir / "state.json").get("events") if (run_dir / "state.json").is_file() else None
+    return (legacy or []) + events
+
+
+def flush_events(run_dir: Path, state: dict[str, Any]) -> None:
+    """Append queued events, each carrying the previous line's hash (tamper-evident history)."""
+    pending = state.pop("_new_events", [])
+    if not pending:
+        return
+    head = state.get("events_head", "0" * 64)
+    count = int(state.get("event_count", 0))
+    lines = []
+    for event in pending:
+        count += 1
+        record = {"seq": count, **event, "prev": head}
+        head = hashlib.sha256(canonical(record).encode("utf-8")).hexdigest()
+        lines.append(canonical(record))
+    with events_path(run_dir).open("a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+    state["events_head"] = head
+    state["event_count"] = count
+
+
+def write_state(run_dir: Path, state: dict[str, Any]) -> None:
+    flush_events(run_dir, state)
+    write_json_atomic(run_dir / "state.json", state)
+
+
+def verify_events(run_dir: Path, state: dict[str, Any] | None = None) -> list[str]:
+    state = state or load_state(run_dir)
+    problems = []
+    head = "0" * 64
+    count = 0
+    path = events_path(run_dir)
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    for number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        count += 1
+        if record.get("prev") != head:
+            problems.append(f"event line {number} does not chain to the previous event (edited or removed history)")
+        head = hashlib.sha256(canonical(record).encode("utf-8")).hexdigest()
+    if state.get("events_head") and state.get("events_head") != head:
+        problems.append("events.jsonl head does not match state (events were truncated or rewritten)")
+    if state.get("event_count") is not None and state.get("event_count") != count:
+        problems.append(f"state records {state.get('event_count')} events; events.jsonl has {count}")
+    return problems
 
 
 GATE_KEYS = {"01_product": "product_gate", "02_solution": "architecture_gate", "03_readiness": "readiness_gate", "06_release": "release_gate"}
@@ -838,12 +900,13 @@ def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_
         "active_specialists": {},
         "checkpoints": [],
         "fusion_sessions": [],
-        "events": [],
+        "event_count": 0,
+        "events_head": "0" * 64,
     }
     append_event(state, "run-created", stage=active_stage, autonomy=autonomy, entry_mode=entry_mode)
     token_path = issue_owner_token(home_key(state), state)
     bind_owner_key(home_key(state), state["owner_token_sha256"], name)
-    write_json_atomic(run_dir / "state.json", state)
+    write_state(run_dir, state)
     update_current(bus, state)
     print(f"Owner token written to {token_path}", file=sys.stderr)
     print(
@@ -875,7 +938,7 @@ def is_current_run(project: Path, run_dir: Path) -> bool:
 
 def save_state(project: Path, run_dir: Path, state: dict[str, Any]) -> None:
     state["updated_at"] = utcnow()
-    write_json_atomic(run_dir / "state.json", state)
+    write_state(run_dir, state)
     # Only the run CURRENT.md already points at is refreshed; touching an older run with
     # --run must never silently repoint the project (use switch-run for that).
     if is_current_run(project, run_dir):
@@ -917,7 +980,7 @@ def close_run(project: Path, run_dir: Path, reason: str) -> None:
         state["status"] = "closed"
         append_event(state, "run-closed", reason=reason)
         state["updated_at"] = utcnow()
-        write_json_atomic(run_dir / "state.json", state)
+        write_state(run_dir, state)
         if was_current:
             update_current(project_bus(project), None)
 
@@ -1047,6 +1110,7 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
             )
         if args.id in state["tasks"]:
             raise TeamError(f"Task already exists: {args.id}")
+        budget_check(project, state, "max_tasks", len(state["tasks"]) + 1)
         missing = [dep for dep in args.depends_on if dep not in state["tasks"]]
         if missing:
             raise TeamError(f"Unknown dependencies: {', '.join(missing)}")
@@ -1311,8 +1375,9 @@ MAX_LEASE_MINUTES = 480
 
 
 def renew_lease(project: Path, run_dir: Path, task_id: str, agent: str, lease_minutes: int) -> str:
-    if lease_minutes < 1 or lease_minutes > MAX_LEASE_MINUTES:
-        raise TeamError(f"--lease-minutes must be between 1 and {MAX_LEASE_MINUTES}")
+    maximum = int(load_policy(project).get("budgets", {}).get("max_lease_minutes", MAX_LEASE_MINUTES))
+    if lease_minutes < 1 or lease_minutes > maximum:
+        raise TeamError(f"--lease-minutes must be between 1 and {maximum}")
     with state_lock(run_dir):
         state = load_state(run_dir)
         task = state["tasks"].get(task_id)
@@ -1402,8 +1467,23 @@ def classify_evidence(project: Path, task: dict[str, Any], value: str) -> dict[s
     return {"type": kind, "value": body}
 
 
+def parse_usage(values: list[str]) -> dict[str, float]:
+    usage: dict[str, float] = {}
+    for value in values or []:
+        for part in value.split(","):
+            key, separator, amount = part.partition("=")
+            if not separator or key.strip() not in {"tokens", "usd"}:
+                raise TeamError(f"--usage takes tokens=N and/or usd=N, got '{part}'")
+            try:
+                usage[key.strip()] = usage.get(key.strip(), 0.0) + float(amount)
+            except ValueError as exc:
+                raise TeamError(f"--usage value is not a number: '{part}'") from exc
+    return usage
+
+
 def complete_task(
-    project: Path, run_dir: Path, task_id: str, agent: str, evidence: list[str], run_checks: bool = False
+    project: Path, run_dir: Path, task_id: str, agent: str, evidence: list[str], run_checks: bool = False,
+    usage: dict[str, float] | None = None,
 ) -> None:
     if run_checks:
         state = load_state(run_dir)
@@ -1442,6 +1522,12 @@ def complete_task(
                     "(prose alone is not evidence)"
                 )
         task.update(status="completed", completed_at=utcnow(), evidence=evidence, evidence_records=records)
+        if usage:
+            task["usage"] = usage
+            totals = state.setdefault("usage", {})
+            for key, amount in usage.items():
+                totals[key] = round(totals.get(key, 0.0) + amount, 6)
+                budget_check(project, state, key, totals[key])
         task.pop("lease_expires", None)
         refresh_ready(state)
         append_event(state, "task-completed", task=task_id, agent=agent, evidence=evidence)
@@ -1587,6 +1673,39 @@ def recover_leases(project: Path, run_dir: Path) -> int:
 CLI_ONLY_CHECKPOINTS = {"stage", "risk", "waiver"}
 AGENT_CHECKPOINTS = {"decision", "deviation", "injection", "budget"}
 CHECKPOINT_DETAILS = ("alternatives", "impact", "evidence", "rollback")
+
+
+def budget_check(project: Path, state: dict[str, Any], metric: str, used: float) -> None:
+    """Checkpoint at the warn threshold, stop at the limit (unless the human waived it)."""
+    budgets = load_policy(project).get("budgets", {})
+    limit = budgets.get(metric)
+    if not limit:
+        return
+    verified = verified_view(state)
+    if used > float(limit) and not verified.waiver(f"budget:{metric}"):
+        raise BlockedError(
+            f"Budget '{metric}' exhausted ({used:g}/{limit}). The human may raise it with "
+            f"`waive --requirement budget:{metric}`."
+        )
+    warn = float(budgets.get("warn_at", 0.8)) * float(limit)
+    if used >= warn and not any(
+        item.get("kind") == "budget" and item.get("budget") == metric for item in state["checkpoints"]
+    ):
+        checkpoint_id = f"CP-{len(state['checkpoints']) + 1:03d}"
+        state["checkpoints"].append(
+            {
+                "id": checkpoint_id,
+                "status": "pending",
+                "kind": "budget",
+                "budget": metric,
+                "stage": state["stage"],
+                "risk": "R2",
+                "question": f"Budget '{metric}' is at {used:g} of {limit}. Continue?",
+                "recommendation": "Approve to continue within the remaining budget, or reject to stop and re-plan.",
+                "created_at": utcnow(),
+            }
+        )
+        append_event(state, "checkpoint-created", checkpoint=checkpoint_id, kind="budget", budget=metric)
 
 
 def create_checkpoint(
@@ -1822,13 +1941,14 @@ def audit_verify(project: Path, run_dir: Path, token: str) -> list[str]:
     for task in state["tasks"].values():
         if task["status"] == "cancelled" and task["id"] not in view.cancelled:
             problems.append(f"state claims task {task['id']} cancelled, but the ledger has no signed cancellation")
+    problems.extend(verify_events(run_dir, state))
     return problems
 
 
 def waive_requirement(project: Path, run_dir: Path, requirement: str, reason: str, by: str, token: str | None, level: str | None = None) -> None:
     """Human waiver of one named requirement: `risk:<task>` (with --level) or `stage-exit:<stage>:<check>`."""
-    if not (requirement.startswith("risk:") or requirement.startswith("stage-exit:")):
-        raise TeamError("A waiver names 'risk:<task-id>' or 'stage-exit:<stage>:<check>'")
+    if not requirement.startswith(("risk:", "stage-exit:", "budget:")):
+        raise TeamError("A waiver names 'risk:<task-id>', 'stage-exit:<stage>:<check>', or 'budget:<metric>'")
     if requirement.startswith("risk:") and level not in RISK_ORDER:
         raise TeamError("A risk waiver needs --level R0..R4")
     with state_lock(run_dir):
@@ -1902,7 +2022,7 @@ def human_decision(project: Path, run_dir: Path, state: dict[str, Any], by: str,
     except TeamError as exc:
         append_event(state, "authority-refused", action=action, by=by, reason=str(exc))
         state["updated_at"] = utcnow()
-        write_json_atomic(run_dir / "state.json", state)
+        write_state(run_dir, state)
         raise
 
 
@@ -2333,6 +2453,218 @@ def assert_automatic_gate(state: dict[str, Any], stage: str, gate: str, project:
         raise TeamError(f"The {stage} gate is '{gate}': it needs {need} in this stage before exit")
 
 
+def next_tasks(project: Path, run_dir: Path, agent: str | None) -> list[dict[str, Any]]:
+    """Tasks the agent could claim right now: ready, current stage, owned, no conflict, under cap."""
+    state = load_state(run_dir)
+    refresh_ready(state)
+    if is_blocked(state):
+        return []
+    profile = profile_policy(project, state)
+    claimed = [task for task in state["tasks"].values() if task["status"] == "claimed"]
+    limit = int(profile.get("max_concurrent_agents", 0) or 0)
+    if limit and len(claimed) >= limit:
+        return []
+    found = []
+    for task in state["tasks"].values():
+        if task["status"] != "ready" or task["stage"] != state["stage"]:
+            continue
+        if agent and task["owner"] != agent:
+            continue
+        if any(claims_conflict(task, other) for other in claimed):
+            continue
+        found.append({"task": task["id"], "owner": task["owner"], "title": task["title"], "risk": task["risk"]})
+    return found
+
+
+def render_board(state: dict[str, Any], fmt: str) -> str:
+    tasks = list(state["tasks"].values())
+    if fmt == "json":
+        return json.dumps(
+            {stage: [{"id": t["id"], "status": t["status"], "owner": t["owner"]} for t in tasks if t["stage"] == stage] for stage in STAGE_NAMES},
+            indent=2,
+        )
+    if fmt == "mermaid":
+        lines = ["flowchart LR"]
+        for task in tasks:
+            label = f"{task['id']}<br/>{task['owner']}<br/>{task['status']}".replace('"', "'")
+            lines.append(f'    {slug(task["id"]).replace("-", "_")}["{label}"]')
+            for dependency in task.get("depends_on", []):
+                lines.append(f"    {slug(dependency).replace('-', '_')} --> {slug(task['id']).replace('-', '_')}")
+        return "\n".join(lines)
+    lines = [f"# Board — {state['run_id']} (stage {state['stage']}, {state['status']})", ""]
+    for stage in STAGE_NAMES:
+        stage_tasks = [task for task in tasks if task["stage"] == stage]
+        if not stage_tasks:
+            continue
+        lines.append(f"## {stage}")
+        lines.append("")
+        lines.append("| Task | Owner | Status | Risk | Depends on |")
+        lines.append("|---|---|---|---|---|")
+        for task in stage_tasks:
+            lines.append(f"| {task['id']} | {task['owner']} | {task['status']} | {task['risk']} | {', '.join(task.get('depends_on', [])) or '-'} |")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def estimate_tokens(text: str) -> int:
+    return max(1, len(text) // 4)
+
+
+def build_pack(project: Path, run_dir: Path, task_id: str) -> tuple[Path, int, list[str]]:
+    """Task context packet: everything an agent needs for one task, inside the token budget."""
+    state = load_state(run_dir)
+    task = state["tasks"].get(task_id)
+    if not task:
+        raise TeamError(f"Unknown task: {task_id}")
+    manifest = installed_manifest(project)
+    budget = manifest.get("defaults", {}).get("context_target_tokens", {"min": 2000, "max": 8000})
+    ceiling = int(budget.get("max", 8000))
+    bus = project_bus(project)
+    omissions: list[str] = []
+    cli = ".agentic-team/bin/agentic_team.py"
+    acceptance_lines = [f"- [ ] {item}" for item in task.get("acceptance", [])] or ["- [ ] Objective demonstrated"]
+    evidence_lines = [f"- {item}" for item in task.get("evidence_contract", [])] or ["- file:, cmd:, or commit: evidence"]
+    sections = [
+        f"# Task packet — {task['id']}: {task['title']}",
+        "",
+        f"- Run: `{state['run_id']}` · stage `{task['stage']}` · owner `{task['owner']}` · risk `{task['risk']}` "
+        f"({task.get('action', 'build')}/{task.get('target', 'local')})",
+        f"- Owned paths: {', '.join(task.get('owned_paths', [])) or ('whole workspace (exclusive)' if task.get('exclusive') else 'none')}",
+        f"- Depends on: {', '.join(task.get('depends_on', [])) or 'nothing'}",
+        "",
+        "## Objective",
+        "",
+        task.get("objective") or task["title"],
+        "",
+        "## Acceptance",
+        "",
+        *acceptance_lines,
+        *(["", "## Acceptance commands (must pass through exec)", ""] + [f"- `{check}`" for check in task.get("checks", [])] if task.get("checks") else []),
+        "",
+        "## Evidence contract",
+        "",
+        *evidence_lines,
+        "",
+        "## Commands",
+        "",
+        "```text",
+        f"python {cli} claim --task {task['id']} --agent {task['owner']}",
+        f"python {cli} exec --task {task['id']} --agent {task['owner']} -- <test command>",
+        f"python {cli} complete --task {task['id']} --agent {task['owner']} --evidence cmd:<exec-id>"
+        + (" --run-checks" if task.get("checks") else ""),
+        f"python {cli} fail --task {task['id']} --agent {task['owner']} --reason \"<what failed>\"",
+        "```",
+    ]
+    base = "\n".join(sections)
+    extras: list[tuple[str, str]] = []
+    context = run_dir / task["stage"] / "CONTEXT.md"
+    if context.is_file():
+        extras.append(("Stage contract", context.read_text(encoding="utf-8")))
+    playbook = bus / "knowledge" / "playbooks" / f"{task['owner']}.md"
+    if playbook.is_file():
+        extras.append((f"Playbook — {task['owner']}", playbook.read_text(encoding="utf-8")))
+    for item in task.get("inputs", []):
+        candidate = (project.resolve() / item.split("#", 1)[0].strip())
+        if candidate.is_file():
+            extras.append((f"Input — {item}", candidate.read_text(encoding="utf-8", errors="replace")))
+        else:
+            extras.append((f"Input — {item}", "(named input; not a file in the project)"))
+    body = base
+    for title, text in extras:
+        addition = f"\n\n## {title}\n\n{text.strip()}"
+        if estimate_tokens(body + addition) <= ceiling:
+            body += addition
+            continue
+        room = (ceiling - estimate_tokens(body)) * 4 - 200
+        if room > 400:
+            body += f"\n\n## {title} (truncated)\n\n{text.strip()[:room]}\n[... truncated to fit the {ceiling}-token budget ...]"
+            omissions.append(f"{title}: truncated")
+        else:
+            omissions.append(f"{title}: omitted (budget)")
+    if omissions:
+        body += "\n\n## Omitted\n\n" + "\n".join(f"- {item}" for item in omissions)
+    path = run_dir / "_context" / f"{slug(task['id'])}.md"
+    write_text(path, body)
+    return path, estimate_tokens(body), omissions
+
+
+def render_brief(project: Path, run_dir: Path, task_id: str) -> str:
+    """The delegation message an orchestrator hands a subagent."""
+    state = load_state(run_dir)
+    task = state["tasks"].get(task_id)
+    if not task:
+        raise TeamError(f"Unknown task: {task_id}")
+    pack, tokens, _ = build_pack(project, run_dir, task_id)
+    relative = pack.relative_to(project.resolve()) if pack.is_relative_to(project.resolve()) else pack
+    return "\n".join(
+        [
+            f"You are `{task['owner']}`. Work on task {task['id']}: {task['title']}.",
+            f"Read your packet first: `{relative}` (~{tokens} tokens). It holds the objective, acceptance,",
+            "owned paths, stage contract, your playbook, and the exact CLI commands.",
+            "Stay inside the owned paths. Claim before writing; run checks through `exec`; complete with",
+            "typed evidence (file:, cmd:, commit:). If blocked, `fail` with the reason or raise a checkpoint",
+            "with alternatives, impact, evidence, and rollback. Never read ~/.agentic-team/.",
+        ]
+    )
+
+
+def compute_metrics(run_dir: Path) -> dict[str, Any]:
+    state = load_state(run_dir)
+    events = read_events(run_dir)
+    per_role: dict[str, dict[str, int]] = {}
+    for task in state["tasks"].values():
+        role = per_role.setdefault(task["owner"], {"tasks": 0, "completed": 0, "first_pass": 0, "failures": 0, "failed": 0})
+        role["tasks"] += 1
+        role["failures"] += len(task.get("failures", []))
+        if task["status"] == "completed":
+            role["completed"] += 1
+            if not task.get("failures"):
+                role["first_pass"] += 1
+        if task["status"] == "failed":
+            role["failed"] += 1
+    created = {event.get("checkpoint"): event["time"] for event in events if event["type"] == "checkpoint-created" and event.get("checkpoint")}
+    latencies = []
+    for event in events:
+        if event["type"] in {"checkpoint-approved", "checkpoint-rejected"} and event.get("checkpoint") in created:
+            start = dt.datetime.fromisoformat(created[event["checkpoint"]].replace("Z", "+00:00"))
+            end = dt.datetime.fromisoformat(event["time"].replace("Z", "+00:00"))
+            latencies.append((end - start).total_seconds())
+    decided = [item for item in state["checkpoints"] if item["status"] in {"approved", "rejected", "resolved"}]
+    rejected = [item for item in state["checkpoints"] if item["status"] in {"rejected", "resolved"}]
+    return {
+        "run": state["run_id"],
+        "stage": state["stage"],
+        "status": state["status"],
+        "tasks": len(state["tasks"]),
+        "roles": per_role,
+        "checkpoints": len(state["checkpoints"]),
+        "checkpoint_latency_seconds_median": sorted(latencies)[len(latencies) // 2] if latencies else None,
+        "rejection_rate": round(len(rejected) / len(decided), 3) if decided else None,
+        "authority_refusals": sum(1 for event in events if event["type"] == "authority-refused"),
+        "commands_executed": sum(1 for event in events if event["type"] == "command-executed"),
+        "failed_commands": sum(1 for event in events if event["type"] == "command-executed" and event.get("exit_code")),
+        "usage": state.get("usage", {}),
+        "events": len(events),
+    }
+
+
+def render_metrics(metrics: dict[str, Any]) -> str:
+    lines = [
+        f"# Metrics — {metrics['run']}",
+        "",
+        f"- Stage {metrics['stage']} · status {metrics['status']} · {metrics['tasks']} tasks · {metrics['events']} events",
+        f"- Checkpoints: {metrics['checkpoints']} (median decision latency: {metrics['checkpoint_latency_seconds_median']} s; rejection rate: {metrics['rejection_rate']})",
+        f"- Authority refusals: {metrics['authority_refusals']} · commands executed: {metrics['commands_executed']} (non-zero exits: {metrics['failed_commands']})",
+        f"- Usage: {metrics['usage'] or 'not reported'}",
+        "",
+        "| Role | Tasks | Completed | First pass | Failed attempts | Failed tasks |",
+        "|---|---|---|---|---|---|",
+    ]
+    for role, data in sorted(metrics["roles"].items()):
+        lines.append(f"| {role} | {data['tasks']} | {data['completed']} | {data['first_pass']} | {data['failures']} | {data['failed']} |")
+    return "\n".join(lines)
+
+
 def fusion_dir(run_dir: Path, fusion_id: str) -> Path:
     return run_dir / "_fusion" / slug(fusion_id)
 
@@ -2368,6 +2700,7 @@ def fusion_init(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
         state = load_state(run_dir)
         if any(item["id"] == args.id for item in state["fusion_sessions"]):
             raise TeamError(f"Fusion session already exists: {args.id}")
+        budget_check(project, state, "max_fusion_councils", len(state["fusion_sessions"]) + 1)
         session = {
             "id": args.id,
             "status": "proposals",
@@ -2494,7 +2827,7 @@ def learn(project: Path, run_dir: Path, title: str, evidence: str, lesson: str, 
     return path
 
 
-def render_status(state: dict[str, Any]) -> str:
+def render_status(state: dict[str, Any], brief: bool = False) -> str:
     counts: dict[str, int] = {}
     for task in state["tasks"].values():
         counts[task["status"]] = counts.get(task["status"], 0) + 1
@@ -2517,7 +2850,14 @@ def render_status(state: dict[str, Any]) -> str:
     failed = [task["id"] for task in state["tasks"].values() if task["status"] == "failed"]
     if failed:
         lines.append(f"Failed tasks: {', '.join(failed)}")
-    return "\n".join(lines)
+    if brief:
+        ready = [task["id"] for task in state["tasks"].values() if task["status"] == "ready" and task["stage"] == state["stage"]]
+        claimed = [f"{task['id']}({task.get('claimed_by')})" for task in state["tasks"].values() if task["status"] == "claimed"]
+        lines.append(f"Ready now: {', '.join(ready[:12]) or 'none'}" + (" ..." if len(ready) > 12 else ""))
+        lines.append(f"Claimed: {', '.join(claimed[:12]) or 'none'}")
+        if state.get("usage"):
+            lines.append(f"Usage: {state['usage']}")
+    return "\n".join(lines[:20])
 
 
 def generate_report(project: Path, run_dir: Path) -> Path:
@@ -2616,6 +2956,9 @@ def doctor(project: Path) -> list[str]:
         pending = [item["id"] for item in state["checkpoints"] if item["status"] == "pending"]
         if pending:
             findings.append(f"pending human checkpoints: {', '.join(pending)}")
+        findings.extend(verify_events(run_dir, state))
+        if state.get("events"):
+            findings.append("events still live inside state.json; run `migrate`")
         now = dt.datetime.now(dt.timezone.utc)
         for task in state["tasks"].values():
             expiry = task.get("lease_expires")
@@ -2647,6 +2990,10 @@ def migrate_run(project: Path, run_dir: Path, by: str, token: str | None) -> lis
         if state.get("status") == "blocked":
             state["status"] = "active"
             steps.append("replaced legacy 'blocked' status")
+        legacy_events = state.pop("events", None)
+        if legacy_events:
+            state["_new_events"] = legacy_events + state.get("_new_events", [])
+            steps.append(f"moved {len(legacy_events)} events from state.json to events.jsonl")
         for task in state["tasks"].values():
             task.setdefault("action", "build")
             task.setdefault("target", "local")
@@ -2743,6 +3090,35 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="Show durable run status")
     add_common_run_args(status)
     status.add_argument("--json", action="store_true")
+    status.add_argument("--brief", action="store_true", help="At most 20 lines, with what is ready now (for agents)")
+
+    nxt = sub.add_parser("next", help="Tasks an agent can claim right now")
+    add_common_run_args(nxt)
+    nxt.add_argument("--agent")
+    nxt.add_argument("--json", action="store_true")
+
+    board = sub.add_parser("board", help="Task graph by stage and status")
+    add_common_run_args(board)
+    board.add_argument("--format", choices=["md", "mermaid", "json"], default="md")
+
+    pack = sub.add_parser("pack", help="Build the task context packet (2K-8K tokens) under _context/")
+    add_common_run_args(pack)
+    pack.add_argument("--task", required=True)
+
+    brief = sub.add_parser("brief", help="Print the delegation message for a task's subagent")
+    add_common_run_args(brief)
+    brief.add_argument("--task", required=True)
+
+    log = sub.add_parser("log", help="Read the run's event log")
+    add_common_run_args(log)
+    log.add_argument("--type")
+    log.add_argument("--since", type=int, default=0, help="Only events after this sequence number")
+    log.add_argument("--json", action="store_true")
+
+    metrics = sub.add_parser("metrics", help="Run metrics per role, checkpoints, commands, usage")
+    add_common_run_args(metrics)
+    metrics.add_argument("--json", action="store_true")
+    metrics.add_argument("--write", action="store_true", help="Also write METRICS.md in the run folder")
 
     runs = sub.add_parser("runs", help="List runs in this project")
     runs.add_argument("--project", default=".")
@@ -2809,6 +3185,7 @@ def build_parser() -> argparse.ArgumentParser:
     complete.add_argument("--agent", required=True)
     complete.add_argument("--evidence", action="append", default=[], help="file:<path>, cmd:<exec-id>, commit:<sha>, url:<url>, or note:<text>")
     complete.add_argument("--run-checks", action="store_true", help="Run the task's --check commands through exec first")
+    complete.add_argument("--usage", action="append", default=[], help="Reported cost, e.g. tokens=12000,usd=0.40")
 
     execute = sub.add_parser("exec", help="Run a command for a claimed task and record its exit code and output")
     add_common_run_args(execute)
@@ -3021,7 +3398,35 @@ def main(argv: list[str] | None = None) -> int:
                 args.token = resolve_token(args)
             if args.command == "status":
                 state = load_state(run_dir)
-                print(json.dumps(state, indent=2) if args.json else render_status(state))
+                print(json.dumps(state, indent=2) if args.json else render_status(state, args.brief))
+            elif args.command == "next":
+                found = next_tasks(project, run_dir, args.agent)
+                if args.json:
+                    print(json.dumps(found, indent=2))
+                else:
+                    print("\n".join(f"{item['task']} ({item['owner']}, {item['risk']}): {item['title']}" for item in found) or "Nothing claimable now")
+            elif args.command == "board":
+                print(render_board(load_state(run_dir), args.format))
+            elif args.command == "pack":
+                path, tokens, omissions = build_pack(project, run_dir, args.task)
+                print(f"{path} (~{tokens} tokens" + (f"; {len(omissions)} omission(s)" if omissions else "") + ")")
+            elif args.command == "brief":
+                print(render_brief(project, run_dir, args.task))
+            elif args.command == "log":
+                events = [event for event in read_events(run_dir) if int(event.get("seq", 0)) > args.since]
+                if args.type:
+                    events = [event for event in events if event["type"] == args.type]
+                if args.json:
+                    print(json.dumps(events, indent=2))
+                else:
+                    for event in events:
+                        extra = ", ".join(f"{key}={value}" for key, value in event.items() if key not in {"seq", "time", "type", "prev"})
+                        print(f"{event.get('seq', '-'):>5} {event['time']} {event['type']} {extra}")
+            elif args.command == "metrics":
+                data = compute_metrics(run_dir)
+                if args.write:
+                    write_text(run_dir / "METRICS.md", render_metrics(data))
+                print(json.dumps(data, indent=2) if args.json else render_metrics(data))
             elif args.command == "close-run":
                 close_run(project, run_dir, args.reason)
                 print(f"Closed {run_dir.name}")
@@ -3046,7 +3451,7 @@ def main(argv: list[str] | None = None) -> int:
                 reassign_task(project, run_dir, args.task, args.owner, args.reason)
                 print(f"Reassigned {args.task} to {args.owner}")
             elif args.command == "complete":
-                complete_task(project, run_dir, args.task, args.agent, args.evidence, args.run_checks)
+                complete_task(project, run_dir, args.task, args.agent, args.evidence, args.run_checks, parse_usage(args.usage))
                 print(f"Completed {args.task}")
             elif args.command == "exec":
                 command = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd

@@ -521,5 +521,13 @@
     "write_tasks_need_typed_evidence": true,
     "exec_output_bytes": 65536,
     "exec_timeout_seconds": 1800
+  },
+  "budgets": {
+    "max_tasks": 400,
+    "max_fusion_councils": 12,
+    "max_lease_minutes": 480,
+    "tokens": null,
+    "usd": null,
+    "warn_at": 0.8
   }
 }

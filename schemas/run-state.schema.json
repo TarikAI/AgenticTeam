@@ -3,7 +3,7 @@
   "$id": "https://agenticteam.local/schemas/run-state.schema.json",
   "title": "AgenticTeam run state",
   "type": "object",
-  "required": ["version", "run_id", "project", "status", "autonomy", "entry_mode", "context_method", "stage", "tasks", "active_specialists", "checkpoints", "fusion_sessions", "events", "created_at", "updated_at"],
+  "required": ["version", "run_id", "project", "status", "autonomy", "entry_mode", "context_method", "stage", "tasks", "active_specialists", "checkpoints", "fusion_sessions", "created_at", "updated_at"],
   "properties": {
     "version": {"type": "string"},
     "run_id": {"type": "string", "minLength": 1},
