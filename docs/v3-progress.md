@@ -13,8 +13,11 @@ Authority: `docs/v3-upgrade-plan.md`. Integration branch: `v3` (from `main` @ `d
 | P6 Roster | v3-p6-roster | done | 5f49a72 | 153 tests OK; validate runs roster lint (banned terms, skeleton, descriptions, role ids, single owner per artifact, 400-2500 tokens); compiled prompts 566-1389 tokens | Rewritten by 6 parallel subagents from one brief, then linted. untrusted-content, secrets-and-sensitive-data, supply-chain protocols written early (roles reference them). Descriptions adapted from B.4 drafts to fit 300 chars + exclusion clause. |
 | P7 Protocols, skills, templates, knowledge | v3-p7-law | done | 1fd3cf7 | 160 tests OK (test_law: no retired vocabulary, gate lists match policy, templates used/present, protocol refs resolve, Agent Skills spec; learn/promote) | Found and fixed: Windows NUL stdin reports isatty() so the token prompt hung automated callers (now checks for a real console). Plan's fusion --file/sealed/ commit-reveal not implemented; privacy is guard-hook enforced on Claude Code, instruction elsewhere. |
 | P8 Team evaluation | v3-p8-evals | done | c2b44c3 | 163 tests OK; evals/run_scenarios.py 6/6 scenarios pass (101 CLI steps against installed CLIs); CI step added | Live-agent smoke eval is documented (protocols/team-evaluation.md) but not automated: it needs model credentials and is opt-in by design. |
-| P9 Docs, migration, release | v3-p9-release | pending | | | |
+| P9 Docs, migration, release | v3-p9-release | done | b29caa9 | 173 tests OK; 6/6 eval scenarios; docs --check current; install.sh+doctor+uninstall clean for 13 harnesses; install.ps1 smoke with -ModelProfile | fail --signature (repeated-failure fingerprint) not implemented; first v3 reinstall over a v2 install cannot detect local edits (v2 recorded no hashes). |
 
 ## Follow-ups
 
-- (none yet)
+- `fail --signature`: escalate on a repeated failure fingerprint (loop detection is instruction-only today).
+- Antigravity `.agents/hooks.json` and Gemini CLI `policy.toml` guard rules: emit once their formats are verified.
+- Optional `package-claude-plugin` distribution channel (plan §5.13) was not built.
+- Live-agent smoke eval is documented but needs model credentials to automate.
