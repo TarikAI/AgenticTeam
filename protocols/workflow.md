@@ -35,3 +35,31 @@ publishing, sending, advertising spend, and public commitments remain human-gate
 
 Each stage is governed by its `CONTEXT.md` and advanced through the state CLI. Do not infer a gate
 from persuasive prose; attach objective outputs and evidence.
+
+## Stage exit contracts
+
+`advance` refuses to leave a stage until its exit contract passes. The contract is policy data
+(`config/policies.json` → `stage_exits`), chosen by the run's context method. Create each
+artifact with `scaffold --artifact NAME`; a file that still contains a `{{...}}` marker or
+`TODO` does not count.
+
+| Stage | `bmad-progressive` | `adaptive` |
+|---|---|---|
+| 00_intake | `BRIEF.md`, `ASSUMPTIONS.md` | `BRIEF.md` with at least one `AC-` id |
+| 01_product | `PRD.md` with `AC-` ids | — |
+| 02_solution | `ARCHITECTURE.md` | — |
+| 03_readiness | `READINESS.md` tracing every `AC-` id | — |
+| 04_build | every task closed; write tasks carry typed evidence | same |
+| 05_verify | `VERIFICATION.md` verdict lines, independent verifier, integration SHA | same |
+| 06_release | `RELEASE.md` + human release checkpoint | human release checkpoint |
+| 07_learn | `RETROSPECTIVE.md`, `DELIVERY-REPORT.md` | `DELIVERY-REPORT.md` |
+
+In every stage `advance` also refuses while a checkpoint is pending or an activated specialist
+has neither a completed task nor a deactivation reason. Remediation found in 05_verify is added
+to 05_verify (the default stage is always the current one), so it gates the verify exit.
+
+`VERIFICATION.md` starts with three machine-read lines: `Verdict: PASS|CONDITIONAL|FAIL`,
+`Verifier: <role-id>` (installed, and never a 04_build claimant), and `Verified-SHA: <sha>`
+(the integration commit recorded when 04_build exits, or `none` without git). FAIL blocks;
+CONDITIONAL needs the human's waiver `stage-exit:05_verify:conditional`. Any named requirement
+can be waived only by the human (`waive --requirement stage-exit:<stage>:<check>`).
