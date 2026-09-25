@@ -26,6 +26,9 @@ jobs:
       - name: Validate source
         run: python scripts/agentic_team.py validate
 
+      - name: Generated docs are current
+        run: python scripts/agentic_team.py docs --check
+
       - name: Run runtime and adapter tests
         run: python -m unittest discover -s tests -v
 

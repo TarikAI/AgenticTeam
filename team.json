@@ -1,6 +1,6 @@
 {
   "$schema": "schemas/team.schema.json",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "name": "AgenticTeam",
   "description": "A portable, evidence-gated AI delivery organization with native harness adapters, progressive context, fusion councils, and safe autonomy.",
   "defaults": {
@@ -69,15 +69,15 @@
     {"id":"growth-analyst","file":"agents/marketing/growth-analyst.md","department":"marketing","tier":"standard","access":"review","reports_to":"cmo","capabilities":["growth","attribution","campaign-readouts"]}
   ],
   "presets": {
-    "full-company": {"description":"Every available role; specialists activate conditionally.","agents":"all"},
-    "full-platform": {"description":"All leadership, engineering, support, and specialists.","departments":["leadership","engineering","support","specialists"]},
-    "platform-core": {"description":"Core product delivery organization.","agents":["ceo","product-manager","cto-architect","delivery-lead","fullstack-engineer","ux-ui-designer","qa-lead","code-reviewer","security-engineer","devops-engineer","tech-writer"]},
-    "fusion-product-council": {"description":"Independent product and technical proposals with moderated synthesis.","agents":["fusion-moderator","product-manager","cto-architect","ux-ui-designer","security-engineer","research-agent","finops-engineer","qa-lead"]},
-    "regulated-platform": {"description":"Delivery team plus privacy and compliance specialists.","agents":["ceo","product-manager","cto-architect","delivery-lead","backend-lead","frontend-lead","database-engineer","security-engineer","privacy-engineer","compliance-advisor","qa-lead","accessibility-specialist","devops-engineer","release-manager","tech-writer"]},
-    "scale-readiness": {"description":"Architecture, reliability, performance, cost, and release review.","agents":["cto-architect","sre-engineer","performance-engineer","security-engineer","privacy-engineer","finops-engineer","code-reviewer","release-manager"]},
-    "audit": {"description":"Independent product, architecture, quality, security, privacy, and accessibility audit.","agents":["cto-architect","system-mapper","code-reviewer","security-engineer","privacy-engineer","qa-lead","accessibility-specialist"]},
-    "marketing-only": {"description":"Complete marketing organization.","departments":["marketing"]},
-    "launch": {"description":"Core platform team plus go-to-market and customer success.","agents":["ceo","product-manager","cto-architect","delivery-lead","fullstack-engineer","ux-ui-designer","qa-lead","security-engineer","devops-engineer","release-manager","cmo","brand-strategist","content-marketer","performance-marketer","ugc-creative","growth-analyst","customer-success-strategist"]}
+    "full-company": {"kind":"build","description":"Every available role; specialists activate conditionally.","agents":"all"},
+    "full-platform": {"kind":"build","description":"All leadership, engineering, support, and specialists.","departments":["leadership","engineering","support","specialists"]},
+    "platform-core": {"kind":"build","description":"Core product delivery organization.","agents":["ceo","product-manager","cto-architect","delivery-lead","fullstack-engineer","ux-ui-designer","qa-lead","code-reviewer","security-engineer","devops-engineer","tech-writer"]},
+    "fusion-product-council": {"kind":"fusion","description":"Independent product and technical proposals with moderated synthesis.","agents":["fusion-moderator","product-manager","cto-architect","ux-ui-designer","security-engineer","research-agent","finops-engineer","qa-lead"]},
+    "regulated-platform": {"kind":"build","description":"Delivery team plus privacy and compliance specialists.","agents":["ceo","product-manager","cto-architect","delivery-lead","backend-lead","backend-engineer","frontend-lead","frontend-engineer","database-engineer","security-engineer","privacy-engineer","compliance-advisor","qa-lead","test-engineer","code-reviewer","build-integrator","accessibility-specialist","devops-engineer","release-manager","tech-writer"]},
+    "scale-readiness": {"kind":"audit","description":"Architecture, reliability, performance, cost, and release review.","agents":["delivery-lead","cto-architect","sre-engineer","performance-engineer","security-engineer","privacy-engineer","finops-engineer","code-reviewer","release-manager"]},
+    "audit": {"kind":"audit","description":"Independent product, architecture, quality, security, privacy, and accessibility audit.","agents":["delivery-lead","cto-architect","system-mapper","code-reviewer","security-engineer","privacy-engineer","qa-lead","accessibility-specialist"]},
+    "marketing-only": {"kind":"marketing","description":"Complete marketing organization.","departments":["marketing"]},
+    "launch": {"kind":"build","description":"Core platform team plus go-to-market and customer success.","agents":["ceo","product-manager","cto-architect","delivery-lead","fullstack-engineer","ux-ui-designer","qa-lead","code-reviewer","security-engineer","devops-engineer","release-manager","cmo","brand-strategist","content-marketer","performance-marketer","ugc-creative","growth-analyst","customer-success-strategist"]}
   },
   "workflows": {
     "build":{"skill":"skills/agentic-build","entry_modes":["idea","plan-given","execute-only"]},

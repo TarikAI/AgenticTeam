@@ -1,6 +1,6 @@
 # Skills Integration Plan — "Skill if present, discipline always"
 
-Status: executed on branch `skills-integration` — all phases complete; see the phase table.
+Status: **historical** (executed on branch `skills-integration` for v2). The v3 design supersedes it: see `docs/v3-upgrade-plan.md`.
 
 **Goal:** every AgenticTeam agent (a) routes to `adminwright`, `design-architect`, and
 Alibaba Open Code Review (OCR) when those skills/tools are installed, following their full
