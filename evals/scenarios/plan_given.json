@@ -1,0 +1,19 @@
+{
+  "name": "plan-given-hitl-bmad",
+  "description": "A supplied plan starts at readiness; bmad-progressive requires READINESS.md tracing every AC id; hitl gates the exit.",
+  "steps": [
+    {"cli": ["init-run", "--name", "Plan", "--run-id", "plan", "--autonomy", "hitl", "--entry", "plan-given", "--context", "bmad-progressive"]},
+    {"state": {"stage": "03_readiness"}},
+    {"cli": ["advance"], "exit": 1, "contains": "READINESS.md is missing"},
+    {"write": "RUN/PRD.md", "text": "# PRD\n\n- AC-1: export\n- AC-2: import\n"},
+    {"write": "RUN/READINESS.md", "text": "# Readiness\n\n| AC-1 | T1 | test |\n"},
+    {"cli": ["advance"], "exit": 1, "contains": "does not trace AC-2"},
+    {"write": "RUN/READINESS.md", "text": "# Readiness\n\n| AC-1 | T1 | test |\n| AC-2 | T2 | test |\n"},
+    {"note": "hitl readiness gate", "cli": ["advance"], "exit": 2},
+    {"human": ["approve", "--checkpoint", "CP-001", "--by", "Owner", "--decision", "ready"]},
+    {"cli": ["advance"], "contains": "04_build"},
+    {"note": "hitl pauses R2 work", "cli": ["add-task", "--id", "DEP", "--title", "Add date library", "--owner", "backend-engineer", "--action", "add-dependency", "--path", "package.json"]},
+    {"cli": ["claim", "--task", "DEP", "--agent", "backend-engineer"], "exit": 2},
+    {"state": {"status": "waiting-human"}}
+  ]
+}

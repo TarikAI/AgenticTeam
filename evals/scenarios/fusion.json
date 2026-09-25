@@ -1,0 +1,20 @@
+{
+  "name": "fusion-council",
+  "description": "A council runs in phase order; skipping, resubmitting, and agent-closing a human-sponsored council are refused.",
+  "steps": [
+    {"cli": ["init-run", "--name", "Council", "--run-id", "council", "--autonomy", "autonomous", "--entry", "execute-only"]},
+    {"cli": ["fusion-init", "--id", "stack", "--question", "Which stack?", "--contributor", "product-manager", "--contributor", "cto-architect"]},
+    {"note": "synthesis before proposals", "cli": ["fusion-submit", "--fusion", "stack", "--kind", "synthesis", "--agent", "fusion-moderator", "--evidence", "skip"], "exit": 1},
+    {"cli": ["fusion-submit", "--fusion", "stack", "--kind", "proposal", "--agent", "product-manager", "--evidence", "proposals/product-manager.md"]},
+    {"note": "no resubmission", "cli": ["fusion-submit", "--fusion", "stack", "--kind", "proposal", "--agent", "product-manager", "--evidence", "v2"], "exit": 1},
+    {"cli": ["fusion-submit", "--fusion", "stack", "--kind", "proposal", "--agent", "cto-architect", "--evidence", "proposals/cto-architect.md"], "contains": "critiques"},
+    {"cli": ["fusion-submit", "--fusion", "stack", "--kind", "critique", "--agent", "product-manager", "--evidence", "critiques/product-manager.md"]},
+    {"cli": ["fusion-submit", "--fusion", "stack", "--kind", "revision", "--agent", "cto-architect", "--evidence", "revised with numbers"]},
+    {"cli": ["fusion-submit", "--fusion", "stack", "--kind", "critique", "--agent", "cto-architect", "--evidence", "critiques/cto-architect.md"], "contains": "synthesis"},
+    {"cli": ["fusion-submit", "--fusion", "stack", "--kind", "synthesis", "--agent", "fusion-moderator", "--evidence", "synthesis.md"]},
+    {"cli": ["fusion-submit", "--fusion", "stack", "--kind", "verification", "--agent", "qa-lead", "--evidence", "traceable"], "contains": "decision"},
+    {"note": "closing as the human needs the token", "cli": ["fusion-close", "--fusion", "stack", "--sponsor", "human-owner", "--decision", "stack A", "--by", "Owner"], "exit": 1},
+    {"human": ["fusion-close", "--fusion", "stack", "--sponsor", "human-owner", "--decision", "stack A", "--by", "Owner"]},
+    {"cli": ["status"], "contains": "Fusion sessions: 1"}
+  ]
+}

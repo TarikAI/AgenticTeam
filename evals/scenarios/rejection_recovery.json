@@ -1,0 +1,20 @@
+{
+  "name": "rejection-recovery",
+  "description": "A human rejection blocks the run (exit 3) until the human resolves it; approving something else does not clear it.",
+  "steps": [
+    {"cli": ["init-run", "--name", "Reject", "--run-id", "reject", "--autonomy", "supervised", "--entry", "execute-only"]},
+    {"cli": ["add-task", "--id", "T1", "--title", "Build the importer", "--owner", "backend-engineer", "--path", "src/import"]},
+    {"cli": ["checkpoint", "--question", "Use CSV only?", "--recommendation", "Yes", "--alternatives", "XLSX too", "--impact", "one week", "--evidence", "PRD", "--rollback", "add later"]},
+    {"human": ["reject", "--checkpoint", "CP-001", "--by", "Owner", "--decision", "XLSX is required"]},
+    {"state": {"status": "blocked-rejection"}},
+    {"cli": ["claim", "--task", "T1", "--agent", "backend-engineer"], "exit": 3},
+    {"cli": ["advance"], "exit": 3},
+    {"cli": ["checkpoint", "--question", "Add XLSX?", "--recommendation", "Yes", "--alternatives", "none", "--impact", "one week", "--evidence", "human feedback", "--rollback", "drop XLSX"]},
+    {"human": ["approve", "--checkpoint", "CP-002", "--by", "Owner", "--decision", "yes"]},
+    {"note": "an unrelated approval does not clear the rejection", "state": {"status": "blocked-rejection"}},
+    {"note": "agents cannot resolve", "cli": ["resolve", "--checkpoint", "CP-001", "--by", "backend-engineer", "--resolution", "fixed"], "exit": 1},
+    {"human": ["resolve", "--checkpoint", "CP-001", "--by", "Owner", "--resolution", "plan now includes XLSX"]},
+    {"state": {"status": "active"}},
+    {"cli": ["claim", "--task", "T1", "--agent", "backend-engineer"]}
+  ]
+}

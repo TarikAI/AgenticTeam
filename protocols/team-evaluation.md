@@ -9,16 +9,19 @@ policy), made in the source repository.
 - `evals/scenarios/*.json` holds scripted runs of the state machine: each scenario is a fixed
   sequence of CLI commands against a fresh install, with the expected exit code and state after
   each step. No model is involved, so a result is reproducible.
+- Run them with `python evals/run_scenarios.py` (add a name filter to run one, e.g.
+  `python evals/run_scenarios.py fusion`); `tests/test_evals.py` runs them in the unit suite and
+  CI runs the script on every push. Step forms are documented at the top of the runner.
 - Required scenarios:
 
 | Scenario | Proves |
 |---|---|
 | greenfield | `idea` entry walks `00_intake`…`07_learn`; every stage exit and human gate fires |
 | plan-given | `plan-given` entry starts at `03_readiness` and still passes every later exit |
-| execute-only | `execute-only` entry starts at `04_build` and still needs typed evidence, independent verification, and the release checkpoint |
-| brownfield fix | write tasks with owned paths, path-conflict refusal, `--check` through `exec`, `Verified-SHA` match |
-| Fusion | phase order, no resubmission, moderator ≠ verifier ≠ contributors, sponsor authority |
-| rejection/recovery | `reject` blocks, `resolve` unblocks; repeated failure signature escalates; `reopen` rules |
+| brownfield fix | retries exhaust, only the human extends them (`reopen --extend-retries`), typed evidence through `exec`, remediation found in 05_verify gates the 05 exit |
+| Fusion | phase order, no resubmission, one revision, sponsor authority (commit-reveal with `fusion-submit --file` is covered in `tests/test_evals.py`) |
+| rejection/recovery | `reject` blocks (exit 3), an unrelated approval does not clear it, only the human's `resolve` unblocks |
+| self-approval | an agent id, a missing token, an agent-written stage gate, and deploy wording hidden in a build task are all refused, and refusals are logged |
 
 - Each scenario asserts three things: gates (exit 2/3 where a gate must stop the run), artifacts
   (the stage-exit files exist and pass their line checks), and authority refusals (human-only

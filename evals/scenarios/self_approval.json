@@ -1,0 +1,16 @@
+{
+  "name": "self-approval-refused",
+  "description": "An agent trying to approve its own R3 gate is refused every way, and each refusal is recorded.",
+  "steps": [
+    {"cli": ["init-run", "--name", "Ship", "--run-id", "ship", "--autonomy", "autonomous", "--entry", "execute-only"]},
+    {"cli": ["add-task", "--id", "SHIP", "--title", "Deploy the API", "--owner", "devops-engineer", "--action", "deploy", "--target", "production", "--path", "deploy"]},
+    {"cli": ["claim", "--task", "SHIP", "--agent", "devops-engineer"], "exit": 2},
+    {"note": "an agent id cannot approve", "human": ["approve", "--checkpoint", "CP-001", "--by", "devops-engineer", "--decision", "self"], "exit": 1},
+    {"note": "a human name without the token cannot approve", "cli": ["approve", "--checkpoint", "CP-001", "--by", "Owner", "--decision", "self"], "exit": 1},
+    {"note": "agents cannot write stage gates", "cli": ["checkpoint", "--kind", "stage", "--question", "Approve minor tweak?", "--recommendation", "yes", "--alternatives", "a", "--impact", "i", "--evidence", "e", "--rollback", "r"], "exit": 64},
+    {"note": "wording cannot hide a deploy", "cli": ["add-task", "--id", "SNEAK", "--title", "Run vercel --prod after tests", "--owner", "devops-engineer", "--path", "ops"]},
+    {"cli": ["claim", "--task", "SNEAK", "--agent", "devops-engineer"], "exit": 2},
+    {"cli": ["log", "--type", "authority-refused"], "contains": "authority-refused"},
+    {"state": {"status": "waiting-human"}}
+  ]
+}
