@@ -140,14 +140,16 @@ class LifecycleRegressions(Base):
         run = self.run_()
         team.add_task(self.project, run, task_args("A", "backend-engineer"))
         team.claim_task(self.project, run, "A", "backend-engineer", 60)
-        team.complete_task(self.project, run, "A", "backend-engineer", ["tests: 3 passed"])
+        (self.project / "src").mkdir(exist_ok=True)
+        (self.project / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+        team.complete_task(self.project, run, "A", "backend-engineer", ["file:src/a.py", "note:tests: 3 passed"])
         with self.assertRaises(team.TeamError):
             team.reopen_task(self.project, run, "A", "agent wants another go")
         team.reopen_task(self.project, run, "A", "human asked for rework", "Owner", self.token(run))
         task = team.load_state(run)["tasks"]["A"]
         self.assertEqual(task["status"], "ready")
         self.assertNotIn("lease_expires_at", task)
-        self.assertEqual(task["previous_evidence"], [["tests: 3 passed"]])
+        self.assertEqual(task["previous_evidence"], [["file:src/a.py", "note:tests: 3 passed"]])
 
     def test_R09_reopen_keeps_attempts_and_budget_extension_is_human(self) -> None:
         run = self.run_()

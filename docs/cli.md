@@ -36,15 +36,17 @@ The harness orchestrator normally invokes these. Humans can use them to inspect 
 | `status [--json]` | Read current stage, task counts, checkpoints, rejections, failed tasks, and Fusion sessions. |
 | `runs` / `switch-run --run R` / `close-run --reason` | List runs, point `CURRENT.md` at another run, or close one. Only `init-run` and `switch-run` move `CURRENT.md`. |
 | `route-specialists` / `deactivate-specialist` | Match installed trigger rules and record bounded specialist participation. |
-| `add-task` | Create a task envelope. The owner must be installed; the stage defaults to the current stage and may not be an earlier one; build tasks owned by a writing role need `--path` (or `--exclusive`). |
+| `add-task` | Create a task envelope. The owner must be installed; the stage defaults to the current stage and may not be an earlier one; build tasks owned by a writing role need `--path` (or `--exclusive`). `--check CMD` adds an acceptance command; `--verifies T` marks a verification task whose claimant may not have built T. |
 | `claim` | Atomically claim a ready task of the current stage. The claiming agent must be installed and be the task owner; the profile's `max_concurrent_agents` caps open claims; owned paths may not overlap. |
 | `renew` | Extend the lease on a task you hold (1-480 minutes). |
 | `reassign` | Change the owner of an unclaimed open task, with a reason. |
-| `complete` | Attach evidence and unlock dependents. |
+| `complete [--run-checks]` | Attach typed evidence (`file:`, `cmd:`, `commit:`, `url:`, `note:`) and unlock dependents. Write tasks need at least one `file:`/`cmd:`/`commit:`; `--check` commands must have passed. |
+| `exec --task T --agent A [--shell] -- CMD...` | Run a command for your claimed task; records exit code, duration, git HEAD, and output under `_evidence/`. Commands matching a policy command rule need an approved task of that action. Exit code mirrors the command (0/1). |
+| `scaffold --artifact NAME` | Create `BRIEF.md`, `PRD.md`, `READINESS.md`, `VERIFICATION.md`, `RELEASE.md`, and the other run artifacts from their templates. |
 | `fail` | Record an attempt and apply retry policy. Under a profile that stops on failure (hitl), an exhausted task blocks the run (`blocked-failure`). |
 | `recover-leases` | Return expired claims to policy-controlled state. |
 | `checkpoint` / `approve` / `reject` / `resolve` | Create and decide a human checkpoint. A rejection blocks the run (`blocked-rejection`) until the human `resolve`s it after the correction. Approving another checkpoint never clears a rejection. |
-| `advance` | Exit the current stage only when every task of the stage is closed (completed or cancelled), no checkpoint is pending, and policy gates pass. |
+| `advance` | Exit the current stage only when every task of the stage is closed (completed or cancelled), no checkpoint is pending, the stage exit contract passes (`protocols/workflow.md`), and policy gates pass. |
 | `fusion-init` | Create private proposal/critique/synthesis/dissent/decision artifacts. |
 | `fusion-submit` | Record a proposal, critique, revision (one per contributor), synthesis, or verification. Each kind is accepted only in its phase and never twice. |
 | `fusion-close` | Record the sponsor's decision after independent verification. A `human-owner` sponsor needs `--by` and the owner token. |

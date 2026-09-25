@@ -153,6 +153,7 @@ class CheckpointRules(Base):
 
     def test_autonomous_architecture_gate_needs_an_independent_review(self) -> None:
         run = team.init_run(self.project, "Arch", "arch", "autonomous", "idea", "adaptive")
+        (run / "BRIEF.md").write_text("# Brief\n\n- AC-1: users can sign in\n", encoding="utf-8")
         team.advance_stage(self.project, run)  # 00 -> 01
         team.advance_stage(self.project, run)  # 01 -> 02 (recorded assumptions)
         with self.assertRaises(team.TeamError) as raised:

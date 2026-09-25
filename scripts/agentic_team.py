@@ -17,6 +17,7 @@ import secrets
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import sys
 import time
 from typing import Any, Iterator
@@ -723,6 +724,26 @@ def gate_value(profile: dict[str, Any], stage: str) -> str:
     return str(profile.get(key, "automatic")) if key else "automatic"
 
 
+def exit_criteria_text(exits: list[dict[str, Any]]) -> str:
+    lines = []
+    for rule in exits:
+        check = rule["check"]
+        if check == "artifact":
+            extra = f" containing `{rule['pattern']}`" if rule.get("pattern") else ""
+            lines.append(f"- `../{rule['file']}` exists, has no unfilled `{{{{...}}}}` markers{extra}.")
+        elif check == "traceability":
+            lines.append(f"- Every `AC-` id in PRD.md/BRIEF.md appears in `../{rule['file']}`.")
+        elif check == "evidence":
+            lines.append("- Every task is closed; every completed write task has typed evidence (file:, cmd:, commit:).")
+        elif check == "verdict":
+            lines.append(
+                f"- `../{rule['file']}` starts with `Verdict:` PASS (CONDITIONAL needs the human's waiver), "
+                "`Verifier:` (an installed role that built none of it), and `Verified-SHA:`."
+            )
+    lines.append("- No checkpoint is pending; every activated specialist finished or was deactivated.")
+    return "\n".join(lines)
+
+
 def stage_contract(
     template: str,
     run_id: str,
@@ -730,6 +751,7 @@ def stage_contract(
     active_stage: str,
     profile: dict[str, Any],
     context_method: str,
+    exits: list[dict[str, Any]] | None = None,
 ) -> str:
     stage_id, title, purpose = stage
     process = {
@@ -758,7 +780,7 @@ def stage_contract(
         if gate == "human"
         else f"No routine pause (gate: `{gate}`); record assumptions and continue if exit criteria pass."
     )
-    exit_criteria = "- Declared outputs exist and are internally consistent.\n- Material risks have owners.\n- Next work is executable from named context."
+    exit_criteria = exit_criteria_text(exits or [])
     return template.format(
         stage_title=title,
         run_id=run_id,
@@ -791,7 +813,11 @@ def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_
     for stage_spec in STAGES:
         stage_dir = run_dir / stage_spec[0]
         stage_dir.mkdir(parents=True, exist_ok=True)
-        write_text(stage_dir / "CONTEXT.md", stage_contract(template, run_dir.name, stage_spec, active_stage, policy["profiles"][autonomy], context_method))
+        exits = policy.get("stage_exits", {}).get(context_method, {}).get(stage_spec[0], [])
+        write_text(
+            stage_dir / "CONTEXT.md",
+            stage_contract(template, run_dir.name, stage_spec, active_stage, policy["profiles"][autonomy], context_method, exits),
+        )
     (run_dir / "04_build" / "tasks").mkdir(parents=True, exist_ok=True)
     (run_dir / "_fusion").mkdir(parents=True, exist_ok=True)
     (run_dir / "_decisions").mkdir(parents=True, exist_ok=True)
@@ -1024,6 +1050,9 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
         missing = [dep for dep in args.depends_on if dep not in state["tasks"]]
         if missing:
             raise TeamError(f"Unknown dependencies: {', '.join(missing)}")
+        unknown_verified = [item for item in getattr(args, "verifies", []) or [] if item not in state["tasks"]]
+        if unknown_verified:
+            raise TeamError(f"--verifies names unknown tasks: {', '.join(unknown_verified)}")
         owner_access = installed[args.owner].get("access")
         if stage == "04_build" and owner_access in WRITE_ACCESS and not args.path and not exclusive:
             raise TeamError(
@@ -1055,6 +1084,8 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
             "inputs": args.input,
             "acceptance": args.acceptance,
             "evidence_contract": args.evidence_contract,
+            "checks": list(getattr(args, "check", []) or []),
+            "verifies": list(getattr(args, "verifies", []) or []),
             "attempts": 0,
             "evidence": [],
             "created_at": utcnow(),
@@ -1206,6 +1237,9 @@ def claim_task(project: Path, run_dir: Path, task_id: str, agent: str, lease_min
             raise TeamError(f"Task {task_id} belongs to stage {task['stage']}; the run is in {state['stage']}")
         if task["status"] != "ready":
             raise TeamError(f"Task {task_id} is {task['status']}, not ready")
+        builders = {builder for verified_id in task.get("verifies", []) for builder in task_builders(state["tasks"].get(verified_id, {}))}
+        if agent in builders:
+            raise TeamError(f"{agent} built work that {task_id} verifies; verification must be independent")
         policy = load_policy(project)
         profile = policy["profiles"][state["autonomy"]]
         verified = verified_view(state)
@@ -1309,9 +1343,77 @@ def reassign_task(project: Path, run_dir: Path, task_id: str, owner: str, reason
         save_state(project, run_dir, state)
 
 
-def complete_task(project: Path, run_dir: Path, task_id: str, agent: str, evidence: list[str]) -> None:
+EVIDENCE_TYPES = ("file", "cmd", "commit", "url", "note")
+
+
+def task_builders(task: dict[str, Any]) -> set[str]:
+    """Every agent that ever held the task (current claim, completion, earlier attempts)."""
+    names = {task.get("claimed_by")} | {failure.get("agent") for failure in task.get("failures", [])}
+    return {name for name in names if name}
+
+
+def git_head(project: Path) -> str | None:
+    if not (project / ".git").exists():
+        return None
+    try:
+        result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=project, capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def git_commit_exists(project: Path, sha: str) -> bool | None:
+    if not (project / ".git").exists():
+        return None
+    try:
+        result = subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=project, capture_output=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.returncode == 0
+
+
+def classify_evidence(project: Path, task: dict[str, Any], value: str) -> dict[str, Any]:
+    """Validate one evidence string. Untyped text is a note: allowed, never sufficient alone."""
+    kind, separator, body = value.partition(":")
+    if not separator or kind not in EVIDENCE_TYPES or kind == "url" and not body.startswith("//") and not body.startswith("http"):
+        if kind == "url" and separator:
+            return {"type": "url", "value": body}
+        return {"type": "note", "value": value}
+    body = body.strip()
+    if kind == "file":
+        path = (project / body).resolve()
+        try:
+            path.relative_to(project.resolve())
+        except ValueError as exc:
+            raise TeamError(f"file evidence must stay inside the project: {body}") from exc
+        if not path.is_file():
+            raise TeamError(f"file evidence does not exist: {body}")
+        return {"type": "file", "value": body, "sha256": file_sha256(path), "bytes": path.stat().st_size}
+    if kind == "cmd":
+        record = next((item for item in task.get("execs", []) if item["id"] == body), None)
+        if not record:
+            raise TeamError(f"cmd evidence names no exec record of this task: {body}")
+        return {"type": "cmd", "value": body, "exit_code": record["exit_code"], "command": record["command"]}
+    if kind == "commit":
+        exists = git_commit_exists(project, body)
+        if exists is False:
+            raise TeamError(f"commit evidence does not resolve in this repository: {body}")
+        return {"type": "commit", "value": body, "verified": exists is True}
+    return {"type": kind, "value": body}
+
+
+def complete_task(
+    project: Path, run_dir: Path, task_id: str, agent: str, evidence: list[str], run_checks: bool = False
+) -> None:
+    if run_checks:
+        state = load_state(run_dir)
+        task = state["tasks"].get(task_id)
+        if task:
+            for check in task.get("checks", []):
+                record = exec_command(project, run_dir, task_id, agent, [check], shell=True)
+                evidence = list(evidence) + [f"cmd:{record['id']}"]
     if not evidence:
-        raise TeamError("Completion requires at least one --evidence value")
+        raise TeamError("Completion requires at least one --evidence value (file:, cmd:, commit:, url:, or note:)")
     with state_lock(run_dir):
         state = load_state(run_dir)
         task = state["tasks"].get(task_id)
@@ -1319,11 +1421,110 @@ def complete_task(project: Path, run_dir: Path, task_id: str, agent: str, eviden
             raise TeamError(f"Unknown task: {task_id}")
         if task["status"] != "claimed" or task.get("claimed_by") != agent:
             raise TeamError(f"Task {task_id} is not claimed by {agent}")
-        task.update(status="completed", completed_at=utcnow(), evidence=evidence)
+        records = [classify_evidence(project.resolve(), task, value) for value in evidence]
+        failed_checks = []
+        for check in task.get("checks", []):
+            runs = [item for item in task.get("execs", []) if item["command"] == check]
+            if not runs or runs[-1]["exit_code"] != 0:
+                failed_checks.append(check)
+        if failed_checks:
+            raise TeamError(
+                "Acceptance checks have no passing exec record: " + "; ".join(failed_checks)
+                + " (run them with `exec` or `complete --run-checks`)"
+            )
+        policy = load_policy(project)
+        owner_access = installed_agents(project).get(task["owner"], {}).get("access")
+        writes = task.get("stage") == "04_build" and owner_access in WRITE_ACCESS and task.get("action", "build") in {"build", "test", "migrate", "infra-change", "add-dependency"}
+        if writes and policy.get("evidence", {}).get("write_tasks_need_typed_evidence", True):
+            if not any(record["type"] in {"file", "cmd", "commit"} for record in records):
+                raise TeamError(
+                    f"Task {task_id} changes the workspace: attach at least one file:, cmd:, or commit: evidence "
+                    "(prose alone is not evidence)"
+                )
+        task.update(status="completed", completed_at=utcnow(), evidence=evidence, evidence_records=records)
         task.pop("lease_expires", None)
         refresh_ready(state)
         append_event(state, "task-completed", task=task_id, agent=agent, evidence=evidence)
         save_state(project, run_dir, state)
+
+
+def exec_command(
+    project: Path, run_dir: Path, task_id: str, agent: str, command: list[str], shell: bool = False
+) -> dict[str, Any]:
+    """Run a command for a claimed task and record exit code, duration, HEAD, and output.
+
+    This turns "tests pass" from a claim into a record. Commands that match a policy command
+    rule above the task's approved risk are refused.
+    """
+    if not command:
+        raise TeamError("exec needs a command after --")
+    policy = load_policy(project)
+    text = command[0] if shell and len(command) == 1 else subprocess.list2cmdline(command) if os.name == "nt" else " ".join(command)
+    with state_lock(run_dir):
+        state = load_state(run_dir)
+        task = state["tasks"].get(task_id)
+        if not task or task["status"] != "claimed" or task.get("claimed_by") != agent:
+            raise TeamError(f"Task {task_id} is not claimed by {agent}")
+        level, rule = command_risk(policy, text)
+        if rule is not None:
+            verified = verified_view(state)
+            approved = any(
+                item.get("kind") == "risk" and item.get("task") == task_id and verified.checkpoint_status(item) == "approved"
+                for item in state["checkpoints"]
+            )
+            if RISK_ORDER[level] > RISK_ORDER[task["risk"]] or (RISK_ORDER[level] >= 3 and not approved):
+                raise GateError(
+                    f"Command matches a {level} rule ({rule['reason']}). It needs a task declared as "
+                    f"--action {rule['action']} with an approved risk checkpoint."
+                )
+        number = len(task.get("execs", [])) + 1
+    limits = policy.get("evidence", {})
+    started = time.monotonic()
+    head = git_head(project.resolve())
+    try:
+        completed = subprocess.run(
+            text if shell else command,
+            cwd=project.resolve(),
+            shell=shell,
+            capture_output=True,
+            timeout=int(limits.get("exec_timeout_seconds", 1800)),
+        )
+        exit_code, stdout, stderr = completed.returncode, completed.stdout, completed.stderr
+    except subprocess.TimeoutExpired as exc:
+        exit_code, stdout, stderr = 124, exc.stdout or b"", (exc.stderr or b"") + b"\n[timed out]"
+    except OSError as exc:
+        exit_code, stdout, stderr = 127, b"", str(exc).encode("utf-8")
+    duration = round(time.monotonic() - started, 3)
+    budget = int(limits.get("exec_output_bytes", 65536))
+
+    def clip(data: bytes) -> str:
+        text_out = data.decode("utf-8", errors="replace")
+        if len(text_out) > budget:
+            half = budget // 2
+            return text_out[:half] + f"\n[... {len(text_out) - budget} characters omitted ...]\n" + text_out[-half:]
+        return text_out
+
+    record = {
+        "id": f"{task_id}-{number}",
+        "command": text,
+        "shell": shell,
+        "exit_code": exit_code,
+        "duration_seconds": duration,
+        "git_head": head,
+        "agent": agent,
+        "time": utcnow(),
+    }
+    evidence_dir = run_dir / "_evidence" / slug(task_id)
+    write_text(evidence_dir / f"{number}.log", f"$ {text}\n\n--- stdout ---\n{clip(stdout)}\n--- stderr ---\n{clip(stderr)}\n--- exit {exit_code} ---")
+    record["log"] = str((evidence_dir / f"{number}.log").relative_to(run_dir)).replace("\\", "/")
+    write_json_atomic(evidence_dir / f"{number}.json", record)
+    with state_lock(run_dir):
+        state = load_state(run_dir)
+        task = state["tasks"][task_id]
+        task.setdefault("execs", []).append(record)
+        append_event(state, "command-executed", task=task_id, agent=agent, exec_id=record["id"], exit_code=exit_code)
+        save_state(project, run_dir, state)
+    return record
 
 
 def retry_limit(task: dict[str, Any], profile: dict[str, Any], state: dict[str, Any] | None = None) -> int:
@@ -1887,6 +2088,10 @@ def advance_stage(project: Path, run_dir: Path) -> str:
             raise TeamError(f"Current stage has unfinished tasks: {', '.join(open_tasks)}")
         profile = profile_policy(project, state)
         pending = [item["id"] for item in state["checkpoints"] if verified.checkpoint_status(item) == "pending"]
+        if not pending:
+            problems = stage_exit_problems(project, run_dir, state, current)
+            if problems:
+                raise TeamError(f"{current} exit contract is not met:\n- " + "\n- ".join(problems))
         if pending:
             recompute_status(state, profile)
             save_state(project, run_dir, state)
@@ -1923,12 +2128,171 @@ def advance_stage(project: Path, run_dir: Path) -> str:
             state["status"] = "complete"
             append_event(state, "run-completed")
             save_state(project, run_dir, state)
+            refresh_stage_contexts(run_dir, state)
             return "complete"
+        if current == "04_build":
+            state["integration_sha"] = git_head(project.resolve())
         state["stage"] = STAGE_NAMES[index + 1]
-        append_event(state, "stage-advanced", previous=current, stage=state["stage"])
+        append_event(state, "stage-advanced", previous=current, stage=state["stage"], integration_sha=state.get("integration_sha"))
         recompute_status(state, profile)
         save_state(project, run_dir, state)
+        refresh_stage_contexts(run_dir, state)
         return state["stage"]
+
+
+PLACEHOLDER = re.compile(r"\{\{[^}]*\}\}|\bTODO\b")
+
+
+def refresh_stage_contexts(run_dir: Path, state: dict[str, Any]) -> None:
+    """Keep each stage CONTEXT.md status line true after a transition."""
+    current = STAGE_NAMES.index(state["stage"]) if state["stage"] in STAGE_NAMES else 0
+    for index, stage in enumerate(STAGE_NAMES):
+        path = run_dir / stage / "CONTEXT.md"
+        if not path.is_file():
+            continue
+        if state.get("status") == "complete" or index < current:
+            status = "complete"
+        elif index == current:
+            status = "active"
+        else:
+            status = "pending"
+        text = path.read_text(encoding="utf-8")
+        updated = re.sub(r"^Status: `[^`]*`", f"Status: `{status}`", text, count=1, flags=re.MULTILINE)
+        if updated != text:
+            path.write_text(updated, encoding="utf-8")
+
+
+def acceptance_ids(run_dir: Path) -> set[str]:
+    ids: set[str] = set()
+    for name in ("PRD.md", "BRIEF.md"):
+        path = run_dir / name
+        if path.is_file():
+            ids |= set(re.findall(r"\bAC-\d+\b", path.read_text(encoding="utf-8")))
+    return ids
+
+
+def stage_exit_problems(project: Path, run_dir: Path, state: dict[str, Any], stage: str) -> list[str]:
+    """What still stands between this stage and its exit, per the policy's exit contract."""
+    policy = load_policy(project)
+    verified = verified_view(state)
+    rules = policy.get("stage_exits", {}).get(state.get("context_method", "adaptive"), {}).get(stage, [])
+    problems: list[str] = []
+
+    def waived(check: str) -> bool:
+        return verified.waiver(f"stage-exit:{stage}:{check}") is not None
+
+    for rule in rules:
+        check = rule["check"]
+        if check == "artifact":
+            name = rule["file"]
+            if waived(f"artifact:{name}"):
+                continue
+            path = run_dir / name
+            if not path.is_file():
+                problems.append(f"{name} is missing (scaffold it with `scaffold --artifact {name}`)")
+                continue
+            text = path.read_text(encoding="utf-8")
+            if PLACEHOLDER.search(text):
+                problems.append(f"{name} still has unfilled {{{{...}}}} markers or TODO")
+            if rule.get("pattern") and not re.search(rule["pattern"], text):
+                problems.append(f"{name} must contain {rule['pattern']}")
+        elif check == "traceability" and not waived("traceability"):
+            path = run_dir / rule["file"]
+            ids = acceptance_ids(run_dir)
+            if ids and path.is_file():
+                text = path.read_text(encoding="utf-8")
+                untraced = sorted(identifier for identifier in ids if not re.search(rf"\b{identifier}\b", text))
+                if untraced:
+                    problems.append(f"{rule['file']} does not trace {', '.join(untraced)}")
+        elif check == "evidence" and not waived("evidence"):
+            for task in state["tasks"].values():
+                if task["stage"] != stage or task["status"] != "completed":
+                    continue
+                records = task.get("evidence_records")
+                if records is None:
+                    continue  # completed before typed evidence existed
+                owner_access = installed_agents(project).get(task["owner"], {}).get("access")
+                if owner_access in WRITE_ACCESS and task.get("action", "build") in {"build", "test", "migrate", "infra-change", "add-dependency"}:
+                    if not any(record["type"] in {"file", "cmd", "commit"} for record in records):
+                        problems.append(f"task {task['id']} has no typed evidence")
+        elif check == "verdict":
+            problems.extend(verdict_problems(project, run_dir, state, rule["file"], waived))
+    for agent, record in state.get("active_specialists", {}).items():
+        if record.get("status") != "active":
+            continue
+        finished = any(task["owner"] == agent and task["status"] == "completed" for task in state["tasks"].values())
+        if not finished and STAGE_NAMES.index(record.get("stage", stage)) <= STAGE_NAMES.index(stage):
+            problems.append(f"specialist {agent} is active with no completed task; complete its review or `deactivate-specialist` with a reason")
+    return problems
+
+
+def verdict_problems(project: Path, run_dir: Path, state: dict[str, Any], name: str, waived: Any) -> list[str]:
+    if waived("verdict"):
+        return []
+    path = run_dir / name
+    if not path.is_file():
+        return [f"{name} is missing (scaffold it with `scaffold --artifact {name}`)"]
+    text = path.read_text(encoding="utf-8")
+    head = "\n".join(text.splitlines()[:25])
+    problems = []
+    if PLACEHOLDER.search(head):
+        problems.append(f"{name} header still has unfilled markers")
+    verdict = re.search(r"^Verdict:\s*(PASS|CONDITIONAL|FAIL)\b", head, flags=re.MULTILINE)
+    verifier = re.search(r"^Verifier:\s*([a-z0-9-]+)", head, flags=re.MULTILINE)
+    sha = re.search(r"^Verified-SHA:\s*([0-9a-fA-F]{7,40}|none)\b", head, flags=re.MULTILINE)
+    if not verdict:
+        problems.append(f"{name} needs a first-lines `Verdict: PASS|CONDITIONAL|FAIL`")
+    elif verdict.group(1) == "FAIL":
+        problems.append("the verdict is FAIL: fix the blockers (remediation tasks in this stage) and re-verify")
+    elif verdict.group(1) == "CONDITIONAL" and not waived("conditional"):
+        problems.append("a CONDITIONAL verdict needs the human's waiver `stage-exit:05_verify:conditional`")
+    if not verifier:
+        problems.append(f"{name} needs `Verifier: <role-id>`")
+    else:
+        role = verifier.group(1)
+        if role not in installed_agents(project):
+            problems.append(f"verifier {role} is not an installed role")
+        builders = {
+            builder
+            for task in state["tasks"].values()
+            if task["stage"] == "04_build"
+            for builder in task_builders(task)
+        }
+        if role in builders:
+            problems.append(f"verifier {role} built 04_build work; verification must be independent")
+    integration = state.get("integration_sha")
+    if integration:
+        if not sha or sha.group(1) == "none":
+            problems.append(f"{name} needs `Verified-SHA:` matching the integration commit {integration[:12]}")
+        elif not integration.lower().startswith(sha.group(1).lower()):
+            problems.append(f"Verified-SHA {sha.group(1)} is not the integration commit {integration[:12]}")
+    return problems
+
+
+ARTIFACT_TEMPLATES = {
+    "BRIEF.md": "brief.md",
+    "ASSUMPTIONS.md": "assumptions.md",
+    "PRD.md": "prd.md",
+    "READINESS.md": "readiness.md",
+    "VERIFICATION.md": "verification.md",
+    "RELEASE.md": "release.md",
+    "RETROSPECTIVE.md": "retrospective.md",
+    "DELIVERY-REPORT.md": "delivery-report.md",
+    "RISKS.md": "risks.md",
+}
+
+
+def scaffold_artifact(project: Path, run_dir: Path, name: str) -> Path:
+    """Create a run artifact from its template (never overwrites)."""
+    if name not in ARTIFACT_TEMPLATES:
+        raise TeamError(f"Unknown artifact {name}. Choose: {', '.join(ARTIFACT_TEMPLATES)}")
+    path = run_dir / name
+    if path.exists():
+        raise TeamError(f"{name} already exists")
+    template = (project_bus(project) / "templates" / ARTIFACT_TEMPLATES[name]).read_text(encoding="utf-8")
+    state = load_state(run_dir)
+    write_text(path, template.replace("{{project}}", state.get("project", "")))
+    return path
 
 
 def stage_facts(state: dict[str, Any], stage: str, run_dir: Path) -> dict[str, Any]:
@@ -2418,6 +2782,8 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--input", action="append", default=[])
     add.add_argument("--acceptance", action="append", default=[])
     add.add_argument("--evidence-contract", action="append", default=[])
+    add.add_argument("--check", action="append", default=[], help="Acceptance command that must pass (repeatable)")
+    add.add_argument("--verifies", action="append", default=[], help="Task this one verifies; its builders cannot claim it")
 
     claim = sub.add_parser("claim", help="Atomically claim a ready task")
     add_common_run_args(claim)
@@ -2441,7 +2807,19 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_run_args(complete)
     complete.add_argument("--task", required=True)
     complete.add_argument("--agent", required=True)
-    complete.add_argument("--evidence", action="append", required=True)
+    complete.add_argument("--evidence", action="append", default=[], help="file:<path>, cmd:<exec-id>, commit:<sha>, url:<url>, or note:<text>")
+    complete.add_argument("--run-checks", action="store_true", help="Run the task's --check commands through exec first")
+
+    execute = sub.add_parser("exec", help="Run a command for a claimed task and record its exit code and output")
+    add_common_run_args(execute)
+    execute.add_argument("--task", required=True)
+    execute.add_argument("--agent", required=True)
+    execute.add_argument("--shell", action="store_true", help="Run the command through the shell")
+    execute.add_argument("cmd", nargs=argparse.REMAINDER, help="-- <command...>")
+
+    scaffold = sub.add_parser("scaffold", help="Create a run artifact from its template")
+    add_common_run_args(scaffold)
+    scaffold.add_argument("--artifact", required=True)
 
     fail = sub.add_parser("fail", help="Record a failed attempt and apply retry policy")
     add_common_run_args(fail)
@@ -2668,8 +3046,17 @@ def main(argv: list[str] | None = None) -> int:
                 reassign_task(project, run_dir, args.task, args.owner, args.reason)
                 print(f"Reassigned {args.task} to {args.owner}")
             elif args.command == "complete":
-                complete_task(project, run_dir, args.task, args.agent, args.evidence)
+                complete_task(project, run_dir, args.task, args.agent, args.evidence, args.run_checks)
                 print(f"Completed {args.task}")
+            elif args.command == "exec":
+                command = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
+                if args.shell:
+                    command = [" ".join(command)]
+                record = exec_command(project, run_dir, args.task, args.agent, command, args.shell)
+                print(f"{record['id']}: exit {record['exit_code']} in {record['duration_seconds']}s (log: {record['log']})")
+                return EXIT_OK if record["exit_code"] == 0 else EXIT_ERROR
+            elif args.command == "scaffold":
+                print(scaffold_artifact(project, run_dir, args.artifact))
             elif args.command == "fail":
                 fail_task(project, run_dir, args.task, args.agent, args.reason)
                 print(f"Recorded failure for {args.task}")

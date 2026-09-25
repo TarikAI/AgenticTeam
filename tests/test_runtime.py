@@ -289,7 +289,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(state["tasks"]["T1"]["status"], "ready")
         self.assertEqual(state["tasks"]["T2"]["status"], "pending")
         team.claim_task(self.project, run, "T1", "backend-engineer", 60)
-        team.complete_task(self.project, run, "T1", "backend-engineer", ["12 tests passed"])
+        record = team.exec_command(self.project, run, "T1", "backend-engineer", [sys.executable, "-c", "print('12 passed')"])
+        self.assertEqual(record["exit_code"], 0)
+        team.complete_task(self.project, run, "T1", "backend-engineer", [f"cmd:{record['id']}", "note:12 tests passed"])
         self.assertEqual(team.load_state(run)["tasks"]["T2"]["status"], "ready")
 
     def test_specialist_routing_activates_only_matching_installed_roles(self) -> None:
@@ -355,6 +357,7 @@ class RuntimeTests(unittest.TestCase):
     def test_hitl_stage_gate_waits_and_resumes(self) -> None:
         run = self.new_run("hitl", "plan-given")
         self.assertEqual(team.load_state(run)["stage"], "03_readiness")
+        (run / "READINESS.md").write_text("# Readiness\n\nAll work traced to the supplied plan.\n", encoding="utf-8")
         self.assertEqual(team.advance_stage(self.project, run), "waiting-human")
         state = team.load_state(run)
         team.approve_checkpoint(

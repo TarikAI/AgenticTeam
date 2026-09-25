@@ -22,6 +22,11 @@ Deviation: rate limiting split into T-021; architecture contract unchanged
 Risk/follow-up: password reset remains outside supplied scope
 ```
 
+Evidence is typed: `file:<path>` (must exist; hashed), `cmd:<exec-id>` (a command run through
+`exec`, with its exit code and log), `commit:<sha>` (resolved when git is present), `url:`, and
+`note:`. A workspace-changing task cannot complete on notes alone; tasks with `--check`
+commands complete only after each check has a passing `exec` record (`complete --run-checks`).
+
 Distinguish observed evidence from reported and inferred information. Never mark complete from an
 unexecuted command or file existence alone.
 
