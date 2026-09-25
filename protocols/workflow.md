@@ -1,40 +1,32 @@
 # Evidence-gated delivery workflow
 
-The authoritative runtime stages are numbered below. Entry mode may begin later, but every build
-must preserve relevant safety inputs, independent verification, release controls, and learning.
+Runs move through numbered stages `00_intake` … `07_learn`. The entry mode may start later, but
+every build keeps independent verification, release controls, and learning. Each stage is
+governed by its `CONTEXT.md` and left only through `advance`; persuasive prose never opens a gate.
 
-## Entry
+## Entry (`init-run --entry`)
 
 - `idea`: begin at `00_intake`.
-- `plan-given`: preserve the supplied authority and begin at `03_readiness` unless a named gap
-  requires a bounded earlier artifact.
+- `plan-given`: adopt the supplied plan and begin at `03_readiness` unless a named gap needs a
+  bounded earlier artifact (`plan-modes.md`).
 - `execute-only`: create task envelopes and begin at `04_build`; never write a competing plan.
 
-## Stages
+## Stages and owners
 
-1. **00 Intake — ceo:** normalize outcome, users, constraints, authority, entry/context/autonomy,
-   risks, and unknowns. Output `BRIEF.md` and assumptions.
-2. **01 Product — product-manager:** product outcomes, journeys, scope/non-goals, acceptance, and
-   research only where it changes decisions. Human gate in HITL.
-3. **02 Solution — architect + UX + triggered specialists:** architecture/data/API/experience,
-   threat/privacy/operability/accessibility/cost requirements. Human gate in HITL; independent
-   review in autonomous/supervised.
-4. **03 Readiness — delivery-lead:** trace requirements to contracts, tasks, tests, owners, and
-   risks. Nothing assignable lacks acceptance/evidence. Human gate in HITL.
-5. **04 Build — leads/engineers/integrator:** claim dependency-ready, non-overlapping tasks;
-   implement vertical evidence; integrate in order; repair within retry policy.
-6. **05 Verify — QA/reviewers/specialists:** independent traceability and reproduced checks on the
-   integrated result. Verdict is PASS, CONDITIONAL, or FAIL.
-7. **06 Release — release/SRE/DevOps/docs:** artifact identity, migration, staged rollout,
-   monitoring, support, and tested rollback. Production/public action always waits for human.
-8. **07 Learn — delivery-lead/all:** retrospective, scoped lessons, evaluated playbook/team
-   proposals, human-controlled promotion.
+| Stage | Owner → artifact | Work |
+|---|---|---|
+| 00_intake | ceo → `BRIEF.md`, `ASSUMPTIONS.md` | outcome, users, constraints, authority, entry/context/autonomy choices, risks, unknowns |
+| 01_product | product-manager → `PRD.md` (`AC-` ids) | journeys, scope and non-goals, measurable acceptance; research only where it changes a decision |
+| 02_solution | cto-architect → `ARCHITECTURE.md` + `_decisions/ADR-NNN.md`; ux-ui-designer → `DESIGN.md` | architecture, data, API, experience; triggered specialists add threat, privacy, operability, accessibility, and cost requirements |
+| 03_readiness | delivery-lead → `READINESS.md` and the task graph | trace every `AC-` id to tasks and checks; nothing assignable lacks acceptance and evidence |
+| 04_build | leads, engineers, build-integrator | claim ready, non-overlapping tasks; vertical slices with evidence; integrate in dependency order |
+| 05_verify | qa-lead → `VERIFICATION.md` | independent, reproduced checks on the integration commit; code-reviewer, security-engineer, and triggered specialists supply findings |
+| 06_release | release-manager → `RELEASE.md` | artifact identity, migrations, staged rollout, monitoring, tested rollback; production and public actions always wait for the human |
+| 07_learn | delivery-lead → `RETROSPECTIVE.md`; ceo → `DELIVERY-REPORT.md` | retrospective, scoped lessons, evaluated proposals (`evolution.md`), the final report (`final-report.md`) |
 
-Marketing and customer-success work may run in parallel after product direction stabilizes, but
-publishing, sending, advertising spend, and public commitments remain human-gated.
-
-Each stage is governed by its `CONTEXT.md` and advanced through the state CLI. Do not infer a gate
-from persuasive prose; attach objective outputs and evidence.
+Marketing runs as a parallel track once product direction is stable: artifacts live under
+`runs/<id>/_marketing/`, the cmo owns `MARKETING.md`, and publishing, sending, ad spend, and
+public commitments stay behind the hard gates (`guardrails.md`).
 
 ## Stage exit contracts
 
@@ -54,8 +46,10 @@ artifact with `scaffold --artifact NAME`; a file that still contains a `{{...}}`
 | 06_release | `RELEASE.md` + human release checkpoint | human release checkpoint |
 | 07_learn | `RETROSPECTIVE.md`, `DELIVERY-REPORT.md` | `DELIVERY-REPORT.md` |
 
-In every stage `advance` also refuses while a checkpoint is pending or an activated specialist
-has neither a completed task nor a deactivation reason. Remediation found in 05_verify is added
+In every stage `advance` also refuses while a task of the stage is open, a checkpoint is
+pending, or an activated specialist has neither a completed task nor a deactivation reason; then
+the profile's gate applies (`autonomy.md`), and a human gate returns exit code 2 with a new stage
+checkpoint. Remediation found in 05_verify is added
 to 05_verify (the default stage is always the current one), so it gates the verify exit.
 
 `VERIFICATION.md` starts with three machine-read lines: `Verdict: PASS|CONDITIONAL|FAIL`,

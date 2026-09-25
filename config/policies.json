@@ -342,6 +342,18 @@
       ]
     },
     {
+      "regex": "\\bgit push\\b[^\\n]*(--delete\\b|\\s:[\\w./-]+)|\\bgit filter-(branch|repo)\\b|\\bgit reset --hard origin\\b",
+      "risk": "R4",
+      "action": "data-destructive",
+      "reason": "shared-branch deletion or history rewrite",
+      "globs": [
+        "git push * --delete*",
+        "git push --delete*",
+        "git filter-branch*",
+        "git filter-repo*"
+      ]
+    },
+    {
       "regex": "\\bgit push\\b[^\\n]*\\b(main|master)\\b",
       "risk": "R3",
       "action": "publish",

@@ -9,6 +9,10 @@ permission:
     "git push * --force*": deny
     "git push -f*": deny
     "git push * -f*": deny
+    "git push * --delete*": deny
+    "git push --delete*": deny
+    "git filter-branch*": deny
+    "git filter-repo*": deny
     "git push * main*": ask
     "git push * master*": ask
     "npm publish*": ask

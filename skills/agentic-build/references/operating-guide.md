@@ -1,22 +1,46 @@
 # Operating guide
 
-## Minimum task envelope
+Lookup tables for the agentic-build runbook. Exit contracts come from `config/policies.json →
+stage_exits` and are printed in each stage's `CONTEXT.md` under **Exit criteria**; the protocol
+is `.agentic-team/protocols/workflow.md`.
 
-Every task requires: ID, objective, owner/capability, artifact, named inputs, dependencies,
-owned paths, risk class, acceptance checks, and evidence required for completion.
+## Stage artifacts
 
-## Lifecycle
+`scaffold --artifact NAME` creates the file in `<run>/` from `.agentic-team/templates/`. Items
+marked (bmad) are exit requirements only under `--context bmad-progressive`; under `adaptive`
+they are optional.
 
-`pending -> ready -> claimed -> completed`; exceptional states are `blocked`, `failed`, and
-`cancelled`. Use the installed CLI (`python .agentic-team/bin/agentic_team.py --help`) for the exact
-commands. The CLI is the single writer for run state.
+| Stage | Artifact | Owner (fallback) | Exit requirement |
+|---|---|---|---|
+| 00_intake | BRIEF.md | ceo (fullstack-engineer) | exists, no `{{...}}`/TODO; adaptive: contains `AC-` ids |
+| 00_intake | ASSUMPTIONS.md | ceo | (bmad) exists |
+| 01_product | PRD.md | product-manager (ceo) | (bmad) contains `AC-` ids |
+| 02_solution | ARCHITECTURE.md, `_decisions/ADR-NNN.md` (hand-written; ADR from `adr.md`) | cto-architect (fullstack-engineer) | (bmad) ARCHITECTURE.md exists |
+| 03_readiness | READINESS.md | delivery-lead (ceo) | (bmad) exists and traces every `AC-` id |
+| 04_build | code and tests | owners of build tasks | every completed write task has `file:`/`cmd:`/`commit:` evidence |
+| 05_verify | VERIFICATION.md | qa-lead (code-reviewer) | `Verdict:` / `Verifier:` / `Verified-SHA:` header; see agentic-verify |
+| 06_release | RELEASE.md | release-manager (devops-engineer) | (bmad) exists; release gate is always human |
+| 07_learn | RETROSPECTIVE.md, DELIVERY-REPORT.md | delivery-lead; ceo | DELIVERY-REPORT.md exists (both under bmad) |
 
-## Stage order
+Every stage also needs: all its tasks closed, no pending checkpoint, activated specialists
+finished or deactivated, and its policy gate passed.
 
-`00_intake`, `01_product`, `02_solution`, `03_readiness`, `04_build`, `05_verify`,
-`06_release`, `07_learn`. Entry modes may start later but may not omit a safety-relevant input.
+## add-task flags
 
-## Completion evidence
+| Flag | Use |
+|---|---|
+| `--id`, `--title`, `--owner` | required; owner must be installed |
+| `--stage` | defaults to the current stage; never an earlier one |
+| `--action`, `--target` | what and where (`risk.actions` in `config/policies.json`; target local, ci, staging, production, external); the runtime derives the risk |
+| `--risk` | a requested floor only |
+| `--path` (repeatable) or `--exclusive` | owned paths; required for 04_build tasks of writing roles |
+| `--depends-on` (repeatable) | task ids that must complete first |
+| `--input` (repeatable) | project-relative file, optionally `#section`; `pack` inlines it |
+| `--acceptance`, `--evidence-contract` (repeatable) | the done criteria and expected evidence |
+| `--check` (repeatable) | acceptance command; must pass through `exec` (`complete --run-checks`) |
+| `--verifies` (repeatable) | marks a verification task; builders of the named tasks cannot claim it |
 
-Record changed artifact paths, checks and outcomes, acceptance mapping, deviations, residual
-risks, and follow-ups. Generated files, unrun test commands, and self-review are not proof.
+## Evidence types
+
+`file:<project-relative path>` (hashed), `cmd:<exec-id>` (from `exec`), `commit:<sha>`,
+`url:<url>`, `note:<text>`. A note never suffices for a write task.

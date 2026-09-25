@@ -1,40 +1,70 @@
-# Runtime and concurrency protocol
+# Runtime and concurrency
 
-The harness provides model execution; `scripts/agentic_team.py` provides deterministic
-project state. The filesystem is the durable coordination bus.
-
-## Single-writer state
-
-All task lifecycle changes go through the CLI. It writes atomically under a run lock. Agent
-prose is never treated as state. A stale task lease may be recovered only after its expiry is
-recorded as an event.
+The harness runs the models; `.agentic-team/bin/agentic_team.py` owns project state. Every
+mutation takes a run lock and atomically replaces `state.json`; agent prose is never state.
+Flags and examples: `docs/cli.md` (the source checkout's copy); `--help` on any command.
 
 ## Task lifecycle
 
-`pending -> ready -> claimed -> completed`
+`pending → ready → claimed → completed`, plus `failed` and `cancelled`. Closed for the stage
+gate: `completed` and `cancelled`. A task is `ready` when every dependency is `completed`.
 
-Exceptional states are `failed` and `cancelled`; `completed` and `cancelled` are closed for the
-stage gate. A task becomes ready only when all dependencies are complete. Only the task owner
-claims it, in the current stage, within the profile's concurrency cap; claiming records agent,
-time, lease, and owned paths (`renew` extends a lease). Completion requires evidence and
-refreshes dependent tasks.
+| Transition | Command | Who | Runtime checks |
+|---|---|---|---|
+| create | `add-task` | orchestrator | owner installed; stage = current or later; `--action`/`--target` derive risk; build tasks of writing roles need `--path` or `--exclusive` |
+| claim | `claim` | owner agent | current stage; claimant is the owner; `max_concurrent_agents`; no owned-path overlap; not a builder of the task it `--verifies`; R-level in `pause_at` needs an approved risk checkpoint |
+| renew | `renew` | claimant | 1-480 minutes |
+| run a check | `exec` | claimant | records exit code, duration, git HEAD, output; refuses unapproved command-rule matches |
+| complete | `complete` | claimant | typed evidence; `--run-checks` must pass |
+| fail | `fail --reason` | claimant | counts an attempt; `failed` when retries are exhausted |
+| reassign | `reassign` | orchestrator | unclaimed open task; reason recorded |
+| reopen a wedged claim | `reopen` | orchestrator | counts as an attempt |
+| reopen failed/cancelled/completed, `--extend-retries` | `reopen --by` | **human** | owner token |
+| cancel | `cancel --by` | **human** | owner token; refuses open dependents unless `--cascade` |
+| decide | `approve` / `reject` / `resolve` | **human** | owner token |
+| waive | `waive` | **human** | owner token; the only way to lower risk or skip a named exit check |
+| advance | `advance` | orchestrator | `workflow.md` → Stage exit contracts |
+| promote, migrate, audit | `promote`, `migrate`, `audit verify` | **human** | owner token |
 
-Authority: agents create, claim, renew, complete, and fail tasks; the orchestrator may
-`reassign` an unclaimed task and `reopen` a wedged claim. Only the human (owner token) may
-`cancel` work, reopen a failed, cancelled, or completed task, extend a retry budget, decide a
-checkpoint, or `resolve` a rejection. The run is `blocked-rejection` while a rejection is
-unresolved and `blocked-failure` when a profile that stops on failure has an exhausted task.
+Read-only and research roles never claim or complete; the orchestrator records for them.
+
+## Run states
+
+`active`, `waiting-human` (a checkpoint is pending), `verifying` (in 05_verify),
+`blocked-rejection`, `blocked-failure`, `complete`, `closed`.
+
+- **blocked-rejection:** the human rejected a checkpoint. Fix the work, then the human runs
+  `resolve` with a corrective note. Approving some other checkpoint never clears it.
+- **blocked-failure:** a profile that stops on failure (`hitl`) has an exhausted task. The human
+  either `reopen --extend-retries N` or `cancel`s it.
+
+## Exit codes
+
+`0` ok · `1` error (stderr says why) · `2` stopped at a human gate · `3` run blocked · `64` usage
+error. On `2`, show the pending checkpoint and wait; on `3`, show the rejection or failed task and
+stop. Never loop on `advance`.
+
+## Events and the ledger
+
+- `runs/<id>/events.jsonl` is append-only and hash-chained (each line carries the previous
+  line's hash); read it with `log`, summarize with `metrics`. Only the CLI writes it.
+- Human decisions go to an HMAC-signed, hash-chained ledger under `~/.agentic-team/ledger/`.
+  Gates read the ledger, not `state.json`, so editing state approves nothing. `audit verify`
+  recomputes both chains. Agents never read `~/.agentic-team/`.
+- This is tamper-evident, not tamper-proof: code running unsandboxed as the same OS user can
+  still do damage. Unattended runs belong in an OS sandbox, WSL2, a container, or a separate
+  account.
 
 ## Parallel work
 
-- Parallelize only tasks with satisfied dependencies and non-overlapping owned paths.
-- Prefer native worktrees when the harness supports them; otherwise isolate by file ownership.
-- One build integrator owns convergence of parallel branches or worktrees.
-- Contract/schema changes are serialized through the architect or designated owner.
-- Independent verification runs after integration, not on an obsolete branch.
+- Parallelize only dependency-ready tasks with non-overlapping owned paths.
+- Prefer native worktrees when the harness has them; one build-integrator merges in dependency
+  order. Contract and schema changes go through the cto-architect.
+- Verification runs on the integration commit recorded when 04_build exits.
 
 ## Recovery
 
-Run state is resumable after process or context loss. On resume, read the router and state
-summary, reconcile claimed leases, and continue the current stage. Never infer completion
-from files alone; attach evidence through the CLI.
+State survives process and context loss. On resume: read `CURRENT.md`, run `status --brief`,
+run `recover-leases` for expired claims, continue the current stage. A killed command can leave
+`.state.lock`; `unlock` clears it. Never infer completion from files; attach evidence through the
+CLI.

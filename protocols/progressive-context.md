@@ -1,47 +1,60 @@
-# Progressive context protocol
+# Progressive context
 
-AgenticTeam adapts ICM's compact router and stage-contract ideas and BMAD's progressive
-planning/build flow. Use this mode when requested, for large or regulated work, or when a
-single context would become noisy. Small, well-specified tasks may use direct execution.
+AgenticTeam adapts ICM's compact router and stage contracts and BMAD's progressive planning.
+The goal: any agent finds its stage, task, next action, and output with a handful of reads.
 
-## Context architecture
+## Three layers
 
-- The root router is stable and short; it points, it does not teach the whole system.
-- Numbered folders encode stage order.
-- Every active stage owns a `CONTEXT.md` contract with **Inputs**, **Process**, **Outputs**,
-  **Human check**, and **Exit criteria**.
-- Each fact has one authoritative home. Other documents link to it rather than copying it.
-- Stable knowledge lives outside per-run artifacts.
-- State and indexes are generated from files; agents never hand-edit generated state views.
+1. **Router** (`.agentic-team/AGENTS.md`, imported or inlined by the harness): short and stable.
+   It points; it does not teach the whole system.
+2. **`CURRENT.md`**: names the active run and stage. Only `init-run` and `switch-run` move it.
+3. **Stage `CONTEXT.md`** (`runs/<id>/<stage>/CONTEXT.md`): Inputs, Process, Outputs, Human
+   check, and Exit criteria. The CLI regenerates its `Status:` line on every transition and
+   renders the exit criteria from the same policy rows `advance` checks; agents edit the other
+   sections, and the stage owner keeps them current.
+
+Each fact has one home; other documents link to it. Stable knowledge lives in
+`.agentic-team/knowledge/`, not in run artifacts. Agents never hand-edit generated state.
 
 ## Load rule
 
-Start with the router and current stage contract. Read at most two additional documents
-before acting unless the contract explicitly names more. Target 2,000–8,000 tokens for a
-task context pack. If more is necessary, the context engineer writes a narrow summary that
-links to evidence and records what was omitted.
+Read the router, `CURRENT.md`, and the current stage `CONTEXT.md`; then at most two more
+documents before acting, unless the contract names more. For a task, use its packet:
 
-## Standard stages
+```text
+python .agentic-team/bin/agentic_team.py pack --project . --task T-014
+```
 
-1. `00_intake` — normalize the request, constraints, entry mode, and open questions.
-2. `01_product` — brief/PRD, journeys, scope, measurable acceptance.
-3. `02_solution` — architecture, UX direction, risks, contracts, specialist reviews.
-4. `03_readiness` — traceability, sequencing, ownership, and unresolved blockers.
-5. `04_build` — small task packets, implementation, integration, continuously updated evidence.
-6. `05_verify` — independent review, tests, security/accessibility/performance as applicable.
-7. `06_release` — release plan, human approval, rollback, and operational handoff.
-8. `07_learn` — retrospective, evidence-backed lessons, evaluated playbook proposals.
+`pack` writes `runs/<id>/_context/<task>.md` within `context_target_tokens` (2K-8K): the
+envelope, named inputs, the stage contract excerpt, the role's playbook checks, and the exact
+claim/exec/complete commands. It lists what it truncated or omitted; read an omitted source only
+if the task actually needs it. If a task truly needs more, the context-engineer writes a narrow
+summary that links to evidence and records what it left out.
 
-## Entry modes
+## Context methods (`init-run --context`)
 
-- `idea`: start at intake and progressively create product/solution artifacts.
-- `plan-given`: adopt the supplied plan, validate only what is needed for safe execution,
-  then enter readiness or build.
-- `execute-only`: do not generate a competing plan; create task envelopes from the supplied
-  authority and start at build.
+The two methods differ in their exit contracts (`config/policies.json` → `stage_exits`, table in
+`workflow.md`):
+
+- **`bmad-progressive`:** every stage has its own artifact: `BRIEF.md` + `ASSUMPTIONS.md`,
+  `PRD.md` with `AC-` ids, `ARCHITECTURE.md`, `READINESS.md` tracing every `AC-` id,
+  `VERIFICATION.md`, `RELEASE.md`, `RETROSPECTIVE.md` + `DELIVERY-REPORT.md`. Use it for large,
+  regulated, or multi-team work, or when asked.
+- **`adaptive`:** 00-03 collapse into one `BRIEF.md` carrying the `AC-` ids and the task list;
+  05_verify still needs the verdict lines, 06_release still needs the human release checkpoint,
+  and 07_learn needs `DELIVERY-REPORT.md`. Use it for small, well-specified work.
+
+Entry modes (`idea`, `plan-given`, `execute-only`) are orthogonal: `plan-modes.md`.
 
 ## Cold walk test
 
-A fresh agent must be able to identify the current stage, its task, the next action, the
-required output, and the checkpoint using the router plus no more than two reads. Failure
-means the context design must be repaired before scaling concurrency.
+Run it after setting up a run and before raising concurrency:
+
+1. Start a fresh subagent that is given only the router (no chat history, no packet).
+2. Ask it to state: the current stage, its next task, the next action (exact command), the
+   required output, and any pending checkpoint.
+3. Run `status --json` and compare.
+4. Pass: all five answers match state within two reads beyond the router. Fail: fix the router
+   pointer or the stage `CONTEXT.md` (not the subagent's prompt) and rerun.
+
+Record the result as `cmd:` or `note:` evidence on the setup task.

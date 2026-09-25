@@ -1,64 +1,42 @@
-# Final Report Protocol
+# Final report
 
-Every build ends with `.agentic-team/runs/<run-id>/DELIVERY-REPORT.md` — the single document the human actually
-reads. It is written by the ceo (or fullstack-engineer in solo mode) from the
-delivery-lead's ship report, in plain language, and it must be TRUE: every claim in it
-traces to evidence in active run documents or executed checks.
+Every run ends with `runs/<id>/DELIVERY-REPORT.md`, the one document the human actually reads.
+The ceo writes it in 07_learn (fullstack-engineer when no ceo is installed), with sections from
+the delivery-lead and, for marketing work, the cmo. It must be true: every claim traces to run
+artifacts, typed evidence, or ledger decisions.
 
-The final chat message to the human is a compressed version of this report (the
-summary + how to run it + decisions needed), never a wall of process narration.
+## Two files, two authors
 
-## Template
+- `report` generates `DELIVERY-EVIDENCE.md` from state: completed tasks and their evidence,
+  unfinished work, and every checkpoint decision. Run it first and link it.
+- `DELIVERY-REPORT.md` is the ceo's narrative. `report` never overwrites it. Create it with
+  `scaffold --artifact DELIVERY-REPORT.md`; the 07_learn exit contract refuses it while any
+  `{{...}}` marker or `TODO` remains.
 
-```markdown
-# Final Report — <project name>
-date · build preset used · harness(es)
+## Structure (the `delivery-report.md` template, in this order)
 
-## 1. What you got (plain language, 3–6 sentences)
-What was built, for whom, and what it does — written so a non-dev recognizes their
-idea. State clearly what is DONE, what is PARTIAL, and what was CUT (with the
-decision reference for each cut).
-
-## 2. Try it now
-Exact steps to see it working: commands to run locally, or the staging URL, plus a
-2-minute "click this, then this" tour of the main flows. If it cannot be run right
-now, say why and what's needed.
-
-## 3. Evidence of quality
-| Check | Result | Where |
-|---|---|---|
-| Test suite | e.g. 148/148 passing | QA.md, CI |
-| Acceptance criteria | e.g. 21/23 pass, 2 waived | QA.md §verdict |
-| Code review sign-off | approved / notes | STATUS.md |
-| Security sign-off | approved / open risks | QA.md §security |
-| Docs verified by execution | yes/no | tech-writer note |
-Numbers are pasted from actual runs — never estimated.
-
-## 4. Known limitations & risks
-Honest list, ranked. What breaks, what's untested, what shortcuts were recorded, what
-the top security or operational risks are. An empty section here is a red flag, not
-an achievement.
-
-## 5. What's next (recommendation)
-The 3–5 highest-value next steps (from PRD "later" list + retro findings), each with
-a one-line why. Plus any decisions currently waiting on the human.
-
-## 6. Where everything lives
-One-line map: code entry points, run/ documents, how to redeploy, who (which agent)
-to summon for what kind of follow-up work.
-
-## 7. Costs & approvals ledger
-Anything that was spent or approved during the build (deploys, services, skills
-installed), each with its approval reference.
-```
+1. **Outcome:** the verified user outcome in one plain paragraph a non-developer recognizes;
+   say what is done, partial, and cut (with the decision reference for each cut).
+2. **Scope delivered:** what shipped, by `AC-` id, and how to try it (commands or URL, a
+   two-minute tour of the main flow). If it cannot be run now, say why.
+3. **Verification:** the `VERIFICATION.md` verdict line, verifier, verified SHA, and the key
+   evidence (`cmd:` records, counts pasted from real runs, never estimated).
+4. **Decisions and deviations:** ADRs in `_decisions/`, checkpoints, and waivers, each with
+   its reference.
+5. **Open risks and unfinished work:** ranked, each with an owner and a next step. An empty
+   section is a red flag, not an achievement.
+6. **Release and rollback:** the `RELEASE.md` summary, or why the release gate is still open.
+7. **Cost and learning:** budget used (tasks, councils, reported tokens/USD from `metrics`),
+   anything spent or approved, and the lessons recorded with `learn`.
 
 ## Rules
-- Length target: the whole report fits on ~2 screens. Detail lives in the linked
-  active run documents; the report is the map, not the territory.
-- No process theater: the human doesn't need the story of the build, they need the
-  state of the product. Phase-by-phase narration belongs in STATUS.md only.
-- Marketing builds use the same template with MARKETING.md artifacts: section 3
-  becomes campaign/asset checklist + metrics baseline, section 7 lists all approvals.
-- If the build stopped early or failed, the report is still written — sections 1, 4
-  and 5 become the honest account of where it stopped, why, and the cheapest path
-  forward. Never skip the report because the news is bad.
+
+- Fit on about two screens. Detail lives in the linked artifacts; the report is the map.
+- No process narration: the human needs the state of the product, not the story of the run.
+  Stage history is in `log`.
+- Marketing runs use the same seven sections with `_marketing/MARKETING.md` as the source:
+  section 3 becomes the asset checklist and metrics baseline, section 7 lists every approval.
+- A run that stopped early or failed still gets the report: sections 1, 5, and 6 become the
+  honest account of where it stopped, why, and the cheapest path forward.
+- The final chat message to the human is a compressed version: outcome, how to try it, and the
+  decisions waiting on them.

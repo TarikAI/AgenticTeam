@@ -1,43 +1,51 @@
 # Autonomy and human control
 
-Autonomy controls *when the team pauses*, not whether it follows guardrails. Select one
-profile when a run is created; changes are recorded as decisions.
+Autonomy decides *when the team pauses*, never whether it follows guardrails. The human picks
+one profile at `init-run --autonomy`. The values below are read by the runtime from
+`config/policies.json` → `profiles`; if this table and the policy disagree, the policy wins and
+the mismatch is a defect to report.
 
-| Profile | Normal behavior | Required pauses |
-|---|---|---|
-| `autonomous` | Plan, implement, test, repair, and continue without routine confirmation. Deviations are recorded, not paused on. Architecture exits after an independent review. | R3/R4 tasks and every hard human gate. Release approval remains human. |
-| `supervised` | Continue through reversible work. Product and architecture exit after a Fusion council or an independent review. | Deviation checkpoints, R3/R4 tasks, hard gates. |
-| `hitl` | Present decisions at product, architecture, readiness, and release boundaries. | Stage gates, R2+ tasks, hard gates. |
+| | `autonomous` | `supervised` | `hitl` |
+|---|---|---|---|
+| 01_product exit (`product_gate`) | automatic (record assumptions in `ASSUMPTIONS.md`) | Fusion council closed in the stage, or a completed review task | human |
+| 02_solution exit (`architecture_gate`) | completed review task by a read-only/research/review role | Fusion council or review task | human |
+| 03_readiness exit (`readiness_gate`) | automatic | automatic | human |
+| 06_release exit (`release_gate`) | human | human | human |
+| Claims that need an approved risk checkpoint (`pause_at`) | R3, R4 | R3, R4 | R2, R3, R4 |
+| `checkpoint --kind deviation` | recorded, no pause | pauses | pauses |
+| Retries per task (`max_task_retries`) | 2 | 2 | 1 |
+| Exhausted task | run continues | run continues | run is `blocked-failure` |
+| Concurrent claims (`max_concurrent_agents`) | 8 | 6 | 6 |
 
-The exact gate values live in `config/policies.json` (`product_gate`, `architecture_gate`,
-`readiness_gate`, `release_gate`, `deviation`, `pause_at`); the runtime reads them and nothing
-else.
+R3 and R4 always need the human (`always_human_risk`), and the release gate is human in every
+profile. The hard gates are listed once in `guardrails.md`. A project may tighten the policy with
+`.agentic-team/config/policies.local.json`; it can never loosen it.
 
 ## Risk classes
 
-- **R0 — inspect:** read, search, analyze, or locally calculate.
-- **R1 — reversible workspace:** edit project files, run tests, create local artifacts.
-- **R2 — consequential workspace:** migrations, dependency upgrades, broad refactors, or
-  changes with non-obvious rollback.
-- **R3 — external/consequential:** deploy, message, publish, purchase, change live data, or
-  alter shared infrastructure.
-- **R4 — irreversible/sensitive:** destructive operations, credentials, payment movement,
-  legal commitments, or safety-critical actions.
+`config/policies.json` → `risk_levels` defines R0-R4; `risk.matrix` maps a task's `--action` and
+`--target` to a level, `risk.path_rules` raise it for sensitive owned paths, and `risk.backstop`
+raises it for wording that describes operating on the world. Risk only goes up automatically;
+only the human lowers it (`waive --requirement risk:<task> --level R1`). If prose and policy
+disagree, apply the safer requirement and raise the mismatch.
 
-`config/policies.json` is the machine-readable authority (`risk_levels`, and `risk.matrix` for
-how an action and target map to a level). If prose and policy disagree, use the safer
-requirement and raise the mismatch.
+## Checkpoints
 
-## Checkpoint format
+- Agents raise `decision`, `deviation`, `injection`, and `budget` checkpoints; the CLI refuses
+  one without `--alternatives`, `--impact`, `--evidence`, and `--rollback`.
+- Only the CLI creates `stage` and `risk` checkpoints, with facts it can see (artifact hashes,
+  task states, evidence), so no agent words the question the human approves.
+- Decisions need the owner token and are HMAC-signed into the ledger outside the project; gates
+  read the ledger, not `state.json` (`runtime.md`).
 
-Every agent-raised pause states the question, recommendation, alternatives, impact, evidence,
-and rollback; the CLI refuses a checkpoint without them. Stage and risk gates are created by
-the CLI with the facts it can see (artifacts and their hashes, task states, evidence). Human
-decisions are appended to an HMAC-signed, hash-chained ledger outside the project; they are
-tamper-evident (`audit verify`), and gates read them from the ledger rather than from state.
+## Failure behavior and loop detection
 
-## Failure behavior
-
-Retry only within the configured budget and only when new evidence changes the attempt.
-After that, record the failure, preserve artifacts, release the task lease, and escalate.
-Never loop, hide a degraded result, or weaken a check to make it pass.
+- Retry only when new evidence changes the attempt, and only within `max_task_retries`.
+- Record every attempt with `fail --reason`; write the reason as a short failure signature
+  (the failing check and the error, not a story) so repeats are visible in `log` and `metrics`.
+- The same signature twice means you are looping: stop retrying, keep the artifacts, and
+  escalate with a `checkpoint --kind decision` instead of a third attempt. (The runtime counts
+  attempts; spotting a repeated signature is your job.)
+- Never hide a degraded result or weaken a check to make it pass.
+- Budgets (`policies.json` → `budgets`) open a `budget` checkpoint at 80 % and stop the command
+  that would exceed the limit until the human waives it.
