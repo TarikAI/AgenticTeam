@@ -263,7 +263,7 @@ class RuntimeTests(unittest.TestCase):
     @staticmethod
     def owner_token(run_dir: Path) -> str:
         """The token a real human would hold; it lives outside the project by design."""
-        return team.owner_token_path(run_dir.name).read_text(encoding="utf-8").strip()
+        return team.owner_token_file(team.load_state(run_dir)).read_text(encoding="utf-8").strip()
 
     @staticmethod
     def task_args(task_id: str, owner: str, depends: list[str] | None = None, risk: str = "R1", path: list[str] | None = None, title: str | None = None) -> argparse.Namespace:
@@ -364,7 +364,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_human_can_reject_checkpoint_and_block_run(self) -> None:
         run = self.new_run("supervised")
-        checkpoint = team.create_checkpoint(self.project, run, "Accept migration?", "Use reversible migration", "R2", "decision")
+        checkpoint = team.create_checkpoint(self.project, run, "Accept migration?", "Use reversible migration", "R2", "decision", details={"alternatives": "wait", "impact": "delay", "evidence": "notes", "rollback": "revert"})
         team.reject_checkpoint(
             self.project, run, checkpoint, "human-owner", "Revise rollback plan", self.owner_token(run)
         )
@@ -402,7 +402,7 @@ class RuntimeTests(unittest.TestCase):
     def test_rejected_run_blocks_further_claims(self) -> None:
         run = self.new_run("supervised")
         team.add_task(self.project, run, self.task_args("WORK", "fullstack-engineer", risk="R1"))
-        checkpoint = team.create_checkpoint(self.project, run, "Proceed?", "Hold", "R2", "decision")
+        checkpoint = team.create_checkpoint(self.project, run, "Proceed?", "Hold", "R2", "decision", details={"alternatives": "wait", "impact": "delay", "evidence": "notes", "rollback": "revert"})
         team.reject_checkpoint(self.project, run, checkpoint, "human-owner", "Stop", self.owner_token(run))
         self.assertEqual(team.load_state(run)["status"], "blocked-rejection")
         with self.assertRaises(team.BlockedError):

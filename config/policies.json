@@ -3,42 +3,130 @@
   "risk_levels": {
     "R0": "Read-only inspection and analysis.",
     "R1": "Local, reversible workspace changes with verification.",
-    "R2": "Dependencies, migrations, infrastructure drafts, or broad refactors.",
-    "R3": "External side effects: deploy, publish, send, spend, create paid resources.",
-    "R4": "Irreversible or destructive operations, production data, credentials, legal commitments."
+    "R2": "Consequential workspace changes: dependencies, migrations, CI/infrastructure definitions, broad refactors, staging environments.",
+    "R3": "External side effects: deploy to production, publish, message real people, spend, create paid resources.",
+    "R4": "Irreversible or sensitive: destructive data operations, production data changes, credentials, system-wide installs, legal commitments."
   },
+  "always_human_risk": ["R3", "R4"],
   "profiles": {
     "autonomous": {
       "description": "Continue through all in-scope reversible work without pausing.",
       "pause_at": ["R3", "R4"],
       "product_gate": "automatic-with-recorded-assumptions",
       "architecture_gate": "automatic-with-independent-review",
+      "readiness_gate": "automatic",
       "release_gate": "human",
+      "deviation": "record",
       "max_concurrent_agents": 8,
+      "max_task_retries": 2,
+      "continue_after_noncritical_failure": true
+    },
+    "supervised": {
+      "description": "Autonomous execution with human checkpoints for deviations and external actions.",
+      "pause_at": ["R3", "R4"],
+      "product_gate": "automatic-after-fusion-or-review",
+      "architecture_gate": "automatic-after-fusion-or-review",
+      "readiness_gate": "automatic",
+      "release_gate": "human",
+      "deviation": "pause",
+      "max_concurrent_agents": 6,
       "max_task_retries": 2,
       "continue_after_noncritical_failure": true
     },
     "hitl": {
       "description": "Human approves product intent, architecture, readiness, and release.",
-      "pause_at": ["product", "architecture", "readiness", "R2", "R3", "R4"],
+      "pause_at": ["R2", "R3", "R4"],
       "product_gate": "human",
       "architecture_gate": "human",
+      "readiness_gate": "human",
       "release_gate": "human",
+      "deviation": "pause",
       "max_concurrent_agents": 6,
       "max_task_retries": 1,
       "continue_after_noncritical_failure": false
-    },
-    "supervised": {
-      "description": "Autonomous execution with human checkpoints only for deviations and external actions.",
-      "pause_at": ["structural-deviation", "R3", "R4"],
-      "product_gate": "automatic-after-fusion-or-review",
-      "architecture_gate": "automatic-after-fusion-or-review",
-      "release_gate": "human",
-      "max_concurrent_agents": 6,
-      "max_task_retries": 2,
-      "continue_after_noncritical_failure": true
     }
   },
+  "gate_values": {
+    "human": "A human checkpoint must be approved before the stage exits.",
+    "automatic": "The stage exits when its tasks and exit contract pass.",
+    "automatic-with-recorded-assumptions": "Exits automatically; assumptions must be recorded (ASSUMPTIONS.md, checked from P3 on).",
+    "automatic-with-independent-review": "Exits automatically once a completed review task by a non-writing role exists in the stage.",
+    "automatic-after-fusion-or-review": "Exits automatically once a Fusion council closed in the stage or a completed review task exists."
+  },
+  "risk": {
+    "actions": ["inspect", "research", "docs", "build", "test", "add-dependency", "migrate", "infra-change", "deploy", "publish", "send-message", "spend", "credential", "data-destructive", "system-change", "legal"],
+    "targets": ["local", "ci", "staging", "production", "external"],
+    "matrix": {
+      "inspect": {"*": "R0"},
+      "research": {"*": "R0"},
+      "docs": {"*": "R1"},
+      "build": {"local": "R1", "ci": "R1", "staging": "R2", "production": "R3", "external": "R3"},
+      "test": {"local": "R1", "ci": "R1", "staging": "R2", "production": "R3", "external": "R3"},
+      "add-dependency": {"*": "R2"},
+      "migrate": {"local": "R2", "ci": "R2", "staging": "R2", "production": "R4", "external": "R4"},
+      "infra-change": {"local": "R2", "ci": "R2", "staging": "R2", "production": "R3", "external": "R3"},
+      "deploy": {"local": "R1", "ci": "R2", "staging": "R2", "production": "R3", "external": "R3"},
+      "publish": {"*": "R3"},
+      "send-message": {"local": "R1", "*": "R3"},
+      "spend": {"*": "R3"},
+      "credential": {"*": "R4"},
+      "data-destructive": {"*": "R4"},
+      "system-change": {"*": "R4"},
+      "legal": {"*": "R4"}
+    },
+    "path_rules": [
+      {"pattern": ".github/workflows/**", "risk": "R2", "reason": "CI definition"},
+      {"pattern": "**/migrations/**", "risk": "R2", "reason": "database migration"},
+      {"pattern": "infra/**", "risk": "R2", "reason": "infrastructure definition"},
+      {"pattern": "terraform/**", "risk": "R2", "reason": "infrastructure definition"},
+      {"pattern": "k8s/**", "risk": "R2", "reason": "infrastructure definition"},
+      {"pattern": "helm/**", "risk": "R2", "reason": "infrastructure definition"},
+      {"pattern": "**/Dockerfile*", "risk": "R2", "reason": "container definition"},
+      {"pattern": "**/docker-compose*.yml", "risk": "R2", "reason": "container definition"},
+      {"pattern": "**/package.json", "risk": "R2", "reason": "dependency manifest"},
+      {"pattern": "**/package-lock.json", "risk": "R2", "reason": "lockfile"},
+      {"pattern": "**/pnpm-lock.yaml", "risk": "R2", "reason": "lockfile"},
+      {"pattern": "**/yarn.lock", "risk": "R2", "reason": "lockfile"},
+      {"pattern": "**/pyproject.toml", "risk": "R2", "reason": "dependency manifest"},
+      {"pattern": "**/requirements*.txt", "risk": "R2", "reason": "dependency manifest"},
+      {"pattern": "**/poetry.lock", "risk": "R2", "reason": "lockfile"},
+      {"pattern": "**/uv.lock", "risk": "R2", "reason": "lockfile"},
+      {"pattern": "**/go.mod", "risk": "R2", "reason": "dependency manifest"},
+      {"pattern": "**/go.sum", "risk": "R2", "reason": "lockfile"},
+      {"pattern": "**/Cargo.toml", "risk": "R2", "reason": "dependency manifest"},
+      {"pattern": "**/Cargo.lock", "risk": "R2", "reason": "lockfile"},
+      {"pattern": "**/Gemfile*", "risk": "R2", "reason": "dependency manifest"}
+    ],
+    "backstop": [
+      {"regex": "\\b(deploy|release|publish|push|ship|promote)\\b[^.\\n]{0,40}\\b(prod|production|live|app ?store|play ?store)\\b", "risk": "R3", "reason": "deploy/publish to production"},
+      {"regex": "--prod\\b", "risk": "R3", "reason": "production deploy flag"},
+      {"regex": "\\b(go|goes|going|make it|making it) live\\b", "risk": "R3", "reason": "go live"},
+      {"regex": "\\bnpm publish\\b|\\b(twine|poetry|cargo) publish\\b", "risk": "R3", "reason": "package publish"},
+      {"regex": "\\bterraform apply\\b", "risk": "R3", "reason": "infrastructure apply"},
+      {"regex": "\\bkubectl (apply|delete|rollout)\\b|\\bhelm (install|upgrade|uninstall)\\b", "risk": "R3", "reason": "cluster change"},
+      {"regex": "\\b(send|email|sms|text|notify)\\b[^.\\n]{0,30}\\b(all |our |real )?(customers|subscribers|mailing list|users)\\b", "risk": "R3", "reason": "message real people"},
+      {"regex": "\\bdrop (table|database|schema)\\b|\\btruncate table\\b", "risk": "R4", "reason": "destructive data operation"},
+      {"regex": "\\bgit push\\b[^\\n]*(--force|\\s-f\\b)|\\bforce[- ]push\\b|\\brewrite (the )?(git )?history\\b", "risk": "R4", "reason": "history rewrite"},
+      {"regex": "\\bterraform destroy\\b|\\bdelete (all|production|prod)\\b|\\brm -rf /", "risk": "R4", "reason": "destructive operation"},
+      {"regex": "\\bnpm (install|i) (-g|--global)\\b|\\bsudo\\b", "risk": "R4", "reason": "system-wide install or privilege"}
+    ]
+  },
+  "command_rules": [
+    {"regex": "\\bgit push\\b[^\\n]*(--force|\\s-f\\b|--force-with-lease)", "risk": "R4", "action": "data-destructive", "reason": "force push rewrites shared history"},
+    {"regex": "\\bgit push\\b[^\\n]*\\b(main|master)\\b", "risk": "R3", "action": "publish", "reason": "push to the default branch"},
+    {"regex": "\\b(npm|pnpm|yarn) publish\\b|\\b(twine upload|poetry publish|cargo publish)\\b", "risk": "R3", "action": "publish", "reason": "package publish"},
+    {"regex": "\\bvercel\\b[^\\n]*--prod\\b|\\bnetlify deploy\\b[^\\n]*--prod\\b|\\bfly(ctl)? deploy\\b|\\bheroku\\b[^\\n]*\\b(deploy|releases)\\b", "risk": "R3", "action": "deploy", "reason": "production deploy"},
+    {"regex": "\\bterraform (apply|import)\\b|\\bpulumi up\\b|\\bcdk deploy\\b", "risk": "R3", "action": "infra-change", "reason": "infrastructure apply"},
+    {"regex": "\\bterraform destroy\\b|\\bpulumi destroy\\b", "risk": "R4", "action": "data-destructive", "reason": "infrastructure destroy"},
+    {"regex": "\\bkubectl (apply|delete|rollout|scale|patch)\\b|\\bhelm (install|upgrade|uninstall|rollback)\\b", "risk": "R3", "action": "deploy", "reason": "cluster change"},
+    {"regex": "\\bdocker push\\b", "risk": "R3", "action": "publish", "reason": "image publish"},
+    {"regex": "\\bgh release create\\b|\\bgh pr merge\\b", "risk": "R3", "action": "publish", "reason": "release or merge on the remote"},
+    {"regex": "\\b(aws|gcloud|az)\\b[^\\n]*\\b(delete|remove|destroy|terminate)\\b", "risk": "R4", "action": "data-destructive", "reason": "cloud resource deletion"},
+    {"regex": "\\bdrop (table|database|schema)\\b|\\btruncate table\\b", "risk": "R4", "action": "data-destructive", "reason": "destructive SQL"},
+    {"regex": "\\bnpm (install|i) (-g|--global)\\b|\\bsudo\\b|\\b(winget|choco|brew) install\\b", "risk": "R4", "action": "system-change", "reason": "system-wide install"},
+    {"regex": "\\bstripe\\b[^\\n]*--live\\b|\\bsk_live_", "risk": "R4", "action": "credential", "reason": "live payment credentials"},
+    {"regex": "curl[^\\n|]*\\|\\s*(sh|bash)\\b", "risk": "R4", "action": "system-change", "reason": "pipe remote script to a shell"}
+  ],
   "absolute_human_gates": [
     "production deployment",
     "public publishing or messaging real people",
@@ -49,7 +137,7 @@
     "legal or contractual commitments"
   ],
   "tool_classifications": {
-    "npm install -g @alibaba-group/open-code-review": "R2 (executable tooling; Git >= 2.41). Delegation mode needs no endpoint; full-mode review/scan needs an LLM endpoint configured as a CI secret, never agent-held.",
-    "skill installs (adminwright, design-architect, open-code-review-delegate)": "R2 when installed system-wide; R1 when copied into the project's skill directory. Floor protocols in protocols/ apply regardless of presence."
+    "npm install -g @alibaba-group/open-code-review": "R4 system-change (global install; hard gate). Delegation mode needs no endpoint; full-mode review/scan needs an LLM endpoint configured as a CI secret, never agent-held.",
+    "skill installs (adminwright, design-architect, open-code-review-delegate)": "R4 when installed system-wide (hard gate); R2 add-dependency when copied into the project's skill directory. Floor protocols in protocols/ apply regardless of presence."
   }
 }

@@ -7,7 +7,10 @@ import argparse
 import contextlib
 import copy
 import datetime as dt
+import fnmatch
+import getpass
 import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -709,12 +712,23 @@ def append_event(state: dict[str, Any], event_type: str, **details: Any) -> None
     state.setdefault("events", []).append({"time": utcnow(), "type": event_type, **details})
 
 
+GATE_KEYS = {"01_product": "product_gate", "02_solution": "architecture_gate", "03_readiness": "readiness_gate", "06_release": "release_gate"}
+
+
+def gate_value(profile: dict[str, Any], stage: str) -> str:
+    """The policy gate for a stage exit. Release is always human (absolute gate)."""
+    if stage == "06_release":
+        return "human"
+    key = GATE_KEYS.get(stage)
+    return str(profile.get(key, "automatic")) if key else "automatic"
+
+
 def stage_contract(
     template: str,
     run_id: str,
     stage: tuple[str, str, str],
     active_stage: str,
-    autonomy: str,
+    profile: dict[str, Any],
     context_method: str,
 ) -> str:
     stage_id, title, purpose = stage
@@ -738,12 +752,12 @@ def stage_contract(
         "06_release": "- `../RELEASE.md`\n- approval, rollout, monitoring, and rollback evidence",
         "07_learn": "- `../RETROSPECTIVE.md`\n- scoped lessons and evaluated proposals",
     }[stage_id]
-    gates = {
-        "hitl": {"01_product", "02_solution", "03_readiness", "06_release"},
-        "supervised": {"06_release"},
-        "autonomous": {"06_release"},
-    }
-    human_check = "Human approval required before exit." if stage_id in gates.get(autonomy, {"06_release"}) else "No routine pause; record assumptions and continue if exit criteria pass."
+    gate = gate_value(profile, stage_id)
+    human_check = (
+        "Human approval required before exit."
+        if gate == "human"
+        else f"No routine pause (gate: `{gate}`); record assumptions and continue if exit criteria pass."
+    )
     exit_criteria = "- Declared outputs exist and are internally consistent.\n- Material risks have owners.\n- Next work is executable from named context."
     return template.format(
         stage_title=title,
@@ -777,7 +791,7 @@ def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_
     for stage_spec in STAGES:
         stage_dir = run_dir / stage_spec[0]
         stage_dir.mkdir(parents=True, exist_ok=True)
-        write_text(stage_dir / "CONTEXT.md", stage_contract(template, run_dir.name, stage_spec, active_stage, autonomy, context_method))
+        write_text(stage_dir / "CONTEXT.md", stage_contract(template, run_dir.name, stage_spec, active_stage, policy["profiles"][autonomy], context_method))
     (run_dir / "04_build" / "tasks").mkdir(parents=True, exist_ok=True)
     (run_dir / "_fusion").mkdir(parents=True, exist_ok=True)
     (run_dir / "_decisions").mkdir(parents=True, exist_ok=True)
@@ -785,6 +799,7 @@ def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_
     state: dict[str, Any] = {
         "version": VERSION,
         "run_id": run_dir.name,
+        "run_uid": secrets.token_hex(6),
         "project": name,
         "status": "active",
         "autonomy": autonomy,
@@ -800,7 +815,8 @@ def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_
         "events": [],
     }
     append_event(state, "run-created", stage=active_stage, autonomy=autonomy, entry_mode=entry_mode)
-    token_path = issue_owner_token(run_dir.name, state)
+    token_path = issue_owner_token(home_key(state), state)
+    bind_owner_key(home_key(state), state["owner_token_sha256"], name)
     write_json_atomic(run_dir / "state.json", state)
     update_current(bus, state)
     print(f"Owner token written to {token_path}", file=sys.stderr)
@@ -892,11 +908,12 @@ def recompute_status(state: dict[str, Any], profile: dict[str, Any]) -> None:
     if state.get("status") in {"complete", "closed"}:
         return
     tasks = state["tasks"].values()
-    if any(item["status"] == "rejected" for item in state["checkpoints"]):
+    verified = verified_view(state)
+    if any(verified.checkpoint_status(item) == "rejected" for item in state["checkpoints"]):
         state["status"] = "blocked-rejection"
     elif not profile.get("continue_after_noncritical_failure", True) and any(task["status"] == "failed" for task in tasks):
         state["status"] = "blocked-failure"
-    elif any(item["status"] == "pending" for item in state["checkpoints"]):
+    elif any(verified.checkpoint_status(item) == "pending" for item in state["checkpoints"]):
         state["status"] = "waiting-human"
     else:
         state["status"] = "verifying" if state["stage"] == "05_verify" else "active"
@@ -1014,7 +1031,10 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
                 "which conflicts with every other claim)."
             )
         objective = args.objective or args.title
-        floor = derive_risk_floor(args.title, objective, stage, args.path)
+        action = getattr(args, "action", None) or "build"
+        target = getattr(args, "target", None) or "local"
+        policy = load_policy(project)
+        floor, reasons = derive_risk(policy, action, target, args.title, objective, args.path)
         effective_risk = args.risk if RISK_ORDER[args.risk] >= RISK_ORDER[floor] else floor
         task = {
             "id": args.id,
@@ -1026,6 +1046,9 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
             "risk": effective_risk,
             "declared_risk": args.risk,
             "risk_floor": floor,
+            "risk_reasons": reasons,
+            "action": action,
+            "target": target,
             "depends_on": args.depends_on,
             "owned_paths": args.path,
             "exclusive": exclusive,
@@ -1061,48 +1084,72 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
         )
 
 
-# Words that betray an externally-visible or irreversible action regardless of how
-# the calling agent chose to label the task. Risk is never taken on trust alone.
-RISK_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    (
-        "R4",
-        (
-            "drop table", "drop database", "truncate", "delete production", "purge",
-            "force push", "force-push", "rewrite history", "credential", "secret key",
-            "api key", "payment", "card number", "wire transfer", "contract", "legal",
-        ),
-    ),
-    (
-        "R3",
-        (
-            "deploy", "release to", "publish", "ship to production", "go live",
-            "send email", "send sms", "broadcast", "post to", "announce",
-            "purchase", "buy ", "spend", "billing", "invoice", "provision",
-            "register domain", "dns", "campaign launch",
-        ),
-    ),
-    (
-        "R2",
-        ("migration", "migrate", "install", "dependency", "upgrade", "refactor across", "schema change"),
-    ),
-)
+RISK_ORDER_NAMES = ["R0", "R1", "R2", "R3", "R4"]
 
 
-def derive_risk_floor(title: str, objective: str, stage: str, paths: list[str]) -> str:
-    """Lowest risk this task may legitimately claim, inferred from what it says it does.
+def higher_risk(left: str, right: str) -> str:
+    return left if RISK_ORDER[left] >= RISK_ORDER[right] else right
 
-    The declared --risk is a *request*; this is the floor it cannot go below. An agent
-    labelling "deploy to production" as R1 does not get to skip the gate.
+
+def path_matches(pattern: str, path: str) -> bool:
+    """Glob with ** support against a normalized path, a directory, or anything under it."""
+    candidate = normalized_path(path)
+    rule = pattern.lower() if os.name == "nt" else pattern
+    for probe in (candidate, candidate + "/_", "/" + candidate, "/" + candidate + "/_"):
+        if fnmatch.fnmatchcase(probe, rule) or fnmatch.fnmatchcase(probe, "*/" + rule):
+            return True
+    return False
+
+
+def derive_risk(
+    policy: dict[str, Any], action: str, target: str, title: str, objective: str, paths: list[str]
+) -> tuple[str, list[str]]:
+    """Risk from what the task does and where, raised (never lowered) by paths and wording.
+
+    The action/target matrix is the primary signal. Owned paths raise the floor (CI, infra,
+    migrations, dependency manifests). A word-boundary backstop raises it when the text itself
+    describes operating on the world (e.g. "--prod", "terraform apply"). Only a human `waive`
+    lowers an effective risk.
     """
-    haystack = " ".join([title or "", objective or "", " ".join(paths or [])]).lower()
-    floor = "R0"
-    for level, needles in RISK_SIGNALS:
-        if any(needle in haystack for needle in needles):
-            if RISK_ORDER[level] > RISK_ORDER[floor]:
-                floor = level
-    if stage == "06_release" and RISK_ORDER[floor] < RISK_ORDER["R3"]:
-        floor = "R3"
-    return floor
+    rules = policy.get("risk", {})
+    actions = rules.get("actions", [])
+    targets = rules.get("targets", [])
+    if action not in actions:
+        raise TeamError(f"Unknown --action '{action}'. Choose: {', '.join(actions)}")
+    if target not in targets:
+        raise TeamError(f"Unknown --target '{target}'. Choose: {', '.join(targets)}")
+    row = rules.get("matrix", {}).get(action, {})
+    level = row.get(target, row.get("*", "R1"))
+    reasons = [f"{action}/{target} -> {level}"]
+    for rule in rules.get("path_rules", []):
+        for path in paths or []:
+            if path_matches(rule["pattern"], path) and RISK_ORDER[rule["risk"]] > RISK_ORDER[level]:
+                level = rule["risk"]
+                reasons.append(f"path {path} ({rule['reason']}) -> {rule['risk']}")
+    text = " ".join([title or "", objective or ""]).lower()
+    for rule in rules.get("backstop", []):
+        if re.search(rule["regex"], text) and RISK_ORDER[rule["risk"]] > RISK_ORDER[level]:
+            level = rule["risk"]
+            reasons.append(f"wording: {rule['reason']} -> {rule['risk']}")
+    return level, reasons
+
+
+def derive_risk_floor(title: str, objective: str, stage: str, paths: list[str], policy: dict[str, Any] | None = None,
+                      action: str = "build", target: str = "local") -> str:
+    """Compatibility wrapper: the floor for a task described only by text and paths."""
+    if policy is None:
+        # Both the source checkout and an installed bus keep policy at ../config/policies.json.
+        policy = load_json(Path(__file__).resolve().parent.parent / "config" / "policies.json")
+    return derive_risk(policy, action, target, title, objective, paths)[0]
+
+
+def command_risk(policy: dict[str, Any], command: str) -> tuple[str, dict[str, Any] | None]:
+    """Highest-risk command rule a shell command matches (R0 when none)."""
+    best: tuple[str, dict[str, Any] | None] = ("R0", None)
+    for rule in policy.get("command_rules", []):
+        if re.search(rule["regex"], command, flags=re.IGNORECASE) and RISK_ORDER[rule["risk"]] > RISK_ORDER[best[0]]:
+            best = (rule["risk"], rule)
+    return best
 
 
 def normalized_path(value: str) -> str:
@@ -1159,14 +1206,24 @@ def claim_task(project: Path, run_dir: Path, task_id: str, agent: str, lease_min
             raise TeamError(f"Task {task_id} belongs to stage {task['stage']}; the run is in {state['stage']}")
         if task["status"] != "ready":
             raise TeamError(f"Task {task_id} is {task['status']}, not ready")
-        profile = profile_policy(project, state)
-        floor = derive_risk_floor(task.get("title", ""), task.get("objective", ""), task.get("stage", ""), task.get("owned_paths", []))
-        if RISK_ORDER[floor] > RISK_ORDER[task["risk"]]:
+        policy = load_policy(project)
+        profile = policy["profiles"][state["autonomy"]]
+        verified = verified_view(state)
+        verified.assert_intact()
+        floor, _ = derive_risk(
+            policy, task.get("action", "build"), task.get("target", "local"), task.get("title", ""),
+            task.get("objective", ""), task.get("owned_paths", []),
+        )
+        waived = verified.waiver(f"risk:{task_id}")
+        if waived:
+            floor = waived.get("level", floor)
+            task["risk"] = floor
+        elif RISK_ORDER[floor] > RISK_ORDER[task["risk"]]:
             task["risk"] = floor
             append_event(state, "risk-raised", task=task_id, effective=floor)
-        requires_human = task["risk"] in profile["pause_at"] or task["risk"] in {"R3", "R4"}
+        requires_human = task["risk"] in profile["pause_at"] or task["risk"] in policy.get("always_human_risk", ["R3", "R4"])
         approved = any(
-            item.get("kind") == "risk" and item.get("task") == task_id and item["status"] == "approved"
+            item.get("kind") == "risk" and item.get("task") == task_id and verified.checkpoint_status(item) == "approved"
             for item in state["checkpoints"]
         )
         if requires_human and not approved:
@@ -1269,8 +1326,11 @@ def complete_task(project: Path, run_dir: Path, task_id: str, agent: str, eviden
         save_state(project, run_dir, state)
 
 
-def retry_limit(task: dict[str, Any], profile: dict[str, Any]) -> int:
-    return int(profile["max_task_retries"]) + int(task.get("retry_extension", 0))
+def retry_limit(task: dict[str, Any], profile: dict[str, Any], state: dict[str, Any] | None = None) -> int:
+    extension = int(task.get("retry_extension", 0))
+    if state is not None and verified_view(state).enforced:
+        extension = verified_view(state).retry_extension(task["id"])
+    return int(profile["max_task_retries"]) + extension
 
 
 def release_claim(task: dict[str, Any]) -> None:
@@ -1288,7 +1348,7 @@ def fail_task(project: Path, run_dir: Path, task_id: str, agent: str, reason: st
         task["attempts"] += 1
         task["last_failure"] = {"time": utcnow(), "reason": reason, "agent": agent}
         task.setdefault("failures", []).append(task["last_failure"])
-        task["status"] = "ready" if task["attempts"] <= retry_limit(task, profile) else "failed"
+        task["status"] = "ready" if task["attempts"] <= retry_limit(task, profile, state) else "failed"
         release_claim(task)
         refresh_ready(state)
         append_event(state, "task-failed", task=task_id, agent=agent, reason=reason, retry=task["status"] == "ready")
@@ -1312,7 +1372,7 @@ def recover_leases(project: Path, run_dir: Path) -> int:
             task["attempts"] += 1
             task["last_failure"] = {"time": utcnow(), "reason": "claim lease expired", "agent": previous_agent}
             task.setdefault("failures", []).append(task["last_failure"])
-            task["status"] = "ready" if task["attempts"] <= retry_limit(task, profile) else "failed"
+            task["status"] = "ready" if task["attempts"] <= retry_limit(task, profile, state) else "failed"
             release_claim(task)
             append_event(state, "lease-recovered", task=task["id"], previous_agent=previous_agent, retry=task["status"] == "ready")
             recovered += 1
@@ -1323,23 +1383,50 @@ def recover_leases(project: Path, run_dir: Path) -> int:
     return recovered
 
 
-def create_checkpoint(project: Path, run_dir: Path, question: str, recommendation: str, risk: str, kind: str, stage: str | None = None) -> str:
+CLI_ONLY_CHECKPOINTS = {"stage", "risk", "waiver"}
+AGENT_CHECKPOINTS = {"decision", "deviation", "injection", "budget"}
+CHECKPOINT_DETAILS = ("alternatives", "impact", "evidence", "rollback")
+
+
+def create_checkpoint(
+    project: Path,
+    run_dir: Path,
+    question: str,
+    recommendation: str,
+    risk: str,
+    kind: str,
+    stage: str | None = None,
+    details: dict[str, str] | None = None,
+) -> str:
+    """An agent-raised decision. Stage and risk gates are created by the CLI itself, with
+    factual content, so an agent can never word the question a human approves at a gate."""
+    if kind in CLI_ONLY_CHECKPOINTS:
+        raise TeamError(f"'{kind}' checkpoints are created by the CLI (advance/claim), not by agents")
+    if kind not in AGENT_CHECKPOINTS:
+        raise TeamError(f"Unknown checkpoint kind '{kind}'. Choose: {', '.join(sorted(AGENT_CHECKPOINTS))}")
+    details = {key: str(value).strip() for key, value in (details or {}).items() if value}
+    missing = [key for key in CHECKPOINT_DETAILS if not details.get(key)]
+    if missing:
+        raise TeamError(f"A {kind} checkpoint needs --{' --'.join(missing)} so the human can decide from facts")
     with state_lock(run_dir):
         state = load_state(run_dir)
+        profile = profile_policy(project, state)
         checkpoint_id = f"CP-{len(state['checkpoints']) + 1:03d}"
+        recorded = kind == "deviation" and profile.get("deviation", "pause") == "record"
         checkpoint = {
             "id": checkpoint_id,
-            "status": "pending",
+            "status": "recorded" if recorded else "pending",
             "kind": kind,
             "stage": stage or state["stage"],
             "risk": risk,
             "question": question,
             "recommendation": recommendation,
+            **details,
             "created_at": utcnow(),
         }
         state["checkpoints"].append(checkpoint)
-        append_event(state, "checkpoint-created", checkpoint=checkpoint_id, risk=risk)
-        recompute_status(state, profile_policy(project, state))
+        append_event(state, "checkpoint-created", checkpoint=checkpoint_id, risk=risk, kind=kind, recorded=recorded)
+        recompute_status(state, profile)
         save_state(project, run_dir, state)
         return checkpoint_id
 
@@ -1350,9 +1437,23 @@ def agentic_home() -> Path:
     return Path(override).expanduser() if override else Path.home() / ".agentic-team"
 
 
-def owner_token_path(run_id: str) -> Path:
+def home_key(state: dict[str, Any]) -> str:
+    """Key for a run's owner material in AGENTIC_TEAM_HOME: unique per run, not just per name.
+
+    Two projects can both have a run called "mvp"; their tokens and ledgers must never mix.
+    Runs created before v3 have no run_uid and keep their bare run id.
+    """
+    uid = state.get("run_uid")
+    return f"{state['run_id']}.{uid}" if uid else state["run_id"]
+
+
+def owner_token_path(key: str) -> Path:
     """Owner tokens live OUTSIDE the project, so a workspace-scoped agent cannot read them."""
-    return agentic_home() / "owner-tokens" / f"{run_id}.token"
+    return agentic_home() / "owner-tokens" / f"{key}.token"
+
+
+def owner_token_file(state: dict[str, Any]) -> Path:
+    return owner_token_path(home_key(state))
 
 
 def issue_owner_token(run_id: str, state: dict[str, Any]) -> Path:
@@ -1364,6 +1465,187 @@ def issue_owner_token(run_id: str, state: dict[str, Any]) -> Path:
     with contextlib.suppress(OSError, NotImplementedError):
         os.chmod(path, 0o600)
     return path
+
+
+def binding_path(run_id: str) -> Path:
+    return agentic_home() / "runs" / f"{run_id}.json"
+
+
+def ledger_path(run_id: str) -> Path:
+    return agentic_home() / "ledger" / f"{run_id}.jsonl"
+
+
+def bind_owner_key(run_id: str, digest: str, project_name: str) -> None:
+    """Record the owner-key hash outside the project; state.json alone can no longer vouch for it."""
+    path = binding_path(run_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"run_id": run_id, "owner_token_sha256": digest, "project": project_name, "bound_at": utcnow()}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def canonical(record: dict[str, Any]) -> str:
+    return json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def read_ledger(run_id: str) -> list[dict[str, Any]]:
+    path = ledger_path(run_id)
+    if not path.is_file():
+        return []
+    records = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if line.strip():
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                raise TeamError(f"Decision ledger line {number} is not valid JSON: {exc}") from exc
+    return records
+
+
+def record_hash(record: dict[str, Any]) -> str:
+    return hashlib.sha256(canonical(record).encode("utf-8")).hexdigest()
+
+
+def append_ledger(run_id: str, token: str | None, **fields: Any) -> dict[str, Any]:
+    """Append an HMAC-signed, hash-chained human decision outside the project."""
+    records = read_ledger(run_id)
+    record = {
+        "seq": len(records) + 1,
+        "time": utcnow(),
+        "run": run_id,
+        **fields,
+        "prev": record_hash(records[-1]) if records else "0" * 64,
+    }
+    record["mac"] = hmac.new((token or "").encode("utf-8"), canonical(record).encode("utf-8"), hashlib.sha256).hexdigest() if token else None
+    path = ledger_path(run_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(canonical(record) + "\n")
+    return record
+
+
+class VerifiedView:
+    """Human decisions as the decision ledger records them.
+
+    For runs with an out-of-project owner binding, a checkpoint counts as approved or
+    resolved, a task as cancelled, and a retry budget as extended only when the ledger says
+    so. Editing state.json therefore changes nothing a gate checks.
+    """
+
+    def __init__(self, state: dict[str, Any]) -> None:
+        self.run_id = home_key(state) if state.get("run_id") else ""
+        self.state_digest = state.get("owner_token_sha256")
+        binding = binding_path(self.run_id)
+        self.bound = load_json(binding).get("owner_token_sha256") if binding.is_file() else None
+        self.enforced = self.bound is not None
+        self.records = read_ledger(self.run_id) if self.enforced else []
+        self.chain_ok = True
+        previous = "0" * 64
+        for record in self.records:
+            if record.get("prev") != previous:
+                self.chain_ok = False
+            previous = record_hash(record)
+        self.approved = {r["subject"] for r in self.records if r.get("action") == "approve"}
+        self.rejected = {r["subject"] for r in self.records if r.get("action") == "reject"}
+        self.resolved = {r["subject"] for r in self.records if r.get("action") == "resolve"}
+        self.cancelled = {task for r in self.records if r.get("action") == "cancel" for task in r.get("tasks", [])}
+        self.waivers = {r["subject"]: r for r in self.records if r.get("action") == "waive"}
+        self.closed_councils = {r["subject"] for r in self.records if r.get("action") == "fusion-close"}
+        self.extensions: dict[str, int] = {}
+        for record in self.records:
+            if record.get("action") == "reopen" and record.get("extend_retries"):
+                self.extensions[record["subject"]] = self.extensions.get(record["subject"], 0) + int(record["extend_retries"])
+
+    def assert_intact(self) -> None:
+        if not self.enforced:
+            return
+        if self.state_digest != self.bound:
+            raise TeamError(
+                "Owner key mismatch: state.json no longer carries the owner key bound at init-run. "
+                "Gated commands are refused; the human should run `audit verify`."
+            )
+        if not self.chain_ok:
+            raise TeamError("The decision ledger's hash chain is broken; the human should run `audit verify`.")
+
+    def checkpoint_status(self, checkpoint: dict[str, Any]) -> str:
+        status = checkpoint.get("status", "pending")
+        if not self.enforced:
+            return status
+        if status == "approved" and checkpoint["id"] not in self.approved:
+            return "pending"
+        if status == "resolved" and checkpoint["id"] not in self.resolved:
+            return "rejected"
+        return status
+
+    def task_cancelled(self, task: dict[str, Any]) -> bool:
+        return task["status"] == "cancelled" and (not self.enforced or task["id"] in self.cancelled)
+
+    def retry_extension(self, task_id: str) -> int:
+        return self.extensions.get(task_id, 0)
+
+    def waiver(self, requirement: str) -> dict[str, Any] | None:
+        return self.waivers.get(requirement) if self.enforced else None
+
+
+def verified_view(state: dict[str, Any]) -> VerifiedView:
+    return VerifiedView(state)
+
+
+def audit_verify(project: Path, run_dir: Path, token: str) -> list[str]:
+    """Human audit: recompute every ledger MAC and chain link and compare state to the ledger."""
+    state = load_state(run_dir)
+    problems: list[str] = []
+    view = VerifiedView(state)
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    if view.bound is None:
+        problems.append("run has no owner-key binding (created before v3?); run `migrate` with the owner token")
+    elif not secrets.compare_digest(digest, view.bound):
+        problems.append("the token does not match the owner key bound at init-run")
+    if view.bound and state.get("owner_token_sha256") != view.bound:
+        problems.append("state.json owner key was altered after init-run")
+    previous = "0" * 64
+    for record in view.records:
+        if record.get("prev") != previous:
+            problems.append(f"ledger record {record.get('seq')} does not chain to the previous record")
+        body = {key: value for key, value in record.items() if key != "mac"}
+        expected = hmac.new(token.encode("utf-8"), canonical(body).encode("utf-8"), hashlib.sha256).hexdigest()
+        if not record.get("mac") or not secrets.compare_digest(str(record.get("mac")), expected):
+            problems.append(f"ledger record {record.get('seq')} ({record.get('action')} {record.get('subject')}) is not signed by the owner")
+        previous = record_hash(record)
+    for checkpoint in state["checkpoints"]:
+        if checkpoint["status"] == "approved" and checkpoint["id"] not in view.approved:
+            problems.append(f"state claims {checkpoint['id']} approved, but the ledger has no signed approval")
+        if checkpoint["status"] == "resolved" and checkpoint["id"] not in view.resolved:
+            problems.append(f"state claims {checkpoint['id']} resolved, but the ledger has no signed resolution")
+    for task in state["tasks"].values():
+        if task["status"] == "cancelled" and task["id"] not in view.cancelled:
+            problems.append(f"state claims task {task['id']} cancelled, but the ledger has no signed cancellation")
+    return problems
+
+
+def waive_requirement(project: Path, run_dir: Path, requirement: str, reason: str, by: str, token: str | None, level: str | None = None) -> None:
+    """Human waiver of one named requirement: `risk:<task>` (with --level) or `stage-exit:<stage>:<check>`."""
+    if not (requirement.startswith("risk:") or requirement.startswith("stage-exit:")):
+        raise TeamError("A waiver names 'risk:<task-id>' or 'stage-exit:<stage>:<check>'")
+    if requirement.startswith("risk:") and level not in RISK_ORDER:
+        raise TeamError("A risk waiver needs --level R0..R4")
+    with state_lock(run_dir):
+        state = load_state(run_dir)
+        human_decision(project, run_dir, state, by, token, f"waive {requirement}")
+        if requirement.startswith("risk:") and requirement[5:] not in state["tasks"]:
+            raise TeamError(f"Unknown task in waiver: {requirement[5:]}")
+        waiver = {"requirement": requirement, "reason": reason, "by": by, "level": level, "time": utcnow()}
+        state.setdefault("waivers", []).append(waiver)
+        append_ledger(home_key(state), token, action="waive", subject=requirement, by=by, reason=reason, level=level)
+        if requirement.startswith("risk:"):
+            # The waiver answers the task's open risk question; it no longer waits for a decision.
+            for item in state["checkpoints"]:
+                if item.get("kind") == "risk" and item.get("task") == requirement[5:] and item["status"] == "pending":
+                    item.update(status="superseded", superseded_by=f"waiver {requirement}")
+        append_event(state, "requirement-waived", requirement=requirement, by=by, level=level)
+        recompute_status(state, profile_policy(project, state))
+        save_state(project, run_dir, state)
 
 
 def assert_human_authority(project: Path, state: dict[str, Any], by: str, token: str | None) -> None:
@@ -1387,15 +1669,18 @@ def assert_human_authority(project: Path, state: dict[str, Any], by: str, token:
                 f"'{by}' is an installed agent. Checkpoint decisions require a human approver; "
                 "agents may not approve the gates that block them."
             )
-    digest = state.get("owner_token_sha256")
-    hint = owner_token_path(state.get("run_id", "<run-id>"))
+    view = VerifiedView(state)
+    view.assert_intact()
+    # The owner key bound outside the project is authoritative; state.json may be edited.
+    digest = view.bound or state.get("owner_token_sha256")
+    hint = owner_token_file(state) if state.get("run_id") else "<run-id>.token"
     if digest:
         # An agent shares the operator's terminal, so a TTY proves nothing here.
         # Possession of the out-of-project token is the only accepted proof.
         if not token:
             raise TeamError(
-                "This decision requires the owner token. Pass --token with the value stored at "
-                f"{hint}. Agents must not read that path."
+                "This decision requires the owner token: use --token-file, --token-stdin, or run it in "
+                f"your own terminal to be prompted (stored at {hint}). Agents must not read that path."
             )
         if not secrets.compare_digest(hashlib.sha256(token.encode("utf-8")).hexdigest(), digest):
             raise TeamError("Invalid owner token.")
@@ -1435,6 +1720,7 @@ def approve_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str
         if checkpoint["status"] != "pending":
             raise TeamError(f"Checkpoint {checkpoint_id} is already {checkpoint['status']}")
         checkpoint.update(status="approved", approved_by=by, decision=decision, approved_at=utcnow())
+        append_ledger(home_key(state), token, action="approve", subject=checkpoint_id, by=by, decision=decision)
         append_event(state, "checkpoint-approved", checkpoint=checkpoint_id, by=by)
         recompute_status(state, profile_policy(project, state))
         save_state(project, run_dir, state)
@@ -1448,6 +1734,7 @@ def reject_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str,
         if checkpoint["status"] != "pending":
             raise TeamError(f"Checkpoint {checkpoint_id} is already {checkpoint['status']}")
         checkpoint.update(status="rejected", rejected_by=by, decision=decision, rejected_at=utcnow())
+        append_ledger(home_key(state), token, action="reject", subject=checkpoint_id, by=by, decision=decision)
         append_event(state, "checkpoint-rejected", checkpoint=checkpoint_id, by=by)
         recompute_status(state, profile_policy(project, state))
         save_state(project, run_dir, state)
@@ -1459,9 +1746,10 @@ def resolve_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str
         state = load_state(run_dir)
         human_decision(project, run_dir, state, by, token, f"resolve {checkpoint_id}")
         checkpoint = find_checkpoint(state, checkpoint_id)
-        if checkpoint["status"] != "rejected":
+        if verified_view(state).checkpoint_status(checkpoint) != "rejected":
             raise TeamError(f"Checkpoint {checkpoint_id} is {checkpoint['status']}; only a rejection can be resolved")
         checkpoint.update(status="resolved", resolved_by=by, resolution=resolution, resolved_at=utcnow())
+        append_ledger(home_key(state), token, action="resolve", subject=checkpoint_id, by=by, decision=resolution)
         append_event(state, "checkpoint-resolved", checkpoint=checkpoint_id, by=by)
         if state.get("status") == "blocked":
             state["status"] = "active"  # legacy v2 marker
@@ -1526,6 +1814,9 @@ def reopen_task(
             task.setdefault("previous_evidence", []).append(task.get("evidence", []))
             task["evidence"] = []
             task.pop("completed_at", None)
+        if human_needed:
+            append_ledger(home_key(state), token, action="reopen", subject=task_id, by=by, reason=reason,
+                          previous=previous, extend_retries=extend_retries)
         task.setdefault("reopen_history", []).append(
             {"time": utcnow(), "from": previous, "reason": reason, "by": by or "orchestrator", "extend_retries": extend_retries}
         )
@@ -1573,6 +1864,7 @@ def cancel_task(
             release_claim(item)
             item.update(status="cancelled", cancelled_reason=reason, cancelled_by=by, cancelled_at=utcnow())
         refresh_ready(state)
+        append_ledger(home_key(state), token, action="cancel", subject=task_id, tasks=cancelled, by=by, reason=reason)
         append_event(state, "task-cancelled", task=task_id, cascade=dependents, reason=reason, by=by)
         recompute_status(state, profile_policy(project, state))
         save_state(project, run_dir, state)
@@ -1584,23 +1876,29 @@ def advance_stage(project: Path, run_dir: Path) -> str:
         state = load_state(run_dir)
         assert_not_blocked(state, "advance")
         current = state["stage"]
+        verified = verified_view(state)
+        verified.assert_intact()
         open_tasks = [
-            task["id"] for task in state["tasks"].values() if task["stage"] == current and task["status"] not in CLOSED_TASK_STATES
+            task["id"]
+            for task in state["tasks"].values()
+            if task["stage"] == current and not (task["status"] == "completed" or verified.task_cancelled(task))
         ]
         if open_tasks:
             raise TeamError(f"Current stage has unfinished tasks: {', '.join(open_tasks)}")
         profile = profile_policy(project, state)
-        pending = [item["id"] for item in state["checkpoints"] if item["status"] == "pending"]
+        pending = [item["id"] for item in state["checkpoints"] if verified.checkpoint_status(item) == "pending"]
         if pending:
             recompute_status(state, profile)
             save_state(project, run_dir, state)
             return "waiting-human"
-        gate_name = {"01_product": "product", "02_solution": "architecture", "03_readiness": "readiness", "06_release": "release"}.get(current)
-        requires_human = gate_name == "release" or gate_name in profile["pause_at"]
+        gate = gate_value(profile, current)
+        requires_human = gate == "human"
         approved = any(
-            item["kind"] == "stage" and item["stage"] == current and item["status"] == "approved"
+            item["kind"] == "stage" and item["stage"] == current and verified.checkpoint_status(item) == "approved"
             for item in state["checkpoints"]
         )
+        if not requires_human:
+            assert_automatic_gate(state, current, gate, project)
         if requires_human and not approved:
             checkpoint_id = f"CP-{len(state['checkpoints']) + 1:03d}"
             state["checkpoints"].append(
@@ -1612,6 +1910,7 @@ def advance_stage(project: Path, run_dir: Path) -> str:
                     "risk": "R3" if current == "06_release" else "R2",
                     "question": f"Approve exit from {current}?",
                     "recommendation": "Approve only after reviewing declared outputs and evidence.",
+                    "facts": stage_facts(state, current, run_dir),
                     "created_at": utcnow(),
                 }
             )
@@ -1630,6 +1929,44 @@ def advance_stage(project: Path, run_dir: Path) -> str:
         recompute_status(state, profile)
         save_state(project, run_dir, state)
         return state["stage"]
+
+
+def stage_facts(state: dict[str, Any], stage: str, run_dir: Path) -> dict[str, Any]:
+    """CLI-generated content for a stage gate: what exists, not what an agent says exists."""
+    artifacts = {}
+    for path in sorted(run_dir.glob("*.md")):
+        artifacts[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    tasks = [task for task in state["tasks"].values() if task["stage"] == stage]
+    return {
+        "artifacts": artifacts,
+        "tasks": {task["id"]: task["status"] for task in tasks},
+        "evidence": {task["id"]: task.get("evidence", []) for task in tasks if task["status"] == "completed"},
+    }
+
+
+REVIEW_ACCESS = {"read-only", "review", "research"}
+
+
+def assert_automatic_gate(state: dict[str, Any], stage: str, gate: str, project: Path) -> None:
+    """Automatic gates still need their evidence: an independent review or a closed council."""
+    if gate not in {"automatic-with-independent-review", "automatic-after-fusion-or-review"}:
+        return
+    if not any(task["stage"] == stage for task in state["tasks"].values()) and stage not in GATE_KEYS:
+        return
+    installed = installed_agents(project)
+    reviewed = any(
+        task["stage"] == stage
+        and task["status"] == "completed"
+        and installed.get(task.get("claimed_by") or task["owner"], {}).get("access") in REVIEW_ACCESS
+        for task in state["tasks"].values()
+    )
+    council = gate == "automatic-after-fusion-or-review" and any(
+        session["status"] == "complete" and session.get("stage") == stage for session in state["fusion_sessions"]
+    )
+    waived = verified_view(state).waiver(f"stage-exit:{stage}:review")
+    if not (reviewed or council or waived):
+        need = "a completed review task by a non-writing role" + (" or a closed Fusion council" if "fusion" in gate else "")
+        raise TeamError(f"The {stage} gate is '{gate}': it needs {need} in this stage before exit")
 
 
 def fusion_dir(run_dir: Path, fusion_id: str) -> Path:
@@ -1675,6 +2012,7 @@ def fusion_init(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
             "moderator": args.moderator,
             "verifier": args.verifier,
             "contributors": contributors,
+            "stage": state["stage"],
             "submissions": {"proposal": {}, "critique": {}, "revision": {}, "synthesis": {}, "verification": {}},
             "created_at": utcnow(),
         }
@@ -1763,6 +2101,9 @@ def fusion_close(
             raise TeamError(f"Only sponsor {session['sponsor']} can close this council")
         if sponsor == "human-owner":
             human_decision(project, run_dir, state, by or "", token, f"fusion-close {fusion_id}")
+            append_ledger(home_key(state), token, action="fusion-close", subject=fusion_id, by=by, decision=decision)
+        elif state["autonomy"] == "hitl":
+            raise TeamError("hitl runs require a human-owner sponsor to close a council")
         session.update(status="complete", decision=decision, decided_at=utcnow(), decided_by=by or sponsor)
         append_event(state, "fusion-completed", fusion=fusion_id, sponsor=sponsor, by=by or sponsor)
         save_state(project, run_dir, state)
@@ -1793,8 +2134,9 @@ def render_status(state: dict[str, Any]) -> str:
     counts: dict[str, int] = {}
     for task in state["tasks"].values():
         counts[task["status"]] = counts.get(task["status"], 0) + 1
-    pending = [item["id"] for item in state["checkpoints"] if item["status"] == "pending"]
-    rejected = [item["id"] for item in state["checkpoints"] if item["status"] == "rejected"]
+    verified = verified_view(state)
+    pending = [item["id"] for item in state["checkpoints"] if verified.checkpoint_status(item) == "pending"]
+    rejected = [item["id"] for item in state["checkpoints"] if verified.checkpoint_status(item) == "rejected"]
     lines = [
         f"Run: {state['run_id']}",
         f"Status: {state['status']}",
@@ -1918,6 +2260,60 @@ def doctor(project: Path) -> list[str]:
     return findings
 
 
+def migrate_run(project: Path, run_dir: Path, by: str, token: str | None) -> list[str]:
+    """Upgrade a run to the current state version (human: it signs past decisions)."""
+    steps: list[str] = []
+    with state_lock(run_dir):
+        state = load_state(run_dir)
+        if not binding_path(home_key(state)).is_file():
+            digest = state.get("owner_token_sha256")
+            if not digest or not token or not secrets.compare_digest(hashlib.sha256(token.encode("utf-8")).hexdigest(), digest):
+                raise TeamError("migrate needs the run's owner token (it binds the owner key and signs past decisions)")
+            assert_human_authority(project, state, by, token)
+            bind_owner_key(home_key(state), digest, state.get("project", ""))
+            steps.append("bound the owner key outside the project")
+            for checkpoint in state["checkpoints"]:
+                action = {"approved": "approve", "rejected": "reject", "resolved": "resolve"}.get(checkpoint["status"])
+                if action:
+                    append_ledger(home_key(state), token, action=action, subject=checkpoint["id"], by=by, decision="migrated from v2 state")
+            cancelled = [task["id"] for task in state["tasks"].values() if task["status"] == "cancelled"]
+            if cancelled:
+                append_ledger(home_key(state), token, action="cancel", subject=cancelled[0], tasks=cancelled, by=by, reason="migrated from v2 state")
+            steps.append("signed existing decisions into the ledger")
+        if state.get("status") == "blocked":
+            state["status"] = "active"
+            steps.append("replaced legacy 'blocked' status")
+        for task in state["tasks"].values():
+            task.setdefault("action", "build")
+            task.setdefault("target", "local")
+            task.pop("lease_expires_at", None)
+        recompute_status(state, profile_policy(project, state))
+        if state.get("version") != VERSION:
+            steps.append(f"state version {state.get('version')} -> {VERSION}")
+            state["version"] = VERSION
+        append_event(state, "run-migrated", steps=steps, by=by)
+        save_state(project, run_dir, state)
+    return steps
+
+
+def resolve_token(args: argparse.Namespace) -> str | None:
+    """Owner token without putting it in argv: --token-file, --token-stdin, or a hidden prompt."""
+    if getattr(args, "token_file", None):
+        path = Path(args.token_file).expanduser()
+        try:
+            return path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise TeamError(f"Cannot read --token-file {path}: {exc}") from exc
+    if getattr(args, "token_stdin", False):
+        return sys.stdin.readline().strip()
+    if getattr(args, "token", None):
+        print("warning: --token puts the owner token in shell history; prefer --token-file or the prompt", file=sys.stderr)
+        return args.token
+    if getattr(args, "by", None) and sys.stdin.isatty():
+        return getpass.getpass("Owner token: ").strip() or None
+    return None
+
+
 def add_common_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--project", default=".", help="Installed project root")
     parser.add_argument("--run", help="Run id; defaults to CURRENT.md")
@@ -1925,7 +2321,9 @@ def add_common_run_args(parser: argparse.ArgumentParser) -> None:
 
 def add_human_args(parser: argparse.ArgumentParser, required: bool = True) -> None:
     parser.add_argument("--by", required=required, help="Name of the responsible human (never an agent id)")
-    parser.add_argument("--token", help="Owner token (required for runs that have one)")
+    parser.add_argument("--token-file", help="Read the owner token from this file (never pass it in argv)")
+    parser.add_argument("--token-stdin", action="store_true", help="Read the owner token from stdin")
+    parser.add_argument("--token", help="Deprecated: owner token in argv (lands in shell history)")
 
 
 class TeamArgumentParser(argparse.ArgumentParser):
@@ -2011,7 +2409,9 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--objective")
     add.add_argument("--owner", required=True)
     add.add_argument("--stage", choices=STAGE_NAMES, help="Defaults to the run's current stage")
-    add.add_argument("--risk", choices=list(RISK_ORDER), default="R1")
+    add.add_argument("--risk", choices=list(RISK_ORDER), default="R1", help="Requested floor; the runtime may raise it")
+    add.add_argument("--action", default="build", help="What the task does (see config/policies.json risk.actions)")
+    add.add_argument("--target", default="local", help="Where it acts: local, ci, staging, production, external")
     add.add_argument("--depends-on", action="append", default=[])
     add.add_argument("--path", action="append", default=[])
     add.add_argument("--exclusive", action="store_true", help="Claim the whole workspace (conflicts with every other claim)")
@@ -2057,7 +2457,9 @@ def build_parser() -> argparse.ArgumentParser:
     checkpoint.add_argument("--question", required=True)
     checkpoint.add_argument("--recommendation", required=True)
     checkpoint.add_argument("--risk", choices=list(RISK_ORDER), default="R2")
-    checkpoint.add_argument("--kind", default="decision")
+    checkpoint.add_argument("--kind", choices=sorted(AGENT_CHECKPOINTS), default="decision")
+    for detail in CHECKPOINT_DETAILS:
+        checkpoint.add_argument(f"--{detail}", required=True)
 
     approve = sub.add_parser("approve", help="Record explicit human checkpoint approval")
     add_common_run_args(approve)
@@ -2131,6 +2533,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     report = sub.add_parser("report", help="Generate DELIVERY-EVIDENCE.md from durable state")
     add_common_run_args(report)
+
+    waive = sub.add_parser("waive", help="Human waives one named requirement (risk:<task> or stage-exit:<stage>:<check>)")
+    add_common_run_args(waive)
+    waive.add_argument("--requirement", required=True)
+    waive.add_argument("--reason", required=True)
+    waive.add_argument("--level", choices=list(RISK_ORDER), help="For risk waivers: the risk level to apply")
+    add_human_args(waive)
+
+    audit = sub.add_parser("audit", help="Human audit of the decision ledger")
+    audit_sub = audit.add_subparsers(dest="audit_command", required=True)
+    verify = audit_sub.add_parser("verify", help="Recompute ledger signatures and compare them to state")
+    add_common_run_args(verify)
+    add_human_args(verify)
+
+    migrate = sub.add_parser("migrate", help="Upgrade a run to this version (binds the owner key, signs past decisions)")
+    add_common_run_args(migrate)
+    add_human_args(migrate)
 
     health = sub.add_parser("doctor", help="Check an installed team and active run")
     health.add_argument("--project", default=".")
@@ -2220,6 +2639,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             project = Path(args.project)
             run_dir = find_run(project, args.run)
+            if hasattr(args, "token_file"):
+                args.token = resolve_token(args)
             if args.command == "status":
                 state = load_state(run_dir)
                 print(json.dumps(state, indent=2) if args.json else render_status(state))
@@ -2255,8 +2676,25 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "recover-leases":
                 print(f"Recovered {recover_leases(project, run_dir)} expired lease(s)")
             elif args.command == "checkpoint":
-                checkpoint_id = create_checkpoint(project, run_dir, args.question, args.recommendation, args.risk, args.kind)
+                details = {key: getattr(args, key) for key in CHECKPOINT_DETAILS}
+                checkpoint_id = create_checkpoint(project, run_dir, args.question, args.recommendation, args.risk, args.kind, details=details)
                 print(checkpoint_id)
+            elif args.command == "waive":
+                waive_requirement(project, run_dir, args.requirement, args.reason, args.by, args.token, args.level)
+                print(f"Waived {args.requirement}")
+            elif args.command == "audit":
+                if not args.token:
+                    raise TeamError("audit verify needs the owner token (--token-file, --token-stdin, or the prompt)")
+                problems = audit_verify(project, run_dir, args.token)
+                if problems:
+                    print("Audit found problems:", file=sys.stderr)
+                    for problem in problems:
+                        print(f"- {problem}", file=sys.stderr)
+                    return EXIT_ERROR
+                print(f"OK: {len(read_ledger(home_key(load_state(run_dir))))} signed decision(s); state matches the ledger")
+            elif args.command == "migrate":
+                steps = migrate_run(project, run_dir, args.by, args.token)
+                print("\n".join(steps) or "Already current")
             elif args.command == "approve":
                 approve_checkpoint(project, run_dir, args.checkpoint, args.by, args.decision, args.token)
                 print(f"Approved {args.checkpoint}")
