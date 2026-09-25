@@ -4,7 +4,7 @@ Authority: `docs/v3-upgrade-plan.md`. Integration branch: `v3` (from `main` @ `d
 
 | Phase | Branch | Status | Commits | Acceptance evidence | Deviations |
 |---|---|---|---|---|---|
-| P0 Safety net | v3-p0-safety-net | in progress | | | |
+| P0 Safety net | v3-p0-safety-net | done | 984ac07 | validate OK; 53 tests OK; real ~/.agentic-team untouched; 52 golden files | Phase branches named v3-pN-* (git forbids v3/ under branch v3) |
 | P1 Runtime correctness | v3-p1-runtime | pending | | | |
 | P2 Authority, risk, audit | v3-p2-authority | pending | | | |
 | P3 Evidence, stage exits | v3-p3-evidence | pending | | | |
