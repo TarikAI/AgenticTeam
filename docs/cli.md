@@ -34,13 +34,20 @@ The harness orchestrator normally invokes these. Humans can use them to inspect 
 |---|---|
 | `init-run` | Create numbered stages and atomic state with entry/context/autonomy choices. |
 | `status [--json]` | Read current stage, task counts, checkpoints, rejections, failed tasks, and Fusion sessions. |
+| `status --brief` | At most 20 lines for agents, including what is ready now and reported usage. |
+| `next [--agent A] [--json]` | Tasks an agent can claim right now (ready, current stage, owned, no path conflict, under the cap). |
+| `board [--format md\|mermaid\|json]` | The task graph by stage and status. |
+| `pack --task T` | Build the task's context packet under `_context/` within `context_target_tokens` (2K-8K), listing what was truncated or omitted. |
+| `brief --task T` | The delegation message an orchestrator hands the task's subagent (points at its packet). |
+| `log [--type T] [--since N] [--json]` | Read `events.jsonl`, the run's append-only, hash-chained event log. |
+| `metrics [--json] [--write]` | Per-role completion, first-pass rate, failures; checkpoint latency and rejection rate; commands; usage. `--write` saves `METRICS.md`. |
 | `runs` / `switch-run --run R` / `close-run --reason` | List runs, point `CURRENT.md` at another run, or close one. Only `init-run` and `switch-run` move `CURRENT.md`. |
 | `route-specialists` / `deactivate-specialist` | Match installed trigger rules and record bounded specialist participation. |
 | `add-task` | Create a task envelope. The owner must be installed; the stage defaults to the current stage and may not be an earlier one; build tasks owned by a writing role need `--path` (or `--exclusive`). `--check CMD` adds an acceptance command; `--verifies T` marks a verification task whose claimant may not have built T. |
 | `claim` | Atomically claim a ready task of the current stage. The claiming agent must be installed and be the task owner; the profile's `max_concurrent_agents` caps open claims; owned paths may not overlap. |
 | `renew` | Extend the lease on a task you hold (1-480 minutes). |
 | `reassign` | Change the owner of an unclaimed open task, with a reason. |
-| `complete [--run-checks]` | Attach typed evidence (`file:`, `cmd:`, `commit:`, `url:`, `note:`) and unlock dependents. Write tasks need at least one `file:`/`cmd:`/`commit:`; `--check` commands must have passed. |
+| `complete [--run-checks] [--usage tokens=N,usd=N]` | Attach typed evidence (`file:`, `cmd:`, `commit:`, `url:`, `note:`) and unlock dependents. Write tasks need at least one `file:`/`cmd:`/`commit:`; `--check` commands must have passed. |
 | `exec --task T --agent A [--shell] -- CMD...` | Run a command for your claimed task; records exit code, duration, git HEAD, and output under `_evidence/`. Commands matching a policy command rule need an approved task of that action. Exit code mirrors the command (0/1). |
 | `scaffold --artifact NAME` | Create `BRIEF.md`, `PRD.md`, `READINESS.md`, `VERIFICATION.md`, `RELEASE.md`, and the other run artifacts from their templates. |
 | `fail` | Record an attempt and apply retry policy. Under a profile that stops on failure (hitl), an exhausted task blocks the run (`blocked-failure`). |
@@ -58,7 +65,13 @@ The harness orchestrator normally invokes these. Humans can use them to inspect 
 | `design-to-admin` / `llm-check` | The design-architect bridge and the local-LLM endpoint check. |
 
 Use `--help` on any command for exact flags. All mutations take a run lock and atomically replace
-state; do not edit `state.json` manually.
+state; do not edit `state.json` manually. Events are appended to `runs/<id>/events.jsonl`, each line
+carrying the previous line's hash; `doctor` and `audit verify` report a broken chain.
+
+Budgets (`config/policies.json` → `budgets`: `max_tasks`, `max_fusion_councils`, `max_lease_minutes`,
+and optional `tokens`/`usd` fed by `complete --usage`) open a `budget` checkpoint at `warn_at`
+(80 %) and stop the command that would exceed the limit until the human runs
+`waive --requirement budget:<metric>`.
 
 ## Recovery commands
 

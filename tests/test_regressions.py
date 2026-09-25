@@ -284,7 +284,7 @@ class LifecycleRegressions(Base):
         checkpoint = team.create_checkpoint(self.project, run, "Q?", "rec", "R2", "decision", details={"alternatives": "wait", "impact": "delay", "evidence": "notes", "rollback": "revert"})
         with self.assertRaises(team.TeamError):
             team.approve_checkpoint(self.project, run, checkpoint, "Owner", "self-approval", "forged")
-        events = [event["type"] for event in team.load_state(run)["events"]]
+        events = [event["type"] for event in team.read_events(run)]
         self.assertIn("authority-refused", events)
 
     def test_R28_report_never_overwrites_the_delivery_report(self) -> None:
