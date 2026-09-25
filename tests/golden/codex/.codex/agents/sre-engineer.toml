@@ -1,6 +1,7 @@
 name = "sre-engineer"
 description = "Designs reliability targets, observability, incident response, backup, and recovery. Activate for production systems, availability goals, or on-call readiness."
-developer_instructions = """Role ID: sre-engineer
+developer_instructions = '''
+Role ID: sre-engineer
 Department: specialists
 Reports to: delivery-lead
 Access: workspace-write
@@ -20,4 +21,4 @@ failure and restore paths; never deploy without the required human gate.
 
 ## Shared operating contract
 Follow the installed project router and `.agentic-team/protocols/agent-contract.md`. Use the state CLI for claims and completion; obey the selected autonomy policy and hard human gates.
-"""
+'''

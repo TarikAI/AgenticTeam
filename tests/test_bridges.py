@@ -154,30 +154,50 @@ class TestFindingsToTasks(unittest.TestCase):
         self.assertEqual(findings_to_tasks.verdict([{"severity": "minor"}]), "PASS")
         self.assertEqual(findings_to_tasks.verdict([]), "PASS")
 
-    def test_security_finding_routes_to_security_engineer(self):
+    def test_security_finding_is_fixed_by_a_writer_and_reverified_by_security(self):
+        """R-32: the read-only security-engineer re-verifies; it never owns the code fix."""
         findings = [findings_to_tasks.normalize(f) for f in FINDINGS_OCR]
         tasks = findings_to_tasks.build_tasks(findings)
-        owners = {t["owner"] for t in tasks}
-        self.assertIn("security-engineer", owners)
-        # blocker + major get individual tasks; the low one is batched
-        summaries = [t["summary"] for t in tasks]
-        self.assertTrue(any(s.startswith("[BLOCKER]") for s in summaries))
-        self.assertTrue(any("Batched minor/nit" in s for s in summaries))
+        self.assertNotIn("security-engineer", {t["owner"] for t in tasks})
+        self.assertEqual(tasks[0]["owner"], "frontend-engineer")  # .tsx file
+        self.assertTrue(any("security-engineer" in value for value in tasks[0]["inputs"]))
+        titles = [t["title"] for t in tasks]
+        self.assertTrue(any(t.startswith("[BLOCKER]") for t in titles))
+        self.assertTrue(any("Batched minor/nit" in t for t in titles))
+
+    def test_owner_must_be_installed_and_writable(self):
+        finding = findings_to_tasks.normalize(FINDINGS_OCR[1])
+        context = {"installed": {"qa-lead": "read-only", "fullstack-engineer": "workspace-write"}}
+        self.assertEqual(findings_to_tasks.resolve_owner(finding, context), "fullstack-engineer")
+        context = {"installed": {"qa-lead": "read-only"}}
+        self.assertEqual(findings_to_tasks.resolve_owner(finding, context), findings_to_tasks.UNASSIGNED)
 
     def test_line_anchored_summaries(self):
         finding = findings_to_tasks.normalize(FINDINGS_OCR[0])
         task = findings_to_tasks.build_tasks([finding])[0]
-        self.assertIn("src/components/Table.tsx:42", task["summary"])
+        self.assertIn("src/components/Table.tsx:42", task["title"])
 
     def test_unknown_severity_rejected(self):
         with self.assertRaises(ValueError):
             findings_to_tasks.normalize({"path": "a", "content": "x", "severity": "huge"})
 
-    def test_add_task_command_shape(self):
-        finding = findings_to_tasks.normalize(FINDINGS_OCR[0])
-        command = findings_to_tasks.add_task_command(findings_to_tasks.build_tasks([finding])[0])
-        self.assertIn("add-task", command)
-        self.assertIn("--owner security-engineer", command)
+    def test_generated_commands_execute_against_a_fresh_install(self):
+        """R-32: every emitted add-task line must run, and every task must land in state."""
+        project = helpers.fresh_project("platform-core")
+        team = helpers.team
+        team.init_run(project, "Bridge", "bridge", "autonomous", "execute-only", "adaptive")
+        findings = [findings_to_tasks.normalize(f) for f in FINDINGS_OCR]
+        context = findings_to_tasks.load_context(str(project))
+        tasks = findings_to_tasks.build_tasks(findings, context, context["stage"])
+        for task in tasks:
+            code, _, err = helpers.run_cli(project, *findings_to_tasks.add_task_argv(task, str(project)))
+            self.assertEqual(code, 0, err)
+        state = team.load_state(team.find_run(project, None))
+        self.assertEqual(set(state["tasks"]), {task["id"] for task in tasks})
+        self.assertTrue(all(t["stage"] == "04_build" for t in state["tasks"].values()))
+
+    def test_powershell_quoting_doubles_single_quotes(self):
+        self.assertEqual(findings_to_tasks.quote("it's", "powershell"), "'it''s'")
 
     def test_main_exit_codes(self):
         with tempfile.TemporaryDirectory() as tmp:

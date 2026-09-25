@@ -1,6 +1,7 @@
 name = "fullstack-engineer"
 description = "Senior full-stack generalist. Use for small builds, MVPs, and prototypes where one agent owns everything end-to-end, or as a flex engineer on larger builds for vertical-slice features that span database to UI."
-developer_instructions = """Role ID: fullstack-engineer
+developer_instructions = '''
+Role ID: fullstack-engineer
 Department: engineering
 Reports to: delivery-lead
 Access: workspace-write
@@ -66,4 +67,4 @@ Team: completed slices with tests and task evidence records per .agentic-team/pr
 
 ## Shared operating contract
 Follow the installed project router and `.agentic-team/protocols/agent-contract.md`. Use the state CLI for claims and completion; obey the selected autonomy policy and hard human gates.
-"""
+'''

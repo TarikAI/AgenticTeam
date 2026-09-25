@@ -8,7 +8,7 @@ installation also receives the same `.agentic-team/` coordination bus and workfl
 | Claude Code | `.claude/agents/*.md` | `.claude/skills/*` | managed block in `CLAUDE.md` |
 | Codex | `.codex/agents/*.toml` | `.agents/skills/*` | compact managed block in `AGENTS.md` |
 | OpenCode | `.opencode/agents/*.md` | `.agents/skills/*` | permissions/mode frontmatter + `AGENTS.md` |
-| Antigravity | `.agents/agents/*.md` | `.agents/skills/*` | `trigger: always_on` rule in `.agents/rules`, commands in `.agents/workflows`, managed block in `AGENTS.md` |
+| Antigravity | `.agents/agents/*.md` (`mainAgent: true` only for lead roles) | `.agents/skills/*` (commands ship as skills: `agentic-execute-plan`, `agentic-resume`) | `trigger: always_on` rule in `.agents/rules`, managed block in `AGENTS.md`. Workflows are not emitted: Antigravity retires `.agents/workflows` on 2026-11-01. |
 | Gemini CLI | `.gemini/agents/*.md` | `.agents/skills/*` | managed block in `GEMINI.md` |
 | Pi | `.agentic-team/agents/*.md` | `.pi/skills/*` | root `AGENTS.md` + `.pi/prompts` |
 | Generic | `.agentic-team/agents/*.md` | `.agents/skills/*` | portable role contracts + managed block in `AGENTS.md` |

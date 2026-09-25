@@ -13,9 +13,17 @@ recorded as an event.
 
 `pending -> ready -> claimed -> completed`
 
-Exceptional states are `blocked`, `failed`, and `cancelled`. A task becomes ready only when
-all dependencies are complete. Claiming records agent, time, lease, and owned paths. Completion
-requires evidence and refreshes dependent tasks.
+Exceptional states are `failed` and `cancelled`; `completed` and `cancelled` are closed for the
+stage gate. A task becomes ready only when all dependencies are complete. Only the task owner
+claims it, in the current stage, within the profile's concurrency cap; claiming records agent,
+time, lease, and owned paths (`renew` extends a lease). Completion requires evidence and
+refreshes dependent tasks.
+
+Authority: agents create, claim, renew, complete, and fail tasks; the orchestrator may
+`reassign` an unclaimed task and `reopen` a wedged claim. Only the human (owner token) may
+`cancel` work, reopen a failed, cancelled, or completed task, extend a retry budget, decide a
+checkpoint, or `resolve` a rejection. The run is `blocked-rejection` while a rejection is
+unresolved and `blocked-failure` when a profile that stops on failure has an exhausted task.
 
 ## Parallel work
 

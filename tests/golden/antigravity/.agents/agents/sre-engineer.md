@@ -2,7 +2,7 @@
 name: sre-engineer
 description: "Designs reliability targets, observability, incident response, backup, and recovery. Activate for production systems, availability goals, or on-call readiness."
 subagent: true
-mainAgent: true
+mainAgent: false
 model: inherit
 ---
 

@@ -37,7 +37,18 @@ RISK_ORDER = {"R0": 0, "R1": 1, "R2": 2, "R3": 3, "R4": 4}
 
 
 class TeamError(RuntimeError):
-    """A user-correctable AgenticTeam error."""
+    """A user-correctable AgenticTeam error (exit 1)."""
+
+
+class GateError(TeamError):
+    """The command stopped at a human gate (exit 2)."""
+
+
+class BlockedError(TeamError):
+    """The run is blocked until a human acts (exit 3)."""
+
+
+ROUTER_FILES = {"AGENTS.md", "CLAUDE.md", "GEMINI.md"}
 
 
 def utcnow() -> str:
@@ -77,7 +88,20 @@ def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     temporary.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+    # On Windows, replacing a file another process is reading raises PermissionError;
+    # readers hold it for milliseconds, so retry briefly instead of failing the command.
+    delay = 0.01
+    for attempt in range(12):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            if attempt == 11:
+                with contextlib.suppress(OSError):
+                    temporary.unlink()
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.4)
 
 
 @contextlib.contextmanager
@@ -152,7 +176,8 @@ def resolve_preset(manifest: dict[str, Any], preset: str) -> list[dict[str, Any]
 
 def is_installed_bus(root: Path) -> bool:
     """True when we are running from a project's .agentic-team copy rather than the source repo."""
-    return (root / "install-manifest.json").is_file() and not (root / "agents").is_dir()
+    # Decided by location, not contents: generic and pi installs also have an agents/ folder.
+    return root.name == ".agentic-team" and (root / "bin" / "agentic_team.py").is_file()
 
 
 def validate_source(root: Path) -> list[str]:
@@ -226,6 +251,34 @@ def yaml_scalar(value: str) -> str:
 PROTOCOL_REF = re.compile(r"(?<![\w./-])protocols/([a-z0-9-]+\.md)")
 
 
+SCRIPT_REFS = (
+    ("scripts/preflight_skills.py", ".agentic-team/bin/agentic_team.py preflight"),
+    ("scripts/findings_to_tasks.py", ".agentic-team/bin/agentic_team.py findings-to-tasks"),
+    ("scripts/design_to_admin.py", ".agentic-team/bin/agentic_team.py design-to-admin"),
+    ("scripts/local_llm_check.py", ".agentic-team/bin/agentic_team.py llm-check"),
+    ("scripts/agentic_team.py", ".agentic-team/bin/agentic_team.py"),
+)
+SCRIPT_REF = re.compile(r"(?<![\w./-])(" + "|".join(re.escape(old) for old, _ in SCRIPT_REFS) + r")")
+HELPER_SCRIPTS = ("preflight_skills.py", "findings_to_tasks.py", "design_to_admin.py", "local_llm_check.py")
+
+
+def resolve_script_refs(text: str) -> str:
+    """Source docs name repository scripts; an installed project only has the bus CLI."""
+    mapping = dict(SCRIPT_REFS)
+    return SCRIPT_REF.sub(lambda match: mapping[match.group(1)], text)
+
+
+def rewrite_installed_markdown(folder: Path) -> None:
+    """Apply installed-path rewriting to every copied Markdown file under a folder."""
+    if not folder.is_dir():
+        return
+    for path in folder.rglob("*.md"):
+        text = path.read_text(encoding="utf-8")
+        updated = resolve_script_refs(text)
+        if updated != text:
+            path.write_text(updated, encoding="utf-8")
+
+
 def resolve_protocol_refs(text: str) -> str:
     """Rewrite bare `protocols/x.md` to the path it actually has in an installed project.
 
@@ -251,7 +304,7 @@ def agent_prompt(agent: dict[str, Any], root: Path) -> tuple[str, str]:
             "project files, and do not run commands that mutate state. Report findings and "
             "hand changes to the owning role.\n\n"
         )
-    return description, resolve_protocol_refs(header + body)
+    return description, resolve_script_refs(resolve_protocol_refs(header + body))
 
 
 def managed_router() -> str:
@@ -316,8 +369,17 @@ def emit_claude(target: Path, selected: list[dict[str, Any]], root: Path) -> lis
 
 
 def toml_literal(value: str) -> str:
-    safe = value.replace('"""', '\\"\\"\\"')
-    return f'"""{safe}"""'
+    """Multi-line TOML string that survives backslashes and quotes.
+
+    A literal multi-line string takes content verbatim. When that is impossible (the text
+    contains three single quotes, ends with a quote, or holds a control character other than
+    tab/newline) fall back to a fully escaped basic string; JSON escaping is valid TOML there.
+    """
+    fence = "'" * 3
+    control = any(ord(char) < 32 and char not in "\t\n" for char in value)
+    if fence not in value and not control and not value.endswith("'"):
+        return fence + "\n" + value + fence
+    return json.dumps(value, ensure_ascii=False)
 
 
 def emit_codex(target: Path, selected: list[dict[str, Any]], root: Path) -> list[str]:
@@ -375,19 +437,41 @@ def emit_gemini(target: Path, selected: list[dict[str, Any]], root: Path) -> lis
     return written + ["GEMINI.md"]
 
 
+ANTIGRAVITY_COMMAND_SKILLS = {
+    # Antigravity retires .agents/workflows on 2026-11-01; skills become /name commands.
+    # start/fusion/progressive/verify are already covered by the shipped skills
+    # (agentic-build, fusion-council, bmad-progressive, agentic-verify).
+    "agentic-execute-plan": (
+        "Build from a plan the user already wrote, without re-planning. Use when the user supplies an authoritative plan, spec, or task list.",
+        "Use entry mode `execute-only`. Preserve the supplied plan as the authority and derive "
+        "bounded task packets from it with `.agentic-team/bin/agentic_team.py add-task`. Do not author "
+        "a competing plan; raise gaps as a bounded question list with a recommended default each.",
+    ),
+    "agentic-resume": (
+        "Recover and resume an interrupted AgenticTeam run. Use after a crash, a context reset, or a new session.",
+        "Read `.agentic-team/CURRENT.md`, run `.agentic-team/bin/agentic_team.py status` and `doctor`, "
+        "run `recover-leases`, then continue the active stage from its `CONTEXT.md`.",
+    ),
+}
+
+
 def emit_antigravity(target: Path, selected: list[dict[str, Any]], root: Path) -> list[str]:
     written: list[str] = []
     # Antigravity loads named agents from .agents/agents/<name>.md. The older .agents/roles/
     # layout is not a directory it scans, so contracts placed there were never loaded.
+    # Verified 2026-09-25: antigravity.google/docs/subagents, /docs/rules,
+    # /docs/migration/workflows-to-skills.
     agents_dir = target / ".agents" / "agents"
     for agent in selected:
         description, prompt = agent_prompt(agent, root)
+        # Only lead roles appear in the agent picker; the rest are delegation targets.
+        main_agent = "true" if agent["access"] == "orchestrate" else "false"
         content = (
             "---\n"
             f"name: {agent['id']}\n"
             f"description: {yaml_scalar(description)}\n"
             "subagent: true\n"
-            "mainAgent: true\n"
+            f"mainAgent: {main_agent}\n"
             "model: inherit\n"
             "---\n\n" + prompt
         )
@@ -397,6 +481,7 @@ def emit_antigravity(target: Path, selected: list[dict[str, Any]], root: Path) -
     rule = (
         "---\n"
         "trigger: always_on\n"
+        "description: AgenticTeam coordination - router, run state CLI, and human gates\n"
         "---\n\n"
         "# AgenticTeam coordination\n\n"
         "Read `.agentic-team/AGENTS.md`, then `.agentic-team/CURRENT.md` and the active stage\n"
@@ -411,40 +496,10 @@ def emit_antigravity(target: Path, selected: list[dict[str, Any]], root: Path) -
     rule_path = target / ".agents" / "rules" / "agentic-team.md"
     write_text(rule_path, rule)
     written.append(str(rule_path.relative_to(target)))
-    workflows = {
-        "start-platform.md": (
-            "Start or resume a complete platform build",
-            "Use the installed `agentic-build` skill. Initialize or resume a run, route specialists, "
-            "execute, integrate, verify, and report.",
-        ),
-        "execute-given-plan.md": (
-            "Build from a plan the user already wrote, without re-planning",
-            "Use entry mode `execute-only`. Preserve the supplied plan as the authority and derive "
-            "bounded task packets from it. Do not author a competing plan.",
-        ),
-        "fusion.md": (
-            "Run an independent Fusion council on a high-stakes decision",
-            "Use the installed `fusion-council` skill and the CLI fusion workspace. Keep proposals "
-            "independent before reveal.",
-        ),
-        "progressive-context.md": (
-            "Load only the current stage contract and its named inputs",
-            "Use `bmad-progressive`; load only the router, current stage contract, and named inputs.",
-        ),
-        "verify.md": (
-            "Independently verify the integrated result",
-            "Use `agentic-verify` with a verifier independent from the builder.",
-        ),
-        "resume.md": (
-            "Recover and resume an interrupted run",
-            "Read `.agentic-team/CURRENT.md`, inspect CLI status, reconcile leases, and resume the "
-            "active stage.",
-        ),
-    }
-    for filename, (description, body) in workflows.items():
-        title = filename.removesuffix(".md").replace("-", " ").title()
-        path = target / ".agents" / "workflows" / filename
-        write_text(path, f"---\ndescription: {description}\n---\n\n# {title}\n\n{body}")
+    for name, (description, body) in ANTIGRAVITY_COMMAND_SKILLS.items():
+        path = target / ".agents" / "skills" / name / "SKILL.md"
+        title = name.replace("-", " ").title()
+        write_text(path, f"---\nname: {name}\ndescription: {yaml_scalar(description)}\n---\n\n# {title}\n\n{body}")
         written.append(str(path.relative_to(target)))
     # Antigravity also reads a workspace-root AGENTS.md, as every other harness here does.
     upsert_managed_block(target / "AGENTS.md", managed_router())
@@ -527,8 +582,13 @@ def install_team(
                 shutil.copy2(root / "knowledge" / relative, destination)
     copy_managed_tree(root / "runtime" / "templates", bus / "templates")
     copy_managed_tree(root / "skills", target / manifest["harnesses"][harness]["skill_dir"])
+    # Installed projects have no scripts/ tree: point every copied instruction at the bus CLI.
+    for folder in (bus / "protocols", bus / "templates", target / manifest["harnesses"][harness]["skill_dir"]):
+        rewrite_installed_markdown(folder)
     (bus / "bin").mkdir(parents=True, exist_ok=True)
     shutil.copy2(root / "scripts" / "agentic_team.py", bus / "bin" / "agentic_team.py")
+    for helper in HELPER_SCRIPTS:
+        shutil.copy2(root / "scripts" / helper, bus / "bin" / helper)
     installed_manifest = copy.deepcopy(manifest)
     installed_manifest["installation"] = {
         "harness": harness,
@@ -580,6 +640,11 @@ def install_team(
         "agents": [agent["id"] for agent in selected],
         "skill_dir": manifest["harnesses"][harness]["skill_dir"],
         "generated_files": sorted(set(written)),
+        "generated_hashes": {
+            relative: digest
+            for relative in sorted(set(written))
+            if (digest := generated_digest(target / relative)) is not None
+        },
         "installed_at": utcnow(),
     }
     write_json_atomic(bus / "install-manifest.json", record)
@@ -593,6 +658,32 @@ def project_bus(project: Path) -> Path:
     return bus
 
 
+def installed_manifest(project: Path) -> dict[str, Any]:
+    return load_json(project_bus(project) / "team.json")
+
+
+def installed_agents(project: Path) -> dict[str, dict[str, Any]]:
+    """Installed roles by id. An empty installation list means 'every manifest role'."""
+    manifest = installed_manifest(project)
+    wanted = set(manifest.get("installation", {}).get("installed_agents", []))
+    return {agent["id"]: agent for agent in manifest.get("agents", []) if not wanted or agent["id"] in wanted}
+
+
+def load_policy(project: Path) -> dict[str, Any]:
+    return load_json(project_bus(project) / "config" / "policies.json")
+
+
+def profile_policy(project: Path, state: dict[str, Any]) -> dict[str, Any]:
+    return load_policy(project)["profiles"][state["autonomy"]]
+
+
+def current_run_id(bus: Path) -> str | None:
+    current = bus / "CURRENT.md"
+    text = current.read_text(encoding="utf-8") if current.exists() else ""
+    match = re.search(r"Run: `([^`]+)`", text)
+    return match.group(1) if match else None
+
+
 def find_run(project: Path, run: str | None) -> Path:
     bus = project_bus(project)
     if run:
@@ -600,12 +691,10 @@ def find_run(project: Path, run: str | None) -> Path:
         if not candidate.is_absolute():
             candidate = bus / "runs" / run
     else:
-        current = bus / "CURRENT.md"
-        text = current.read_text(encoding="utf-8") if current.exists() else ""
-        match = re.search(r"Run: `([^`]+)`", text)
-        if not match:
-            raise TeamError("No active run; pass --run or initialize a run")
-        candidate = bus / "runs" / match.group(1)
+        run_id = current_run_id(bus)
+        if not run_id:
+            raise TeamError("No active run; pass --run, use switch-run, or initialize a run")
+        candidate = bus / "runs" / run_id
     candidate = candidate.resolve()
     if not (candidate / "state.json").is_file():
         raise TeamError(f"Run not found: {candidate}")
@@ -654,7 +743,7 @@ def stage_contract(
         "supervised": {"06_release"},
         "autonomous": {"06_release"},
     }
-    human_check = "Human approval required before exit." if stage_id in gates[autonomy] else "No routine pause; record assumptions and continue if exit criteria pass."
+    human_check = "Human approval required before exit." if stage_id in gates.get(autonomy, {"06_release"}) else "No routine pause; record assumptions and continue if exit criteria pass."
     exit_criteria = "- Declared outputs exist and are internally consistent.\n- Material risks have owners.\n- Next work is executable from named context."
     return template.format(
         stage_title=title,
@@ -690,11 +779,9 @@ def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_
         stage_dir.mkdir(parents=True, exist_ok=True)
         write_text(stage_dir / "CONTEXT.md", stage_contract(template, run_dir.name, stage_spec, active_stage, autonomy, context_method))
     (run_dir / "04_build" / "tasks").mkdir(parents=True, exist_ok=True)
-    for child in ("proposals", "critiques"):
-        (run_dir / "_fusion" / child).mkdir(parents=True, exist_ok=True)
+    (run_dir / "_fusion").mkdir(parents=True, exist_ok=True)
     (run_dir / "_decisions").mkdir(parents=True, exist_ok=True)
     (run_dir / "_context").mkdir(parents=True, exist_ok=True)
-    stage = active_stage
     state: dict[str, Any] = {
         "version": VERSION,
         "run_id": run_dir.name,
@@ -703,7 +790,7 @@ def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_
         "autonomy": autonomy,
         "entry_mode": entry_mode,
         "context_method": context_method,
-        "stage": stage,
+        "stage": active_stage,
         "created_at": utcnow(),
         "updated_at": utcnow(),
         "tasks": {},
@@ -712,14 +799,11 @@ def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_
         "fusion_sessions": [],
         "events": [],
     }
-    append_event(state, "run-created", stage=stage, autonomy=autonomy, entry_mode=entry_mode)
+    append_event(state, "run-created", stage=active_stage, autonomy=autonomy, entry_mode=entry_mode)
     token_path = issue_owner_token(run_dir.name, state)
     write_json_atomic(run_dir / "state.json", state)
     update_current(bus, state)
-    print(
-        f"Owner token written to {token_path}",
-        file=sys.stderr,
-    )
+    print(f"Owner token written to {token_path}", file=sys.stderr)
     print(
         "Keep it outside this project and do not paste it into an agent session; "
         "it is what proves a checkpoint decision came from you.",
@@ -728,7 +812,10 @@ def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_
     return run_dir
 
 
-def update_current(bus: Path, state: dict[str, Any]) -> None:
+def update_current(bus: Path, state: dict[str, Any] | None) -> None:
+    if state is None:
+        write_text(bus / "CURRENT.md", "# Current run\n\nNo active run. Initialize one with the AgenticTeam CLI, or use `switch-run`.")
+        return
     content = (
         "# Current run\n\n"
         f"Run: `{state['run_id']}`  \n"
@@ -741,16 +828,96 @@ def update_current(bus: Path, state: dict[str, Any]) -> None:
 
 
 def is_current_run(project: Path, run_dir: Path) -> bool:
-    pointer = project_bus(project) / "CURRENT.md"
-    if not pointer.is_file():
-        return True
-    return run_dir.name in pointer.read_text(encoding="utf-8")
+    return current_run_id(project_bus(project)) == run_dir.name
 
 
 def save_state(project: Path, run_dir: Path, state: dict[str, Any]) -> None:
     state["updated_at"] = utcnow()
     write_json_atomic(run_dir / "state.json", state)
+    # Only the run CURRENT.md already points at is refreshed; touching an older run with
+    # --run must never silently repoint the project (use switch-run for that).
+    if is_current_run(project, run_dir):
+        update_current(project_bus(project), state)
+
+
+def list_runs(project: Path) -> list[dict[str, Any]]:
+    bus = project_bus(project)
+    current = current_run_id(bus)
+    runs = []
+    for state_path in sorted((bus / "runs").glob("*/state.json")) if (bus / "runs").is_dir() else []:
+        with contextlib.suppress(TeamError):
+            state = load_json(state_path)
+            runs.append(
+                {
+                    "run": state["run_id"],
+                    "status": state["status"],
+                    "stage": state["stage"],
+                    "current": state["run_id"] == current,
+                    "updated_at": state.get("updated_at"),
+                }
+            )
+    return runs
+
+
+def switch_run(project: Path, run: str) -> str:
+    run_dir = find_run(project, run)
+    state = load_state(run_dir)
+    if state.get("status") == "closed":
+        raise TeamError(f"Run {state['run_id']} is closed")
     update_current(project_bus(project), state)
+    return state["run_id"]
+
+
+def close_run(project: Path, run_dir: Path, reason: str) -> None:
+    with state_lock(run_dir):
+        state = load_state(run_dir)
+        was_current = is_current_run(project, run_dir)
+        state["status"] = "closed"
+        append_event(state, "run-closed", reason=reason)
+        state["updated_at"] = utcnow()
+        write_json_atomic(run_dir / "state.json", state)
+        if was_current:
+            update_current(project_bus(project), None)
+
+
+CLOSED_TASK_STATES = {"completed", "cancelled"}
+
+
+def is_blocked(state: dict[str, Any]) -> bool:
+    return str(state.get("status", "")).startswith("blocked")
+
+
+def recompute_status(state: dict[str, Any], profile: dict[str, Any]) -> None:
+    """Derive the run status from facts, so no single transition can paper over another."""
+    if state.get("status") in {"complete", "closed"}:
+        return
+    tasks = state["tasks"].values()
+    if any(item["status"] == "rejected" for item in state["checkpoints"]):
+        state["status"] = "blocked-rejection"
+    elif not profile.get("continue_after_noncritical_failure", True) and any(task["status"] == "failed" for task in tasks):
+        state["status"] = "blocked-failure"
+    elif any(item["status"] == "pending" for item in state["checkpoints"]):
+        state["status"] = "waiting-human"
+    else:
+        state["status"] = "verifying" if state["stage"] == "05_verify" else "active"
+
+
+def assert_not_blocked(state: dict[str, Any], action: str) -> None:
+    status = state.get("status")
+    if status == "blocked-failure":
+        failed = ", ".join(task["id"] for task in state["tasks"].values() if task["status"] == "failed")
+        raise BlockedError(
+            f"Cannot {action}: the run is blocked because task(s) {failed} exhausted their retries. "
+            "A human must reopen them (reopen --extend-retries) or cancel them."
+        )
+    if status in {"blocked-rejection", "blocked"}:
+        rejected = ", ".join(item["id"] for item in state["checkpoints"] if item["status"] == "rejected") or "unknown"
+        raise BlockedError(
+            f"Cannot {action}: the run is blocked by rejected checkpoint(s) {rejected}. Correct the work, "
+            "then the human closes the rejection with `resolve`."
+        )
+    if status == "closed":
+        raise BlockedError(f"Cannot {action}: the run is closed")
 
 
 def refresh_ready(state: dict[str, Any]) -> None:
@@ -762,16 +929,30 @@ def refresh_ready(state: dict[str, Any]) -> None:
         task["status"] = "ready" if all(tasks.get(dep, {}).get("status") == "completed" for dep in dependencies) else "pending"
 
 
+WORD = re.compile(r"[a-z0-9]+")
+
+
+def words(text: str) -> list[str]:
+    return WORD.findall(text.lower().replace("_", " ").replace("-", " "))
+
+
+def phrase_in(phrase: list[str], haystack: list[str]) -> bool:
+    size = len(phrase)
+    return size > 0 and any(haystack[index : index + size] == phrase for index in range(len(haystack) - size + 1))
+
+
+def match_triggers(triggers: list[str], signals: list[str]) -> list[str]:
+    """Whole-word / whole-phrase matching; hyphens and spaces are equivalent."""
+    haystacks = [words(signal) for signal in signals]
+    return [trigger for trigger in triggers if any(phrase_in(words(trigger), haystack) for haystack in haystacks)]
+
+
 def route_specialists(project: Path, run_dir: Path, signals: list[str]) -> list[dict[str, Any]]:
-    manifest = load_json(project_bus(project) / "team.json")
-    installed = set(manifest.get("installation", {}).get("installed_agents", []))
-    normalized = " ".join(signals).lower().replace("_", "-")
-    searchable = f"{normalized} {normalized.replace(' ', '-')} {normalized.replace('-', ' ')}"
+    installed = installed_agents(project)
     matches: list[dict[str, Any]] = []
-    for agent in manifest["agents"]:
-        triggers = agent.get("activate_when", [])
-        hit = [trigger for trigger in triggers if trigger.lower() in searchable]
-        if hit and (not installed or agent["id"] in installed):
+    for agent in installed.values():
+        hit = match_triggers(agent.get("activate_when", []), signals)
+        if hit:
             matches.append({"agent": agent["id"], "matched": hit, "capabilities": agent["capabilities"]})
     with state_lock(run_dir):
         state = load_state(run_dir)
@@ -780,6 +961,7 @@ def route_specialists(project: Path, run_dir: Path, signals: list[str]) -> list[
                 "status": "active",
                 "reason": f"Matched signals: {', '.join(match['matched'])}",
                 "activated_at": utcnow(),
+                "stage": state["stage"],
             }
             append_event(state, "specialist-activated", agent=match["agent"], triggers=match["matched"])
         save_state(project, run_dir, state)
@@ -797,39 +979,56 @@ def deactivate_specialist(project: Path, run_dir: Path, agent: str, reason: str)
         save_state(project, run_dir, state)
 
 
-def task_file(run_dir: Path, task_id: str) -> Path:
-    return run_dir / "04_build" / "tasks" / f"{slug(task_id)}.md"
+def task_file(run_dir: Path, task: dict[str, Any]) -> Path:
+    stage = task.get("stage", "04_build")
+    return run_dir / stage / "tasks" / f"{slug(task['id'])}.md"
+
+
+WRITE_ACCESS = {"workspace-write", "orchestrate"}
 
 
 def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
-    installed_manifest = load_json(project_bus(project) / "team.json")
-    installed = set(installed_manifest.get("installation", {}).get("installed_agents", []))
-    if installed and args.owner not in installed:
+    installed = installed_agents(project)
+    if args.owner not in installed:
         raise TeamError(f"Task owner '{args.owner}' is not installed in this project")
+    exclusive = bool(getattr(args, "exclusive", False))
     with state_lock(run_dir):
         state = load_state(run_dir)
+        stage = getattr(args, "stage", None) or state["stage"]
+        if stage not in STAGE_NAMES:
+            raise TeamError(f"Unknown stage {stage}")
+        if STAGE_NAMES.index(stage) < STAGE_NAMES.index(state["stage"]):
+            raise TeamError(
+                f"Stage {stage} is already behind the run (current: {state['stage']}). Add remediation "
+                "work to the current stage so it gates the current exit."
+            )
         if args.id in state["tasks"]:
             raise TeamError(f"Task already exists: {args.id}")
         missing = [dep for dep in args.depends_on if dep not in state["tasks"]]
         if missing:
             raise TeamError(f"Unknown dependencies: {', '.join(missing)}")
+        owner_access = installed[args.owner].get("access")
+        if stage == "04_build" and owner_access in WRITE_ACCESS and not args.path and not exclusive:
+            raise TeamError(
+                "Build tasks owned by a writing role must declare at least one --path (or --exclusive, "
+                "which conflicts with every other claim)."
+            )
         objective = args.objective or args.title
-        floor = derive_risk_floor(args.title, objective, args.stage, args.path)
-        effective_risk = args.risk
-        if RISK_ORDER[floor] > RISK_ORDER[args.risk]:
-            effective_risk = floor
+        floor = derive_risk_floor(args.title, objective, stage, args.path)
+        effective_risk = args.risk if RISK_ORDER[args.risk] >= RISK_ORDER[floor] else floor
         task = {
             "id": args.id,
             "title": args.title,
             "objective": objective,
             "owner": args.owner,
-            "stage": args.stage,
+            "stage": stage,
             "status": "pending",
             "risk": effective_risk,
             "declared_risk": args.risk,
             "risk_floor": floor,
             "depends_on": args.depends_on,
             "owned_paths": args.path,
+            "exclusive": exclusive,
             "inputs": args.input,
             "acceptance": args.acceptance,
             "evidence_contract": args.evidence_contract,
@@ -839,24 +1038,22 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
         }
         state["tasks"][args.id] = task
         refresh_ready(state)
-        append_event(state, "task-added", task=args.id, owner=args.owner, risk=effective_risk)
+        append_event(state, "task-added", task=args.id, owner=args.owner, risk=effective_risk, stage=stage)
         if effective_risk != args.risk:
-            append_event(
-                state, "risk-raised", task=args.id, declared=args.risk, effective=effective_risk
-            )
+            append_event(state, "risk-raised", task=args.id, declared=args.risk, effective=effective_risk)
         save_state(project, run_dir, state)
         template = (project_bus(project) / "templates" / "task.md").read_text(encoding="utf-8")
         write_text(
-            task_file(run_dir, args.id),
+            task_file(run_dir, task),
             template.format(
                 task_id=args.id,
                 title=args.title,
                 owner=args.owner,
-                stage=args.stage,
-                risk=args.risk,
+                stage=stage,
+                risk=effective_risk,
                 dependencies=", ".join(args.depends_on) or "none",
-                owned_paths=", ".join(args.path) or "none declared",
-                objective=task["objective"],
+                owned_paths=("EXCLUSIVE (whole workspace)" if exclusive else ", ".join(args.path)) or "none declared",
+                objective=objective,
                 inputs="\n".join(f"- {value}" for value in args.input) or "- None named",
                 acceptance="\n".join(f"- [ ] {value}" for value in args.acceptance) or "- [ ] Objective demonstrated",
                 evidence_contract="\n".join(f"- {value}" for value in args.evidence_contract) or "- Artifact paths and checks with results",
@@ -908,39 +1105,68 @@ def derive_risk_floor(title: str, objective: str, stage: str, paths: list[str]) 
     return floor
 
 
+def normalized_path(value: str) -> str:
+    text = value.replace("\\", "/").strip().strip("/")
+    while text.startswith("./"):
+        text = text[2:]
+    parts: list[str] = []
+    for part in text.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(part)
+    joined = "/".join(parts)
+    return joined.lower() if os.name == "nt" else joined
+
+
 def paths_overlap(left: str, right: str) -> bool:
-    a = left.replace("\\", "/").strip("/")
-    b = right.replace("\\", "/").strip("/")
+    a = normalized_path(left)
+    b = normalized_path(right)
     if not a or not b:
         return False
     return a == b or a.startswith(b + "/") or b.startswith(a + "/")
 
 
+def claims_conflict(task: dict[str, Any], other: dict[str, Any]) -> str | None:
+    if task.get("exclusive") or other.get("exclusive"):
+        return f"task {other['id']} holds or requires the whole workspace (--exclusive)"
+    for left in task.get("owned_paths", []):
+        for right in other.get("owned_paths", []):
+            if paths_overlap(left, right):
+                return f"owned path '{left}' overlaps claimed task {other['id']} path '{right}'"
+    return None
+
+
 def claim_task(project: Path, run_dir: Path, task_id: str, agent: str, lease_minutes: int) -> None:
+    installed = installed_agents(project)
+    if agent not in installed:
+        raise TeamError(f"'{agent}' is not an installed agent; claims must name the role doing the work")
     with state_lock(run_dir):
         state = load_state(run_dir)
         refresh_ready(state)
         task = state["tasks"].get(task_id)
         if not task:
             raise TeamError(f"Unknown task: {task_id}")
+        assert_not_blocked(state, f"claim {task_id}")
+        if agent != task["owner"]:
+            raise TeamError(
+                f"Task {task_id} is owned by {task['owner']}, not {agent}. Use `reassign` to change the owner."
+            )
+        if task["stage"] != state["stage"]:
+            raise TeamError(f"Task {task_id} belongs to stage {task['stage']}; the run is in {state['stage']}")
         if task["status"] != "ready":
             raise TeamError(f"Task {task_id} is {task['status']}, not ready")
-        policy = load_json(project_bus(project) / "config" / "policies.json")["profiles"][state["autonomy"]]
-        floor = derive_risk_floor(
-            task.get("title", ""), task.get("objective", ""), task.get("stage", ""), task.get("owned_paths", [])
-        )
+        profile = profile_policy(project, state)
+        floor = derive_risk_floor(task.get("title", ""), task.get("objective", ""), task.get("stage", ""), task.get("owned_paths", []))
         if RISK_ORDER[floor] > RISK_ORDER[task["risk"]]:
             task["risk"] = floor
             append_event(state, "risk-raised", task=task_id, effective=floor)
-        if state.get("status") == "blocked":
-            raise TeamError(
-                "Run is blocked by a human rejection. Resolve the rejected checkpoint before claiming work."
-            )
-        requires_human = task["risk"] in policy["pause_at"] or task["risk"] in {"R3", "R4"}
+        requires_human = task["risk"] in profile["pause_at"] or task["risk"] in {"R3", "R4"}
         approved = any(
-            item.get("kind") == "risk"
-            and item.get("task") == task_id
-            and item["status"] == "approved"
+            item.get("kind") == "risk" and item.get("task") == task_id and item["status"] == "approved"
             for item in state["checkpoints"]
         )
         if requires_human and not approved:
@@ -968,16 +1194,17 @@ def claim_task(project: Path, run_dir: Path, task_id: str, agent: str, lease_min
                     }
                 )
                 append_event(state, "checkpoint-created", checkpoint=checkpoint_id, task=task_id, risk=task["risk"])
-            state["status"] = "waiting-human"
+            recompute_status(state, profile)
             save_state(project, run_dir, state)
-            raise TeamError(f"Task {task_id} requires human checkpoint approval before claim")
-        for other in state["tasks"].values():
-            if other["status"] != "claimed":
-                continue
-            for left in task.get("owned_paths", []):
-                for right in other.get("owned_paths", []):
-                    if paths_overlap(left, right):
-                        raise TeamError(f"Owned path '{left}' overlaps claimed task {other['id']} path '{right}'")
+            raise GateError(f"Task {task_id} requires human checkpoint approval before claim")
+        claimed = [other for other in state["tasks"].values() if other["status"] == "claimed"]
+        limit = int(profile.get("max_concurrent_agents", 0) or 0)
+        if limit and len(claimed) >= limit:
+            raise TeamError(f"Concurrency cap reached: {len(claimed)} claimed task(s), profile limit {limit}")
+        for other in claimed:
+            conflict = claims_conflict(task, other)
+            if conflict:
+                raise TeamError(f"Cannot claim {task_id}: {conflict}")
         expires = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=lease_minutes)
         task.update(
             status="claimed",
@@ -986,6 +1213,42 @@ def claim_task(project: Path, run_dir: Path, task_id: str, agent: str, lease_min
             lease_expires=expires.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         )
         append_event(state, "task-claimed", task=task_id, agent=agent)
+        save_state(project, run_dir, state)
+
+
+MAX_LEASE_MINUTES = 480
+
+
+def renew_lease(project: Path, run_dir: Path, task_id: str, agent: str, lease_minutes: int) -> str:
+    if lease_minutes < 1 or lease_minutes > MAX_LEASE_MINUTES:
+        raise TeamError(f"--lease-minutes must be between 1 and {MAX_LEASE_MINUTES}")
+    with state_lock(run_dir):
+        state = load_state(run_dir)
+        task = state["tasks"].get(task_id)
+        if not task or task["status"] != "claimed" or task.get("claimed_by") != agent:
+            raise TeamError(f"Task {task_id} is not claimed by {agent}")
+        expires = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=lease_minutes)).replace(microsecond=0)
+        task["lease_expires"] = expires.isoformat().replace("+00:00", "Z")
+        append_event(state, "lease-renewed", task=task_id, agent=agent, until=task["lease_expires"])
+        save_state(project, run_dir, state)
+        return task["lease_expires"]
+
+
+def reassign_task(project: Path, run_dir: Path, task_id: str, owner: str, reason: str) -> None:
+    installed = installed_agents(project)
+    if owner not in installed:
+        raise TeamError(f"New owner '{owner}' is not installed")
+    with state_lock(run_dir):
+        state = load_state(run_dir)
+        task = state["tasks"].get(task_id)
+        if not task:
+            raise TeamError(f"Unknown task: {task_id}")
+        if task["status"] in CLOSED_TASK_STATES or task["status"] == "claimed":
+            raise TeamError(f"Task {task_id} is {task['status']}; only unclaimed open tasks can be reassigned")
+        previous = task["owner"]
+        task["owner"] = owner
+        task.setdefault("reassignments", []).append({"from": previous, "to": owner, "reason": reason, "time": utcnow()})
+        append_event(state, "task-reassigned", task=task_id, previous=previous, owner=owner, reason=reason)
         save_state(project, run_dir, state)
 
 
@@ -1006,20 +1269,30 @@ def complete_task(project: Path, run_dir: Path, task_id: str, agent: str, eviden
         save_state(project, run_dir, state)
 
 
+def retry_limit(task: dict[str, Any], profile: dict[str, Any]) -> int:
+    return int(profile["max_task_retries"]) + int(task.get("retry_extension", 0))
+
+
+def release_claim(task: dict[str, Any]) -> None:
+    for field in ("claimed_by", "claimed_at", "lease_expires", "lease_expires_at"):
+        task.pop(field, None)
+
+
 def fail_task(project: Path, run_dir: Path, task_id: str, agent: str, reason: str) -> None:
     with state_lock(run_dir):
         state = load_state(run_dir)
         task = state["tasks"].get(task_id)
         if not task or task.get("claimed_by") != agent or task["status"] != "claimed":
             raise TeamError(f"Task {task_id} is not claimed by {agent}")
-        policy = load_json(project_bus(project) / "config" / "policies.json")
-        maximum = policy["profiles"][state["autonomy"]]["max_task_retries"]
+        profile = profile_policy(project, state)
         task["attempts"] += 1
-        task["last_failure"] = {"time": utcnow(), "reason": reason}
-        task["status"] = "ready" if task["attempts"] <= maximum else "failed"
+        task["last_failure"] = {"time": utcnow(), "reason": reason, "agent": agent}
+        task.setdefault("failures", []).append(task["last_failure"])
+        task["status"] = "ready" if task["attempts"] <= retry_limit(task, profile) else "failed"
+        release_claim(task)
+        refresh_ready(state)
         append_event(state, "task-failed", task=task_id, agent=agent, reason=reason, retry=task["status"] == "ready")
-        if task["status"] == "failed" and not policy["profiles"][state["autonomy"]]["continue_after_noncritical_failure"]:
-            state["status"] = "blocked"
+        recompute_status(state, profile)
         save_state(project, run_dir, state)
 
 
@@ -1027,7 +1300,7 @@ def recover_leases(project: Path, run_dir: Path) -> int:
     recovered = 0
     with state_lock(run_dir):
         state = load_state(run_dir)
-        policy = load_json(project_bus(project) / "config" / "policies.json")["profiles"][state["autonomy"]]
+        profile = profile_policy(project, state)
         now = dt.datetime.now(dt.timezone.utc)
         for task in state["tasks"].values():
             if task["status"] != "claimed" or not task.get("lease_expires"):
@@ -1037,22 +1310,15 @@ def recover_leases(project: Path, run_dir: Path) -> int:
                 continue
             previous_agent = task.get("claimed_by")
             task["attempts"] += 1
-            task["last_failure"] = {"time": utcnow(), "reason": "claim lease expired"}
-            task["status"] = "ready" if task["attempts"] <= policy["max_task_retries"] else "failed"
-            for field in ("claimed_by", "claimed_at", "lease_expires"):
-                task.pop(field, None)
-            append_event(
-                state,
-                "lease-recovered",
-                task=task["id"],
-                previous_agent=previous_agent,
-                retry=task["status"] == "ready",
-            )
+            task["last_failure"] = {"time": utcnow(), "reason": "claim lease expired", "agent": previous_agent}
+            task.setdefault("failures", []).append(task["last_failure"])
+            task["status"] = "ready" if task["attempts"] <= retry_limit(task, profile) else "failed"
+            release_claim(task)
+            append_event(state, "lease-recovered", task=task["id"], previous_agent=previous_agent, retry=task["status"] == "ready")
             recovered += 1
         if recovered:
             refresh_ready(state)
-            if any(task["status"] == "failed" for task in state["tasks"].values()) and not policy["continue_after_noncritical_failure"]:
-                state["status"] = "blocked"
+            recompute_status(state, profile)
             save_state(project, run_dir, state)
     return recovered
 
@@ -1072,8 +1338,8 @@ def create_checkpoint(project: Path, run_dir: Path, question: str, recommendatio
             "created_at": utcnow(),
         }
         state["checkpoints"].append(checkpoint)
-        state["status"] = "waiting-human"
         append_event(state, "checkpoint-created", checkpoint=checkpoint_id, risk=risk)
+        recompute_status(state, profile_policy(project, state))
         save_state(project, run_dir, state)
         return checkpoint_id
 
@@ -1143,36 +1409,65 @@ def assert_human_authority(project: Path, state: dict[str, Any], by: str, token:
     )
 
 
+def human_decision(project: Path, run_dir: Path, state: dict[str, Any], by: str, token: str | None, action: str) -> None:
+    """Check human authority inside the run lock; a refusal is itself recorded evidence."""
+    try:
+        assert_human_authority(project, state, by, token)
+    except TeamError as exc:
+        append_event(state, "authority-refused", action=action, by=by, reason=str(exc))
+        state["updated_at"] = utcnow()
+        write_json_atomic(run_dir / "state.json", state)
+        raise
+
+
+def find_checkpoint(state: dict[str, Any], checkpoint_id: str) -> dict[str, Any]:
+    checkpoint = next((item for item in state["checkpoints"] if item["id"] == checkpoint_id), None)
+    if not checkpoint:
+        raise TeamError(f"Unknown checkpoint: {checkpoint_id}")
+    return checkpoint
+
+
 def approve_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str, decision: str, token: str | None = None) -> None:
     with state_lock(run_dir):
         state = load_state(run_dir)
-        assert_human_authority(project, state, by, token)
-        checkpoint = next((item for item in state["checkpoints"] if item["id"] == checkpoint_id), None)
-        if not checkpoint:
-            raise TeamError(f"Unknown checkpoint: {checkpoint_id}")
+        human_decision(project, run_dir, state, by, token, f"approve {checkpoint_id}")
+        checkpoint = find_checkpoint(state, checkpoint_id)
         if checkpoint["status"] != "pending":
             raise TeamError(f"Checkpoint {checkpoint_id} is already {checkpoint['status']}")
         checkpoint.update(status="approved", approved_by=by, decision=decision, approved_at=utcnow())
-        still_rejected = any(item["status"] == "rejected" for item in state["checkpoints"])
-        pending = any(item["status"] == "pending" for item in state["checkpoints"])
-        state["status"] = "blocked" if still_rejected else ("waiting-human" if pending else "active")
         append_event(state, "checkpoint-approved", checkpoint=checkpoint_id, by=by)
+        recompute_status(state, profile_policy(project, state))
         save_state(project, run_dir, state)
 
 
 def reject_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str, decision: str, token: str | None = None) -> None:
     with state_lock(run_dir):
         state = load_state(run_dir)
-        assert_human_authority(project, state, by, token)
-        checkpoint = next((item for item in state["checkpoints"] if item["id"] == checkpoint_id), None)
-        if not checkpoint:
-            raise TeamError(f"Unknown checkpoint: {checkpoint_id}")
+        human_decision(project, run_dir, state, by, token, f"reject {checkpoint_id}")
+        checkpoint = find_checkpoint(state, checkpoint_id)
         if checkpoint["status"] != "pending":
             raise TeamError(f"Checkpoint {checkpoint_id} is already {checkpoint['status']}")
         checkpoint.update(status="rejected", rejected_by=by, decision=decision, rejected_at=utcnow())
-        state["status"] = "blocked"
         append_event(state, "checkpoint-rejected", checkpoint=checkpoint_id, by=by)
+        recompute_status(state, profile_policy(project, state))
         save_state(project, run_dir, state)
+
+
+def resolve_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str, resolution: str, token: str | None = None) -> str:
+    """Close a rejection once the correction exists. The rejection itself stays on record."""
+    with state_lock(run_dir):
+        state = load_state(run_dir)
+        human_decision(project, run_dir, state, by, token, f"resolve {checkpoint_id}")
+        checkpoint = find_checkpoint(state, checkpoint_id)
+        if checkpoint["status"] != "rejected":
+            raise TeamError(f"Checkpoint {checkpoint_id} is {checkpoint['status']}; only a rejection can be resolved")
+        checkpoint.update(status="resolved", resolved_by=by, resolution=resolution, resolved_at=utcnow())
+        append_event(state, "checkpoint-resolved", checkpoint=checkpoint_id, by=by)
+        if state.get("status") == "blocked":
+            state["status"] = "active"  # legacy v2 marker
+        recompute_status(state, profile_policy(project, state))
+        save_state(project, run_dir, state)
+        return state["status"]
 
 
 def clear_stale_lock(run_dir: Path, max_age_seconds: int = 0) -> str:
@@ -1192,75 +1487,136 @@ def clear_stale_lock(run_dir: Path, max_age_seconds: int = 0) -> str:
     return f"Cleared stale lock held for {int(held)}s."
 
 
-def reopen_task(project: Path, run_dir: Path, task_id: str, reason: str) -> None:
-    """Return a failed or wedged task to the queue so a stage is never permanently stuck."""
+def reopen_task(
+    project: Path,
+    run_dir: Path,
+    task_id: str,
+    reason: str,
+    by: str | None = None,
+    token: str | None = None,
+    extend_retries: int = 0,
+) -> None:
+    """Return a task to the queue.
+
+    A wedged claim may be reopened by the orchestrator (it counts as an attempt). Reopening a
+    failed, cancelled, or completed task, or extending the retry budget, is a human decision.
+    """
     with state_lock(run_dir):
         state = load_state(run_dir)
         task = state["tasks"].get(task_id)
         if not task:
             raise TeamError(f"Unknown task: {task_id}")
-        if task["status"] == "done":
-            raise TeamError(f"Task {task_id} is already complete")
-        task.update(status="pending", claimed_by=None, lease_expires_at=None, attempts=0)
-        task["reopened_reason"] = reason
+        profile = profile_policy(project, state)
+        human_needed = task["status"] in {"failed", "cancelled", "completed"} or extend_retries > 0
+        if task["status"] in {"pending", "ready"}:
+            raise TeamError(f"Task {task_id} is already {task['status']}")
+        if human_needed:
+            if not by:
+                raise TeamError(
+                    f"Reopening a {task['status']} task or extending retries is a human decision: pass --by and the owner token"
+                )
+            human_decision(project, run_dir, state, by, token, f"reopen {task_id}")
+        previous = task["status"]
+        if previous == "claimed":
+            task["attempts"] += 1
+        if extend_retries:
+            task["retry_extension"] = int(task.get("retry_extension", 0)) + extend_retries
+        release_claim(task)
+        if previous == "completed":
+            task.setdefault("previous_evidence", []).append(task.get("evidence", []))
+            task["evidence"] = []
+            task.pop("completed_at", None)
+        task.setdefault("reopen_history", []).append(
+            {"time": utcnow(), "from": previous, "reason": reason, "by": by or "orchestrator", "extend_retries": extend_retries}
+        )
+        task["status"] = "pending"
+        task.pop("cancelled_reason", None)
         refresh_ready(state)
-        append_event(state, "task-reopened", task=task_id, reason=reason)
+        append_event(state, "task-reopened", task=task_id, previous=previous, reason=reason, by=by or "orchestrator")
+        recompute_status(state, profile)
         save_state(project, run_dir, state)
 
 
-def cancel_task(project: Path, run_dir: Path, task_id: str, reason: str) -> None:
-    """Descope a task the human no longer wants, so it stops blocking the stage gate."""
+def open_dependents(state: dict[str, Any], task_id: str) -> list[str]:
+    found: list[str] = []
+    frontier = [task_id]
+    while frontier:
+        current = frontier.pop()
+        for other in state["tasks"].values():
+            if current in other.get("depends_on", []) and other["status"] not in CLOSED_TASK_STATES and other["id"] not in found:
+                found.append(other["id"])
+                frontier.append(other["id"])
+    return found
+
+
+def cancel_task(
+    project: Path, run_dir: Path, task_id: str, reason: str, by: str, token: str | None = None, cascade: bool = False
+) -> list[str]:
+    """Descope a task (a human decision). Cancelled tasks are closed for the stage gate."""
     with state_lock(run_dir):
         state = load_state(run_dir)
         task = state["tasks"].get(task_id)
         if not task:
             raise TeamError(f"Unknown task: {task_id}")
-        task.update(status="cancelled", claimed_by=None, lease_expires_at=None)
-        task["cancelled_reason"] = reason
+        human_decision(project, run_dir, state, by, token, f"cancel {task_id}")
+        if task["status"] in CLOSED_TASK_STATES:
+            raise TeamError(f"Task {task_id} is already {task['status']}")
+        dependents = open_dependents(state, task_id)
+        if dependents and not cascade:
+            raise TeamError(
+                f"Task {task_id} has open dependents ({', '.join(dependents)}). Cancel with --cascade, "
+                "or reassign/redefine the dependents first."
+            )
+        cancelled = [task_id] + dependents
+        for identifier in cancelled:
+            item = state["tasks"][identifier]
+            release_claim(item)
+            item.update(status="cancelled", cancelled_reason=reason, cancelled_by=by, cancelled_at=utcnow())
         refresh_ready(state)
-        append_event(state, "task-cancelled", task=task_id, reason=reason)
+        append_event(state, "task-cancelled", task=task_id, cascade=dependents, reason=reason, by=by)
+        recompute_status(state, profile_policy(project, state))
         save_state(project, run_dir, state)
+        return cancelled
 
 
 def advance_stage(project: Path, run_dir: Path) -> str:
     with state_lock(run_dir):
         state = load_state(run_dir)
-        if state.get("status") == "blocked":
-            raise TeamError(
-                "Run is blocked by a human rejection. Resolve the rejected checkpoint before advancing."
-            )
+        assert_not_blocked(state, "advance")
         current = state["stage"]
-        open_tasks = [task["id"] for task in state["tasks"].values() if task["stage"] == current and task["status"] != "completed"]
+        open_tasks = [
+            task["id"] for task in state["tasks"].values() if task["stage"] == current and task["status"] not in CLOSED_TASK_STATES
+        ]
         if open_tasks:
             raise TeamError(f"Current stage has unfinished tasks: {', '.join(open_tasks)}")
-        policy = load_json(project_bus(project) / "config" / "policies.json")["profiles"][state["autonomy"]]
+        profile = profile_policy(project, state)
+        pending = [item["id"] for item in state["checkpoints"] if item["status"] == "pending"]
+        if pending:
+            recompute_status(state, profile)
+            save_state(project, run_dir, state)
+            return "waiting-human"
         gate_name = {"01_product": "product", "02_solution": "architecture", "03_readiness": "readiness", "06_release": "release"}.get(current)
-        requires_human = gate_name == "release" or gate_name in policy["pause_at"]
+        requires_human = gate_name == "release" or gate_name in profile["pause_at"]
         approved = any(
             item["kind"] == "stage" and item["stage"] == current and item["status"] == "approved"
             for item in state["checkpoints"]
         )
         if requires_human and not approved:
-            existing = next(
-                (item for item in state["checkpoints"] if item["kind"] == "stage" and item["stage"] == current and item["status"] == "pending"),
-                None,
+            checkpoint_id = f"CP-{len(state['checkpoints']) + 1:03d}"
+            state["checkpoints"].append(
+                {
+                    "id": checkpoint_id,
+                    "status": "pending",
+                    "kind": "stage",
+                    "stage": current,
+                    "risk": "R3" if current == "06_release" else "R2",
+                    "question": f"Approve exit from {current}?",
+                    "recommendation": "Approve only after reviewing declared outputs and evidence.",
+                    "created_at": utcnow(),
+                }
             )
-            if not existing:
-                checkpoint_id = f"CP-{len(state['checkpoints']) + 1:03d}"
-                state["checkpoints"].append(
-                    {
-                        "id": checkpoint_id,
-                        "status": "pending",
-                        "kind": "stage",
-                        "stage": current,
-                        "risk": "R3" if current == "06_release" else "R2",
-                        "question": f"Approve exit from {current}?",
-                        "recommendation": "Approve only after reviewing declared outputs and evidence.",
-                        "created_at": utcnow(),
-                    }
-                )
-                append_event(state, "checkpoint-created", checkpoint=checkpoint_id, stage=current)
-            state["status"] = "waiting-human"
+            append_event(state, "checkpoint-created", checkpoint=checkpoint_id, stage=current)
+            recompute_status(state, profile)
             save_state(project, run_dir, state)
             return "waiting-human"
         index = STAGE_NAMES.index(current)
@@ -1270,8 +1626,8 @@ def advance_stage(project: Path, run_dir: Path) -> str:
             save_state(project, run_dir, state)
             return "complete"
         state["stage"] = STAGE_NAMES[index + 1]
-        state["status"] = "verifying" if state["stage"] == "05_verify" else "active"
         append_event(state, "stage-advanced", previous=current, stage=state["stage"])
+        recompute_status(state, profile)
         save_state(project, run_dir, state)
         return state["stage"]
 
@@ -1280,18 +1636,33 @@ def fusion_dir(run_dir: Path, fusion_id: str) -> Path:
     return run_dir / "_fusion" / slug(fusion_id)
 
 
+FUSION_PHASE_OF = {
+    "proposal": "proposals",
+    "critique": "critiques",
+    "revision": "critiques",
+    "synthesis": "synthesis",
+    "verification": "verification",
+}
+
+
 def fusion_init(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
     contributors = list(dict.fromkeys(args.contributor))
     if len(contributors) < 2:
         raise TeamError("Fusion requires at least two distinct --contributor agents")
     if args.moderator in contributors or args.verifier in contributors:
         raise TeamError("Moderator and verifier must remain independent from contributors")
-    installed_manifest = load_json(project_bus(project) / "team.json")
-    installed = set(installed_manifest.get("installation", {}).get("installed_agents", []))
+    if args.moderator == args.verifier:
+        raise TeamError("The verifier must be independent of the moderator whose synthesis it checks")
+    installed = installed_agents(project)
     participants = set(contributors + [args.moderator, args.verifier])
-    missing = participants - installed if installed else set()
+    missing = participants - set(installed)
     if missing:
         raise TeamError(f"Fusion participants are not installed: {', '.join(sorted(missing))}")
+    if args.sponsor != "human-owner":
+        if args.sponsor not in installed:
+            raise TeamError("The sponsor must be 'human-owner' or an installed agent")
+        if args.sponsor in participants:
+            raise TeamError("An agent sponsor may not also contribute, moderate, or verify")
     with state_lock(run_dir):
         state = load_state(run_dir)
         if any(item["id"] == args.id for item in state["fusion_sessions"]):
@@ -1304,7 +1675,7 @@ def fusion_init(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
             "moderator": args.moderator,
             "verifier": args.verifier,
             "contributors": contributors,
-            "submissions": {"proposal": {}, "critique": {}, "synthesis": {}, "verification": {}},
+            "submissions": {"proposal": {}, "critique": {}, "revision": {}, "synthesis": {}, "verification": {}},
             "created_at": utcnow(),
         }
         state["fusion_sessions"].append(session)
@@ -1331,47 +1702,74 @@ def fusion_init(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
     write_text(base / "decision.md", (templates / "fusion-decision.md").read_text(encoding="utf-8"))
 
 
+def fusion_session(state: dict[str, Any], fusion_id: str) -> dict[str, Any]:
+    session = next((item for item in state["fusion_sessions"] if item["id"] == fusion_id), None)
+    if not session:
+        raise TeamError(f"Unknown fusion session: {fusion_id}")
+    return session
+
+
 def fusion_submit(project: Path, run_dir: Path, fusion_id: str, kind: str, agent: str, evidence: str) -> str:
     with state_lock(run_dir):
         state = load_state(run_dir)
-        session = next((item for item in state["fusion_sessions"] if item["id"] == fusion_id), None)
-        if not session:
-            raise TeamError(f"Unknown fusion session: {fusion_id}")
+        session = fusion_session(state, fusion_id)
+        submissions = session["submissions"]
+        submissions.setdefault("revision", {})
         allowed = {
             "proposal": session["contributors"],
             "critique": session["contributors"],
+            "revision": session["contributors"],
             "synthesis": [session["moderator"]],
             "verification": [session["verifier"]],
         }
         if agent not in allowed[kind]:
             raise TeamError(f"{agent} is not allowed to submit {kind}")
-        session["submissions"][kind][agent] = {"time": utcnow(), "evidence": evidence}
-        if kind == "proposal" and all(name in session["submissions"]["proposal"] for name in session["contributors"]):
+        phase = FUSION_PHASE_OF[kind]
+        if session["status"] != phase:
+            raise TeamError(f"Fusion {fusion_id} is in phase '{session['status']}'; a {kind} belongs to phase '{phase}'")
+        if agent in submissions[kind]:
+            raise TeamError(f"{agent} already submitted a {kind}; submissions are final (one revision is allowed during critiques)")
+        if kind == "revision" and agent not in submissions["proposal"]:
+            raise TeamError(f"{agent} has no proposal to revise")
+        submissions[kind][agent] = {"time": utcnow(), "evidence": evidence}
+        if kind == "proposal" and all(name in submissions["proposal"] for name in session["contributors"]):
             session["status"] = "critiques"
-        elif kind == "critique" and all(name in session["submissions"]["critique"] for name in session["contributors"]):
+        elif kind == "critique" and all(name in submissions["critique"] for name in session["contributors"]):
             session["status"] = "synthesis"
         elif kind == "synthesis":
             session["status"] = "verification"
         elif kind == "verification":
             session["status"] = "decision"
-        append_event(state, "fusion-submission", fusion=fusion_id, kind=kind, agent=agent)
+        append_event(state, "fusion-submission", fusion=fusion_id, kind=kind, agent=agent, phase=session["status"])
         save_state(project, run_dir, state)
         return session["status"]
 
 
-def fusion_close(project: Path, run_dir: Path, fusion_id: str, sponsor: str, decision: str) -> None:
+def fusion_close(
+    project: Path,
+    run_dir: Path,
+    fusion_id: str,
+    sponsor: str,
+    decision: str,
+    by: str | None = None,
+    token: str | None = None,
+) -> None:
     with state_lock(run_dir):
         state = load_state(run_dir)
-        session = next((item for item in state["fusion_sessions"] if item["id"] == fusion_id), None)
-        if not session:
-            raise TeamError(f"Unknown fusion session: {fusion_id}")
+        session = fusion_session(state, fusion_id)
         if session["status"] != "decision":
             raise TeamError(f"Fusion session is {session['status']}; synthesis and verification are required")
         if sponsor != session["sponsor"]:
             raise TeamError(f"Only sponsor {session['sponsor']} can close this council")
-        session.update(status="complete", decision=decision, decided_at=utcnow())
-        append_event(state, "fusion-completed", fusion=fusion_id, sponsor=sponsor)
+        if sponsor == "human-owner":
+            human_decision(project, run_dir, state, by or "", token, f"fusion-close {fusion_id}")
+        session.update(status="complete", decision=decision, decided_at=utcnow(), decided_by=by or sponsor)
+        append_event(state, "fusion-completed", fusion=fusion_id, sponsor=sponsor, by=by or sponsor)
         save_state(project, run_dir, state)
+    decision_path = fusion_dir(run_dir, fusion_id) / "decision.md"
+    if decision_path.is_file():
+        text = decision_path.read_text(encoding="utf-8").replace("Status: draft", "Status: decided")
+        write_text(decision_path, text + f"\n\n## Recorded decision\n\n{decision}\n\n- Decided by: {by or sponsor}\n- Time: {utcnow()}\n")
 
 
 def learn(project: Path, run_dir: Path, title: str, evidence: str, lesson: str, scope: str, counterexample: str) -> Path:
@@ -1395,6 +1793,8 @@ def render_status(state: dict[str, Any]) -> str:
     counts: dict[str, int] = {}
     for task in state["tasks"].values():
         counts[task["status"]] = counts.get(task["status"], 0) + 1
+    pending = [item["id"] for item in state["checkpoints"] if item["status"] == "pending"]
+    rejected = [item["id"] for item in state["checkpoints"] if item["status"] == "rejected"]
     lines = [
         f"Run: {state['run_id']}",
         f"Status: {state['status']}",
@@ -1402,32 +1802,55 @@ def render_status(state: dict[str, Any]) -> str:
         f"Autonomy: {state['autonomy']}",
         f"Context: {state['context_method']}",
         "Tasks: " + (", ".join(f"{key}={value}" for key, value in sorted(counts.items())) or "none"),
-        f"Pending checkpoints: {sum(1 for item in state['checkpoints'] if item['status'] == 'pending')}",
+        f"Pending checkpoints: {len(pending)}" + (f" ({', '.join(pending)})" if pending else ""),
         f"Fusion sessions: {len(state['fusion_sessions'])}",
         f"Active specialists: {sum(1 for item in state.get('active_specialists', {}).values() if item['status'] == 'active')}",
     ]
+    if rejected:
+        lines.append(f"Unresolved rejections: {', '.join(rejected)} (human runs `resolve` after the correction)")
+    failed = [task["id"] for task in state["tasks"].values() if task["status"] == "failed"]
+    if failed:
+        lines.append(f"Failed tasks: {', '.join(failed)}")
     return "\n".join(lines)
 
 
 def generate_report(project: Path, run_dir: Path) -> Path:
+    """Evidence index. It never overwrites the ceo-authored DELIVERY-REPORT.md."""
     state = load_state(run_dir)
-    path = run_dir / "DELIVERY-REPORT.md"
+    path = run_dir / "DELIVERY-EVIDENCE.md"
     completed = [task for task in state["tasks"].values() if task["status"] == "completed"]
     unfinished = [task for task in state["tasks"].values() if task["status"] != "completed"]
     evidence = "\n".join(f"- `{task['id']}`: {'; '.join(task.get('evidence', []))}" for task in completed) or "- No completed-task evidence recorded."
     open_work = "\n".join(f"- `{task['id']}` — {task['status']}: {task['title']}" for task in unfinished) or "- None recorded."
     approvals = "\n".join(f"- `{item['id']}` — {item['status']}: {item['question']}" for item in state["checkpoints"]) or "- No checkpoints recorded."
     content = (
-        f"# AgenticTeam delivery report — {state['project']}\n\n"
+        f"# Delivery evidence — {state['project']}\n\n"
         f"Generated: {utcnow()}  \nRun: `{state['run_id']}`  \nStatus: `{state['status']}`  \nStage: `{state['stage']}`\n\n"
-        "## Outcome\n\nComplete this with the verified user outcome; state alone cannot infer product quality.\n\n"
+        "This file is generated from run state. The narrative report is `DELIVERY-REPORT.md`, written by the ceo.\n\n"
         f"## Completed work and evidence\n\n{evidence}\n\n"
         f"## Open risks and unfinished work\n\n{open_work}\n\n"
-        f"## Human approvals\n\n{approvals}\n\n"
-        "## Verification, release, rollback, and learning\n\nLink the authoritative stage artifacts before presenting this report as final.\n"
+        f"## Human decisions\n\n{approvals}\n"
     )
     write_text(path, content)
     return path
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def managed_block_of(text: str) -> str:
+    pattern = re.compile(re.escape(MANAGED_START) + r".*?" + re.escape(MANAGED_END), re.DOTALL)
+    match = pattern.search(text)
+    return match.group(0) if match else ""
+
+
+def generated_digest(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    if path.name in ROUTER_FILES:
+        return hashlib.sha256(managed_block_of(path.read_text(encoding="utf-8")).encode("utf-8")).hexdigest()
+    return file_sha256(path)
 
 
 def doctor(project: Path) -> list[str]:
@@ -1455,6 +1878,14 @@ def doctor(project: Path) -> list[str]:
         missing_agents = set(install.get("agents", [])) - known
         if missing_agents:
             findings.append(f"install references unknown agents: {', '.join(sorted(missing_agents))}")
+        if install.get("version") != VERSION:
+            findings.append(f"installation is version {install.get('version')}, CLI is {VERSION}; reinstall")
+        for relative, digest in sorted(install.get("generated_hashes", {}).items()):
+            actual = generated_digest(project.resolve() / relative)
+            if actual is None:
+                findings.append(f"generated file missing: {relative}")
+            elif actual != digest:
+                findings.append(f"generated file modified locally: {relative} (reinstall overwrites it)")
     with contextlib.suppress(TeamError):
         run_dir = find_run(project, None)
         lock_path = run_dir / ".state.lock"
@@ -1462,14 +1893,28 @@ def doctor(project: Path) -> list[str]:
             held = 0
             with contextlib.suppress(OSError):
                 held = int(time.time() - lock_path.stat().st_mtime)
-            findings.append(
-                f"run state lock held for {held}s; if no command is running, clear it with 'unlock'"
-            )
+            findings.append(f"run state lock held for {held}s; if no command is running, clear it with 'unlock'")
         state = load_state(run_dir)
         if state.get("version") != VERSION:
             findings.append(f"active run version is {state.get('version')}, expected {VERSION}")
         if state.get("stage") not in STAGE_NAMES:
             findings.append(f"active run has unknown stage {state.get('stage')}")
+        if is_blocked(state):
+            rejected = [item["id"] for item in state["checkpoints"] if item["status"] == "rejected"]
+            failed = [task["id"] for task in state["tasks"].values() if task["status"] == "failed"]
+            findings.append(
+                f"active run is {state['status']}"
+                + (f"; unresolved rejections: {', '.join(rejected)}" if rejected else "")
+                + (f"; failed tasks: {', '.join(failed)}" if failed else "")
+            )
+        pending = [item["id"] for item in state["checkpoints"] if item["status"] == "pending"]
+        if pending:
+            findings.append(f"pending human checkpoints: {', '.join(pending)}")
+        now = dt.datetime.now(dt.timezone.utc)
+        for task in state["tasks"].values():
+            expiry = task.get("lease_expires")
+            if task["status"] == "claimed" and expiry and dt.datetime.fromisoformat(expiry.replace("Z", "+00:00")) <= now:
+                findings.append(f"task {task['id']} lease expired; run 'recover-leases'")
     return findings
 
 
@@ -1478,8 +1923,38 @@ def add_common_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run", help="Run id; defaults to CURRENT.md")
 
 
+def add_human_args(parser: argparse.ArgumentParser, required: bool = True) -> None:
+    parser.add_argument("--by", required=required, help="Name of the responsible human (never an agent id)")
+    parser.add_argument("--token", help="Owner token (required for runs that have one)")
+
+
+class TeamArgumentParser(argparse.ArgumentParser):
+    """Usage errors exit 64 (EX_USAGE) so they are never mistaken for a human gate (2)."""
+
+    def error(self, message: str) -> None:  # type: ignore[override]
+        self.print_usage(sys.stderr)
+        self.exit(EXIT_USAGE, f"{self.prog}: error: {message}\n")
+
+
+HELPER_COMMANDS = {
+    "preflight": ("preflight_skills", "Report which external skills/tools are available (non-zero when --require is missing)"),
+    "findings-to-tasks": ("findings_to_tasks", "Turn review findings into a verdict and runnable remediation tasks"),
+    "design-to-admin": ("design_to_admin", "Draft an adminwright manifest from a design-architect handoff"),
+    "llm-check": ("local_llm_check", "Report reachable local LLM endpoints"),
+}
+
+
+def run_helper(module_name: str, argv: list[str]) -> int:
+    helper_dir = Path(__file__).resolve().parent
+    if str(helper_dir) not in sys.path:
+        sys.path.insert(0, str(helper_dir))
+    module = __import__(module_name)
+    result = module.main(argv)
+    return int(result or 0)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="AgenticTeam installer and deterministic orchestration state")
+    parser = TeamArgumentParser(description="AgenticTeam installer and deterministic orchestration state")
     parser.add_argument("--source", help="AgenticTeam source root (normally auto-detected)")
     parser.add_argument("--version", action="version", version=f"AgenticTeam {VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1507,6 +1982,18 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_run_args(status)
     status.add_argument("--json", action="store_true")
 
+    runs = sub.add_parser("runs", help="List runs in this project")
+    runs.add_argument("--project", default=".")
+    runs.add_argument("--json", action="store_true")
+
+    switch = sub.add_parser("switch-run", help="Point CURRENT.md at another run")
+    switch.add_argument("--project", default=".")
+    switch.add_argument("--run", required=True)
+
+    close = sub.add_parser("close-run", help="Close a run (it stops accepting work)")
+    add_common_run_args(close)
+    close.add_argument("--reason", required=True)
+
     route = sub.add_parser("route-specialists", help="Activate installed specialists whose triggers match project signals")
     add_common_run_args(route)
     route.add_argument("--signal", action="append", required=True)
@@ -1523,10 +2010,11 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--title", required=True)
     add.add_argument("--objective")
     add.add_argument("--owner", required=True)
-    add.add_argument("--stage", choices=STAGE_NAMES, default="04_build")
+    add.add_argument("--stage", choices=STAGE_NAMES, help="Defaults to the run's current stage")
     add.add_argument("--risk", choices=list(RISK_ORDER), default="R1")
     add.add_argument("--depends-on", action="append", default=[])
     add.add_argument("--path", action="append", default=[])
+    add.add_argument("--exclusive", action="store_true", help="Claim the whole workspace (conflicts with every other claim)")
     add.add_argument("--input", action="append", default=[])
     add.add_argument("--acceptance", action="append", default=[])
     add.add_argument("--evidence-contract", action="append", default=[])
@@ -1536,6 +2024,18 @@ def build_parser() -> argparse.ArgumentParser:
     claim.add_argument("--task", required=True)
     claim.add_argument("--agent", required=True)
     claim.add_argument("--lease-minutes", type=int, default=60)
+
+    renew = sub.add_parser("renew", help="Extend the lease on a task you hold")
+    add_common_run_args(renew)
+    renew.add_argument("--task", required=True)
+    renew.add_argument("--agent", required=True)
+    renew.add_argument("--lease-minutes", type=int, default=60)
+
+    reassign = sub.add_parser("reassign", help="Change the owner of an unclaimed open task")
+    add_common_run_args(reassign)
+    reassign.add_argument("--task", required=True)
+    reassign.add_argument("--owner", required=True)
+    reassign.add_argument("--reason", required=True)
 
     complete = sub.add_parser("complete", help="Complete a claimed task with evidence")
     add_common_run_args(complete)
@@ -1562,16 +2062,20 @@ def build_parser() -> argparse.ArgumentParser:
     approve = sub.add_parser("approve", help="Record explicit human checkpoint approval")
     add_common_run_args(approve)
     approve.add_argument("--checkpoint", required=True)
-    approve.add_argument("--by", required=True, help="Name of the responsible human (never an agent id)")
     approve.add_argument("--decision", required=True)
-    approve.add_argument("--token", help="Owner token; required when running without an interactive terminal")
+    add_human_args(approve)
 
     reject = sub.add_parser("reject", help="Record explicit human rejection and block the run for correction")
     add_common_run_args(reject)
     reject.add_argument("--checkpoint", required=True)
-    reject.add_argument("--by", required=True, help="Name of the responsible human (never an agent id)")
-    reject.add_argument("--token", help="Owner token; required when running without an interactive terminal")
     reject.add_argument("--decision", required=True)
+    add_human_args(reject)
+
+    resolve = sub.add_parser("resolve", help="Human closes a rejection after the correction; unblocks the run")
+    add_common_run_args(resolve)
+    resolve.add_argument("--checkpoint", required=True)
+    resolve.add_argument("--resolution", required=True)
+    add_human_args(resolve)
 
     advance = sub.add_parser("advance", help="Advance after task and policy gates pass")
     add_common_run_args(advance)
@@ -1580,15 +2084,19 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_run_args(unlock)
     unlock.add_argument("--force", action="store_true", help="Clear even a recently touched lock")
 
-    reopen = sub.add_parser("reopen", help="Return a failed or wedged task to the queue")
+    reopen = sub.add_parser("reopen", help="Return a wedged claim to the queue; failed/cancelled/completed tasks need a human")
     add_common_run_args(reopen)
     reopen.add_argument("--task", required=True)
     reopen.add_argument("--reason", required=True)
+    reopen.add_argument("--extend-retries", type=int, default=0, help="Human only: extra attempts for this task")
+    add_human_args(reopen, required=False)
 
-    cancel = sub.add_parser("cancel", help="Descope a task so it stops blocking the stage gate")
+    cancel = sub.add_parser("cancel", help="Human descopes a task so it stops blocking the stage gate")
     add_common_run_args(cancel)
     cancel.add_argument("--task", required=True)
     cancel.add_argument("--reason", required=True)
+    cancel.add_argument("--cascade", action="store_true", help="Also cancel every open dependent")
+    add_human_args(cancel)
 
     fusion = sub.add_parser("fusion-init", help="Create an independent fusion council workspace")
     add_common_run_args(fusion)
@@ -1599,18 +2107,19 @@ def build_parser() -> argparse.ArgumentParser:
     fusion.add_argument("--verifier", default="qa-lead")
     fusion.add_argument("--contributor", action="append", required=True)
 
-    submit = sub.add_parser("fusion-submit", help="Record a council proposal, critique, synthesis, or verification")
+    submit = sub.add_parser("fusion-submit", help="Record a council proposal, critique, revision, synthesis, or verification")
     add_common_run_args(submit)
     submit.add_argument("--fusion", required=True)
-    submit.add_argument("--kind", choices=["proposal", "critique", "synthesis", "verification"], required=True)
+    submit.add_argument("--kind", choices=list(FUSION_PHASE_OF), required=True)
     submit.add_argument("--agent", required=True)
     submit.add_argument("--evidence", required=True)
 
-    close = sub.add_parser("fusion-close", help="Record the sponsor's final council decision")
-    add_common_run_args(close)
-    close.add_argument("--fusion", required=True)
-    close.add_argument("--sponsor", required=True)
-    close.add_argument("--decision", required=True)
+    close_fusion = sub.add_parser("fusion-close", help="Record the sponsor's final council decision")
+    add_common_run_args(close_fusion)
+    close_fusion.add_argument("--fusion", required=True)
+    close_fusion.add_argument("--sponsor", required=True)
+    close_fusion.add_argument("--decision", required=True)
+    add_human_args(close_fusion, required=False)
 
     learning = sub.add_parser("learn", help="Record an evidence-scoped learning candidate")
     add_common_run_args(learning)
@@ -1620,32 +2129,54 @@ def build_parser() -> argparse.ArgumentParser:
     learning.add_argument("--scope", required=True)
     learning.add_argument("--counterexample", required=True)
 
-    report = sub.add_parser("report", help="Generate a delivery report from durable evidence")
+    report = sub.add_parser("report", help="Generate DELIVERY-EVIDENCE.md from durable state")
     add_common_run_args(report)
 
     health = sub.add_parser("doctor", help="Check an installed team and active run")
     health.add_argument("--project", default=".")
+
+    for name, (_, help_text) in HELPER_COMMANDS.items():
+        helper = sub.add_parser(name, help=help_text, add_help=False)
+        helper.add_argument("helper_args", nargs=argparse.REMAINDER)
     return parser
 
 
+EXIT_OK = 0
+EXIT_ERROR = 1
+EXIT_GATE = 2
+EXIT_BLOCKED = 3
+EXIT_USAGE = 64
+
+
 def main(argv: list[str] | None = None) -> int:
+    raw = list(sys.argv[1:] if argv is None else argv)
+    # Helper commands own their flags; hand them everything after the command name
+    # (argparse's REMAINDER would otherwise try to parse their --options itself).
+    if raw and raw[0] in HELPER_COMMANDS:
+        try:
+            return run_helper(HELPER_COMMANDS[raw[0]][0], raw[1:])
+        except SystemExit as exc:  # argparse inside the helper
+            code = exc.code if isinstance(exc.code, int) else EXIT_ERROR
+            return EXIT_USAGE if code == 2 else code
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw)
     try:
+        if args.command in HELPER_COMMANDS:
+            return run_helper(HELPER_COMMANDS[args.command][0], args.helper_args)
         root = source_root(args.source) if args.command in {"validate", "list", "install"} else None
+        if args.command in {"validate", "install"} and is_installed_bus(root):
+            raise TeamError(
+                "This is the installed copy of the CLI, which has no role source tree. "
+                f"Run '{args.command}' from the AgenticTeam source checkout, or use "
+                "'doctor --project .' to check this installation."
+            )
         if args.command == "validate":
-            if is_installed_bus(root):
-                raise TeamError(
-                    "This is the installed copy of the CLI, which has no role source tree. "
-                    "Run 'validate' from the AgenticTeam source checkout, or use "
-                    "'doctor --project .' to check this installation."
-                )
             errors = validate_source(root)
             if errors:
                 print("AgenticTeam validation failed:", file=sys.stderr)
                 for error in errors:
                     print(f"- {error}", file=sys.stderr)
-                return 1
+                return EXIT_ERROR
             manifest = load_json(root / "team.json")
             print(f"OK: {len(manifest['agents'])} agents, {len(manifest['presets'])} presets, {len(manifest['harnesses'])} harnesses")
         elif args.command == "list":
@@ -1672,14 +2203,29 @@ def main(argv: list[str] | None = None) -> int:
                 print("Doctor found issues:", file=sys.stderr)
                 for finding in findings:
                     print(f"- {finding}", file=sys.stderr)
-                return 1
+                return EXIT_ERROR
             print("OK: installation and active state are consistent")
+        elif args.command == "runs":
+            runs = list_runs(Path(args.project))
+            if args.json:
+                print(json.dumps(runs, indent=2))
+            else:
+                for item in runs:
+                    marker = "*" if item["current"] else " "
+                    print(f"{marker} {item['run']}  {item['status']}  {item['stage']}")
+                if not runs:
+                    print("No runs")
+        elif args.command == "switch-run":
+            print(f"Current run: {switch_run(Path(args.project), args.run)}")
         else:
             project = Path(args.project)
             run_dir = find_run(project, args.run)
             if args.command == "status":
                 state = load_state(run_dir)
                 print(json.dumps(state, indent=2) if args.json else render_status(state))
+            elif args.command == "close-run":
+                close_run(project, run_dir, args.reason)
+                print(f"Closed {run_dir.name}")
             elif args.command == "route-specialists":
                 matches = route_specialists(project, run_dir, args.signal)
                 if args.json:
@@ -1695,6 +2241,11 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "claim":
                 claim_task(project, run_dir, args.task, args.agent, args.lease_minutes)
                 print(f"Claimed {args.task} by {args.agent}")
+            elif args.command == "renew":
+                print(f"Lease on {args.task} extended to {renew_lease(project, run_dir, args.task, args.agent, args.lease_minutes)}")
+            elif args.command == "reassign":
+                reassign_task(project, run_dir, args.task, args.owner, args.reason)
+                print(f"Reassigned {args.task} to {args.owner}")
             elif args.command == "complete":
                 complete_task(project, run_dir, args.task, args.agent, args.evidence)
                 print(f"Completed {args.task}")
@@ -1711,43 +2262,53 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Approved {args.checkpoint}")
             elif args.command == "reject":
                 reject_checkpoint(project, run_dir, args.checkpoint, args.by, args.decision, args.token)
-                print(f"Rejected {args.checkpoint}; run is blocked for correction")
+                print(f"Rejected {args.checkpoint}; run is blocked until the correction is resolved")
+            elif args.command == "resolve":
+                status_after = resolve_checkpoint(project, run_dir, args.checkpoint, args.by, args.resolution, args.token)
+                print(f"Resolved {args.checkpoint}; run status is {status_after}")
             elif args.command == "advance":
                 outcome = advance_stage(project, run_dir)
                 print(outcome)
                 if outcome == "waiting-human":
+                    pending = [item["id"] for item in load_state(run_dir)["checkpoints"] if item["status"] == "pending"]
                     # Non-zero so that `advance && next-step` cannot walk through a gate.
                     print(
-                        "Stopped at a human gate: approve the open checkpoint before continuing.",
+                        f"Stopped at a human gate: pending checkpoint(s) {', '.join(pending)} must be decided first.",
                         file=sys.stderr,
                     )
-                    return 2
+                    return EXIT_GATE
             elif args.command == "unlock":
                 print(clear_stale_lock(run_dir, 0 if args.force else 30))
             elif args.command == "reopen":
-                reopen_task(project, run_dir, args.task, args.reason)
+                reopen_task(project, run_dir, args.task, args.reason, args.by, args.token, args.extend_retries)
                 print(f"Reopened {args.task}")
             elif args.command == "cancel":
-                cancel_task(project, run_dir, args.task, args.reason)
-                print(f"Cancelled {args.task}")
+                cancelled = cancel_task(project, run_dir, args.task, args.reason, args.by, args.token, args.cascade)
+                print(f"Cancelled {', '.join(cancelled)}")
             elif args.command == "fusion-init":
                 fusion_init(project, run_dir, args)
                 print(f"Created fusion session {args.id}")
             elif args.command == "fusion-submit":
-                status = fusion_submit(project, run_dir, args.fusion, args.kind, args.agent, args.evidence)
-                print(f"Fusion {args.fusion}: {status}")
+                status_after = fusion_submit(project, run_dir, args.fusion, args.kind, args.agent, args.evidence)
+                print(f"Fusion {args.fusion}: {status_after}")
             elif args.command == "fusion-close":
-                fusion_close(project, run_dir, args.fusion, args.sponsor, args.decision)
+                fusion_close(project, run_dir, args.fusion, args.sponsor, args.decision, args.by, args.token)
                 print(f"Completed fusion session {args.fusion}")
             elif args.command == "learn":
                 path = learn(project, run_dir, args.title, args.evidence, args.lesson, args.scope, args.counterexample)
                 print(path)
             elif args.command == "report":
                 print(generate_report(project, run_dir))
-        return 0
+        return EXIT_OK
+    except GateError as exc:
+        print(f"gate: {exc}", file=sys.stderr)
+        return EXIT_GATE
+    except BlockedError as exc:
+        print(f"blocked: {exc}", file=sys.stderr)
+        return EXIT_BLOCKED
     except TeamError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return EXIT_ERROR
 
 
 if __name__ == "__main__":

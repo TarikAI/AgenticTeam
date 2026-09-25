@@ -3,7 +3,7 @@
 
 Checks project-local and user-global skill directories for the known skills listed in
 protocols/skill-acquisition.md, plus the `ocr` CLI on PATH. This is a report, not a
-gate: exit code is always 0, and every absent capability is paired with the floor
+gate unless --require names a capability; every absent capability is paired with the floor
 protocol that covers it (see docs/skills-integration-plan.md).
 
 Usage:
@@ -114,14 +114,28 @@ def human_summary(report):
     return "\n".join(lines)
 
 
+def default_project_root():
+    """The source checkout when run from scripts/, the project when run from .agentic-team/bin/."""
+    here = Path(__file__).resolve().parent
+    if here.name == "bin" and here.parent.name == ".agentic-team":
+        return here.parent.parent
+    return here.parent
+
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(prog="preflight", description=__doc__.splitlines()[0])
     parser.add_argument(
         "--project-root",
-        default=str(Path(__file__).resolve().parent.parent),
-        help="project root to scan (default: this repository)",
+        default=str(default_project_root()),
+        help="project root to scan (default: this project or source checkout)",
     )
     parser.add_argument("--format", choices=["text", "json"], default="text")
+    parser.add_argument(
+        "--require",
+        action="append",
+        default=[],
+        help="skill or tool that must be present; exit 1 if it is absent (repeatable)",
+    )
     args = parser.parse_args(argv)
 
     report = build_report(Path(args.project_root))
@@ -129,6 +143,19 @@ def main(argv=None):
         print(json.dumps(report, indent=2))
     else:
         print(human_summary(report))
+    missing = []
+    for name in args.require:
+        if name in report["skills"]:
+            present = bool(report["skills"][name]["path"])
+        elif name in report["tools"]:
+            present = bool(report["tools"][name])
+        else:
+            parser.error(f"unknown capability '{name}'; known: {', '.join([*report['skills'], *report['tools']])}")
+        if not present:
+            missing.append(name)
+    if missing:
+        print(f"Required capability missing: {', '.join(missing)}", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -2,7 +2,7 @@
 name: qa-lead
 description: "QA lead. Use to design the test strategy for a build, define quality gates, direct the test-engineer, track defects, and deliver the QA verdict at the hardening gate. The role that decides whether the platform actually works."
 subagent: true
-mainAgent: true
+mainAgent: false
 model: inherit
 ---
 

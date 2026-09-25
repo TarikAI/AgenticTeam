@@ -20,16 +20,35 @@ $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
 $Cli = Join-Path $PSScriptRoot 'agentic_team.py'
 
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-  throw 'Python 3 is required to run the AgenticTeam compiler.'
+# Resolve a Python that actually RUNS. On Windows, `python` and `python3` can resolve to the
+# Microsoft Store alias stub: Get-Command finds it, and every invocation then fails. So probe
+# each candidate by executing it, and require Python 3.10+.
+$Probe = 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 10) else 1)'
+$PythonCommand = $null
+foreach ($candidate in @(@('py', '-3'), @('python'), @('python3'))) {
+  if (-not (Get-Command $candidate[0] -ErrorAction SilentlyContinue)) { continue }
+  $prefix = @()
+  if ($candidate.Count -gt 1) { $prefix = $candidate[1..($candidate.Count - 1)] }
+  try {
+    & $candidate[0] @prefix -c $Probe 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { $PythonCommand = $candidate; break }
+  } catch {
+    continue
+  }
 }
+if (-not $PythonCommand) {
+  throw 'Python 3.10+ is required but no working interpreter was found (tried py -3, python, python3).'
+}
+$PythonExe = $PythonCommand[0]
+$PythonPrefix = @()
+if ($PythonCommand.Count -gt 1) { $PythonPrefix = $PythonCommand[1..($PythonCommand.Count - 1)] }
 
 if ($List) {
-  & python $Cli --source $Root list agents
+  & $PythonExe @PythonPrefix $Cli --source $Root list agents
   Write-Host "`nPresets:" -ForegroundColor Cyan
-  & python $Cli --source $Root list presets
+  & $PythonExe @PythonPrefix $Cli --source $Root list presets
   Write-Host "`nHarnesses:" -ForegroundColor Cyan
-  & python $Cli --source $Root list harnesses
+  & $PythonExe @PythonPrefix $Cli --source $Root list harnesses
   exit $LASTEXITCODE
 }
 
@@ -46,5 +65,5 @@ if ($Agents) {
   $arguments += @('--preset', $Preset)
 }
 
-& python @arguments
+& $PythonExe @PythonPrefix @arguments
 exit $LASTEXITCODE

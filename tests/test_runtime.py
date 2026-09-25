@@ -140,10 +140,18 @@ class AdapterTests(unittest.TestCase):
             rule = (target / ".agents" / "rules" / "agentic-team.md").read_text(encoding="utf-8")
             self.assertIn("trigger:", rule, "an antigravity rule without a trigger may never load")
             self.assertLessEqual(len(rule), 12000, "antigravity rules are capped at 12000 characters")
-            for workflow in (target / ".agents" / "workflows").glob("*.md"):
-                body = workflow.read_text(encoding="utf-8")
-                self.assertIn("description:", body, f"{workflow.name} would not register as a command")
-                self.assertLessEqual(len(body), 12000)
+            # Workflows retire on 2026-11-01; commands ship as skills instead (R-38).
+            self.assertFalse((target / ".agents" / "workflows").exists(), "deprecated workflows emitted")
+            for name in ("agentic-execute-plan", "agentic-resume"):
+                body = (target / ".agents" / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+                self.assertIn(f"name: {name}", body)
+                self.assertIn("description:", body)
+            self.assertIn("description:", rule)
+            self.assertIn("mainAgent: true", agent, "ceo is a lead role and belongs in the picker")
+            self.assertIn(
+                "mainAgent: false",
+                (target / ".agents" / "agents" / "fullstack-engineer.md").read_text(encoding="utf-8"),
+            )
             self.assertFalse((target / ".agents" / "roles").exists(), "stale role directory")
 
         with tempfile.TemporaryDirectory() as temporary:
@@ -249,7 +257,7 @@ class RuntimeTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def new_run(self, autonomy: str = "autonomous", entry: str = "idea") -> Path:
+    def new_run(self, autonomy: str = "autonomous", entry: str = "execute-only") -> Path:
         return team.init_run(self.project, "Test project", "test-run", autonomy, entry, "bmad-progressive")
 
     @staticmethod
@@ -361,7 +369,7 @@ class RuntimeTests(unittest.TestCase):
             self.project, run, checkpoint, "human-owner", "Revise rollback plan", self.owner_token(run)
         )
         state = team.load_state(run)
-        self.assertEqual(state["status"], "blocked")
+        self.assertEqual(state["status"], "blocked-rejection")
         self.assertEqual(state["checkpoints"][0]["status"], "rejected")
 
     def test_agent_cannot_approve_the_gate_that_blocks_it(self) -> None:
@@ -396,8 +404,8 @@ class RuntimeTests(unittest.TestCase):
         team.add_task(self.project, run, self.task_args("WORK", "fullstack-engineer", risk="R1"))
         checkpoint = team.create_checkpoint(self.project, run, "Proceed?", "Hold", "R2", "decision")
         team.reject_checkpoint(self.project, run, checkpoint, "human-owner", "Stop", self.owner_token(run))
-        self.assertEqual(team.load_state(run)["status"], "blocked")
-        with self.assertRaises(team.TeamError):
+        self.assertEqual(team.load_state(run)["status"], "blocked-rejection")
+        with self.assertRaises(team.BlockedError):
             team.claim_task(self.project, run, "WORK", "fullstack-engineer", 60)
 
     def test_fusion_enforces_independence_and_full_sequence(self) -> None:
@@ -417,7 +425,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(team.fusion_submit(self.project, run, "product-plan", "critique", "cto-architect", "critique path"), "synthesis")
         self.assertEqual(team.fusion_submit(self.project, run, "product-plan", "synthesis", "fusion-moderator", "synthesis path"), "verification")
         self.assertEqual(team.fusion_submit(self.project, run, "product-plan", "verification", "qa-lead", "verified"), "decision")
-        team.fusion_close(self.project, run, "product-plan", "human-owner", "Choose coherent plan A")
+        team.fusion_close(
+            self.project, run, "product-plan", "human-owner", "Choose coherent plan A", "Owner", self.owner_token(run)
+        )
         self.assertEqual(team.load_state(run)["fusion_sessions"][0]["status"], "complete")
         self.assertTrue((run / "_fusion" / "product-plan" / "dissent.md").is_file())
 
