@@ -349,6 +349,7 @@ Record a failed attempt and apply retry policy
 | `--task` | yes |  |  |
 | `--agent` | yes |  |  |
 | `--reason` | yes |  |  |
+| `--signature` |  |  | Short failure fingerprint; the same one twice stops retrying (default: derived from --reason) |
 
 ### `findings-to-tasks`
 
@@ -530,6 +531,15 @@ Build the task context packet (2K-8K tokens) under _context/
 | `--project` |  | `.` | Installed project root |
 | `--run` |  |  | Run id; defaults to CURRENT.md |
 | `--task` | yes |  |  |
+
+### `package-claude-plugin`
+
+Build a Claude Code plugin and marketplace from the full roster
+
+| Flag | Required | Default | Meaning |
+|---|---|---|---|
+| `out_dir` | yes |  | Marketplace folder to create (e.g. dist/claude-plugin) |
+| `--model-profile` |  |  | Tier-to-model mapping (default from team.json) |
 
 ### `preflight`
 

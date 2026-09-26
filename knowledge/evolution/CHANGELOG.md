@@ -38,6 +38,13 @@ regression test.
   verifier independence, integration SHA.
 - `events.jsonl` hash chain, `log`, `metrics`, budgets, `next`, `board`, `pack`, `brief`.
 
+**Finishing items (2026-09-26)**
+- A task that fails the same way twice stops retrying (`failure-repeated`); only the human reopens it.
+- Guard hooks for Antigravity (`.agents/hooks.json`) and Gemini CLI (`.gemini/settings.json`).
+- `package-claude-plugin` builds a validated Claude Code plugin and marketplace.
+- First reinstall over a v2 install backs up every previously generated file.
+- Opt-in live-agent smoke eval (`evals/live_smoke.py`) with offline-tested scoring.
+
 **Harnesses and roster**
 - Access classes (read-only, research, review, workspace-write, orchestrate), model profiles,
   skill preloads, settings/hook merge, guard hook, `uninstall`, local-edit protection; six new

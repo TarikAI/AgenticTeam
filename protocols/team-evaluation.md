@@ -31,9 +31,12 @@ policy), made in the source repository.
 
 ## Layer 2: live-agent smoke eval (optional, opt-in)
 
-- Drives one small scenario through a real harness in headless mode, for Claude Code:
-  `claude -p "<scenario prompt>" --output-format stream-json --verbose`, and keeps the stream
-  as the transcript.
+- `python evals/live_smoke.py --i-understand-this-uses-model-credits` installs the team for
+  Claude Code in a throwaway project, starts the run as the human (the agent never sees the
+  token), drives one small execute-only task with `claude -p … --output-format stream-json`,
+  and writes the transcript and scores to `evals/out/<timestamp>/`. Without the flag, or
+  without the `claude` CLI, it exits 3 (skipped). CI runs it only when the repository variable
+  `ENABLE_LIVE_EVAL` is `true` and the `ANTHROPIC_API_KEY` secret exists.
 - Opt-in only: it runs manually or in a CI job that must be triggered on purpose. Model
   credentials exist only as CI secrets, never in the repository, the scenario files, or an
   agent-readable file. Run it in a throwaway project inside a container or sandbox.

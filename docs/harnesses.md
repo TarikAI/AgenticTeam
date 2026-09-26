@@ -15,8 +15,8 @@ field you cannot confirm from a primary source.
 | `claude-code` | `.claude/agents/*.md` | `.claude/skills/*` | `CLAUDE.md` block importing `@.agentic-team/AGENTS.md` | `.claude/settings.json`: deny rules + `PreToolUse` guard hook; per-role `tools`, subagent-scoped review hooks |
 | `codex` | `.codex/agents/*.toml` | `.agents/skills/*` | `AGENTS.md` block (router inlined) | `.codex/hooks.json` guard (loads only in a trusted project after `/hooks` review); `sandbox_mode` per access |
 | `opencode` | `.opencode/agents/*.md` | `.agents/skills/*` | `AGENTS.md` block | `permission` maps: `bash` patterns from policy command rules, `edit`, `webfetch`, `websearch`, `task` |
-| `antigravity` | `.agents/agents/*.md` (`mainAgent: true` only for lead roles) | `.agents/skills/*` (plus `agentic-execute-plan`, `agentic-resume` as commands) | `.agents/rules/agentic-team.md` (`trigger: always_on`), `AGENTS.md` block | text only (no reliable per-agent switch). Workflows are not emitted: Antigravity retires `.agents/workflows` on 2026-11-01 |
-| `gemini-cli` | `.gemini/agents/*.md` (strict schema: only allowed keys) | `.agents/skills/*` | `GEMINI.md` block | `tools` allowlists per access |
+| `antigravity` | `.agents/agents/*.md` (`mainAgent: true` only for lead roles) | `.agents/skills/*` (plus `agentic-execute-plan`, `agentic-resume` as commands) | `.agents/rules/agentic-team.md` (`trigger: always_on`), `AGENTS.md` block | `.agents/hooks.json` `PreToolUse` guard (named entry `agentic-team-guard`); no per-agent read-only switch. Workflows are not emitted: Antigravity retires `.agents/workflows` on 2026-11-01 |
+| `gemini-cli` | `.gemini/agents/*.md` (strict schema: only allowed keys) | `.agents/skills/*` | `GEMINI.md` block | `.gemini/settings.json` `BeforeTool` guard hook; `tools` allowlists per access |
 | `pi` | `.agentic-team/agents/*.md` | `.pi/skills/*` | `AGENTS.md` block, `.pi/prompts/*.md` with `description` | text only |
 | `generic` | `.agentic-team/agents/*.md` | `.agents/skills/*` | `AGENTS.md` block | text only |
 | `copilot` | `.github/agents/*.agent.md` | `.agents/skills/*` | `AGENTS.md` block | `tools: ["read", "search"]` for read-only/research |
@@ -101,6 +101,16 @@ python scripts/agentic_team.py uninstall ~/projects/app
   settings entries; it keeps `knowledge/` and `runs/` unless `--purge`.
 - A project-owned `.agentic-team/config/policies.local.json` may tighten the policy (more pauses,
   lower caps, human gates, extra command rules); it can never loosen it.
+
+## Claude Code plugin
+
+`python scripts/agentic_team.py package-claude-plugin dist/claude-plugin` builds a plugin with the
+full roster, the skills, the guard hook, and the bus CLI, plus a marketplace manifest (both pass
+`claude plugin validate`). Install it with `claude plugin marketplace add dist/claude-plugin` and
+`claude plugin install agentic-team@agentic-team`. Plugin subagents ignore `hooks`,
+`permissionMode`, and `mcpServers`, so review roles rely on the plugin-level guard and their
+prompt; per-project roster selection, settings deny rules, and the `.agentic-team/` bus still come
+from `install`, which remains the primary path.
 
 ## A harness that is not on this list
 

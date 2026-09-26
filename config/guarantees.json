@@ -8,21 +8,168 @@
     "instruction": "Only the role prompts and protocols ask for it."
   },
   "guarantees": [
-    {"id": "G01", "statement": "Human decisions (approve, reject, resolve, waive, cancel, reopen, promote, human fusion-close) need the owner token; an edited state.json approves nothing.", "enforced_by": ["cli", "tamper-evident"], "test": "test_authority.ForgeryTests", "bypass": "An agent that reads the token from ~/.agentic-team (blocked by harness rules; only an OS sandbox makes it impossible)."},
-    {"id": "G02", "statement": "A stage exits only with its exit contract met (artifacts without template markers, AC traceability, typed evidence, VERIFICATION verdict lines), no pending checkpoint, and finished specialists.", "enforced_by": ["cli"], "test": "test_evidence.StageExitTests", "bypass": "A human waiver (stage-exit:<stage>:<check>); artifact content quality is judged by reviewers, not the CLI."},
-    {"id": "G03", "statement": "The verifier is not a builder: --verifies tasks refuse their builders and VERIFICATION.md's Verifier may not be a 04_build claimant.", "enforced_by": ["cli"], "test": "test_evidence.VerificationTests", "bypass": "Agent identity is self-declared: an agent could claim under another role id."},
-    {"id": "G04", "statement": "Task risk comes from the declared action and target, raised by sensitive paths and operating-on-the-world wording; only the human lowers it.", "enforced_by": ["cli"], "test": "test_authority.RiskModelTests", "bypass": "A task declared as a benign action that later runs a deploy command; G05 catches the command where hooks exist."},
-    {"id": "G05", "statement": "Commands matching an R3/R4 command rule (deploys, publishes, force pushes, infrastructure apply, global installs) run only inside a claimed task of that action with a human-approved risk checkpoint.", "enforced_by": ["harness", "cli"], "test": "test_harness.GuardTests.test_external_commands_need_an_approved_task", "bypass": "Harnesses without a hook (Pi, generic, Antigravity) and deliberately obfuscated commands."},
-    {"id": "G06", "statement": "Agents never read or write ~/.agentic-team (owner tokens, key bindings, ledger).", "enforced_by": ["harness", "instruction"], "test": "test_harness.GuardTests.test_owner_home_is_off_limits", "bypass": "A subprocess that opens the file indirectly without naming the path; only an OS sandbox (macOS/Linux/WSL2) prevents it."},
-    {"id": "G07", "statement": "Only the CLI writes state.json, events.jsonl, and _evidence/.", "enforced_by": ["harness", "tamper-evident"], "test": "test_orchestration.EventLogTests.test_event_chain_detects_edits", "bypass": "Edits in harnesses without hooks; detected by doctor/audit verify (event hash chain, owner-key binding)."},
-    {"id": "G08", "statement": "Fusion councils run in phase order, without resubmission, with moderator, verifier, and contributors independent.", "enforced_by": ["cli"], "test": "test_regressions.FusionRegressions", "bypass": "None within the CLI."},
-    {"id": "G09", "statement": "Fusion proposals stay private until every contributor has submitted, and cannot be rewritten after submission.", "enforced_by": ["harness", "tamper-evident", "instruction"], "test": "test_harness.GuardTests.test_fusion_proposals_stay_private_until_reveal", "bypass": "Reading other proposals in harnesses without the guard hook; rewrites are caught at reveal only when submitted with --file."},
-    {"id": "G10", "statement": "Completion evidence is typed and checked: files exist and are hashed, exec records carry exit codes, commits resolve, acceptance checks must pass.", "enforced_by": ["cli"], "test": "test_evidence.EvidenceTests", "bypass": "Note-only evidence remains allowed for inspection and documentation tasks."},
-    {"id": "G11", "statement": "Claims respect ownership, the current stage, owned-path overlap, and the concurrency cap.", "enforced_by": ["cli"], "test": "test_regressions.LifecycleRegressions.test_R16_claim_requires_installed_owner_and_respects_cap", "bypass": "Editing files outside the claimed paths is not detected (instruction)."},
-    {"id": "G12", "statement": "Review roles never edit project source.", "enforced_by": ["harness", "instruction"], "test": "test_harness.GuardTests.test_review_scope_limits_writes", "bypass": "Shell commands that write files, and every harness other than Claude Code."},
-    {"id": "G13", "statement": "Budgets open a checkpoint at the warning threshold and stop the command that would exceed them.", "enforced_by": ["cli"], "test": "test_orchestration.MetricsAndBudgetTests.test_budget_warns_then_stops_until_the_human_waives", "bypass": "Token and USD budgets only see usage that agents report with complete --usage."},
-    {"id": "G14", "statement": "A rejection blocks the run until the human resolves it; exhausted retries in hitl block until the human reopens or cancels.", "enforced_by": ["cli"], "test": "test_regressions.LifecycleRegressions.test_R05_rejection_can_be_resolved_by_the_human", "bypass": "None within the CLI."},
-    {"id": "G15", "statement": "Playbook checks become proven only through the human's promote.", "enforced_by": ["cli", "instruction"], "test": "test_law.LearningLoopTests.test_only_the_human_promotes_a_playbook_check", "bypass": "Playbooks are ordinary files: an agent can edit the status text directly (visible in review and the ledger has no record)."},
-    {"id": "G16", "statement": "The seven hard human gates hold in every autonomy profile.", "enforced_by": ["cli", "harness", "instruction"], "test": "test_authority.RiskModelTests", "bypass": "An action taken without any declared task in a harness without hooks; keep production credentials out of agent environments."}
+    {
+      "id": "G01",
+      "statement": "Human decisions (approve, reject, resolve, waive, cancel, reopen, promote, human fusion-close) need the owner token; an edited state.json approves nothing.",
+      "enforced_by": [
+        "cli",
+        "tamper-evident"
+      ],
+      "test": "test_authority.ForgeryTests",
+      "bypass": "An agent that reads the token from ~/.agentic-team (blocked by harness rules; only an OS sandbox makes it impossible)."
+    },
+    {
+      "id": "G02",
+      "statement": "A stage exits only with its exit contract met (artifacts without template markers, AC traceability, typed evidence, VERIFICATION verdict lines), no pending checkpoint, and finished specialists.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_evidence.StageExitTests",
+      "bypass": "A human waiver (stage-exit:<stage>:<check>); artifact content quality is judged by reviewers, not the CLI."
+    },
+    {
+      "id": "G03",
+      "statement": "The verifier is not a builder: --verifies tasks refuse their builders and VERIFICATION.md's Verifier may not be a 04_build claimant.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_evidence.VerificationTests",
+      "bypass": "Agent identity is self-declared: an agent could claim under another role id."
+    },
+    {
+      "id": "G04",
+      "statement": "Task risk comes from the declared action and target, raised by sensitive paths and operating-on-the-world wording; only the human lowers it.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_authority.RiskModelTests",
+      "bypass": "A task declared as a benign action that later runs a deploy command; G05 catches the command where hooks exist."
+    },
+    {
+      "id": "G05",
+      "statement": "Commands matching an R3/R4 command rule (deploys, publishes, force pushes, infrastructure apply, global installs) run only inside a claimed task of that action with a human-approved risk checkpoint.",
+      "enforced_by": [
+        "harness",
+        "cli"
+      ],
+      "test": "test_harness.GuardTests.test_external_commands_need_an_approved_task",
+      "bypass": "Harnesses without a hook (Pi, generic, and the six newer targets) and deliberately obfuscated commands."
+    },
+    {
+      "id": "G06",
+      "statement": "Agents never read or write ~/.agentic-team (owner tokens, key bindings, ledger).",
+      "enforced_by": [
+        "harness",
+        "instruction"
+      ],
+      "test": "test_harness.GuardTests.test_owner_home_is_off_limits",
+      "bypass": "A subprocess that opens the file indirectly without naming the path, and harnesses without the guard hook; only an OS sandbox (macOS/Linux/WSL2) prevents it."
+    },
+    {
+      "id": "G07",
+      "statement": "Only the CLI writes state.json, events.jsonl, and _evidence/.",
+      "enforced_by": [
+        "harness",
+        "tamper-evident"
+      ],
+      "test": "test_orchestration.EventLogTests.test_event_chain_detects_edits",
+      "bypass": "Edits in harnesses without hooks; detected by doctor/audit verify (event hash chain, owner-key binding)."
+    },
+    {
+      "id": "G08",
+      "statement": "Fusion councils run in phase order, without resubmission, with moderator, verifier, and contributors independent.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_regressions.FusionRegressions",
+      "bypass": "None within the CLI."
+    },
+    {
+      "id": "G09",
+      "statement": "Fusion proposals stay private until every contributor has submitted, and cannot be rewritten after submission.",
+      "enforced_by": [
+        "harness",
+        "tamper-evident",
+        "instruction"
+      ],
+      "test": "test_harness.GuardTests.test_fusion_proposals_stay_private_until_reveal",
+      "bypass": "Reading other proposals in harnesses without the guard hook; rewrites are caught at reveal only when submitted with --file."
+    },
+    {
+      "id": "G10",
+      "statement": "Completion evidence is typed and checked: files exist and are hashed, exec records carry exit codes, commits resolve, acceptance checks must pass.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_evidence.EvidenceTests",
+      "bypass": "Note-only evidence remains allowed for inspection and documentation tasks."
+    },
+    {
+      "id": "G11",
+      "statement": "Claims respect ownership, the current stage, owned-path overlap, and the concurrency cap.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_regressions.LifecycleRegressions.test_R16_claim_requires_installed_owner_and_respects_cap",
+      "bypass": "Editing files outside the claimed paths is not detected (instruction)."
+    },
+    {
+      "id": "G12",
+      "statement": "Review roles never edit project source.",
+      "enforced_by": [
+        "harness",
+        "instruction"
+      ],
+      "test": "test_harness.GuardTests.test_review_scope_limits_writes",
+      "bypass": "Shell commands that write files, and every harness other than Claude Code."
+    },
+    {
+      "id": "G13",
+      "statement": "Budgets open a checkpoint at the warning threshold and stop the command that would exceed them.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_orchestration.MetricsAndBudgetTests.test_budget_warns_then_stops_until_the_human_waives",
+      "bypass": "Token and USD budgets only see usage that agents report with complete --usage."
+    },
+    {
+      "id": "G14",
+      "statement": "A rejection blocks the run until the human resolves it; exhausted retries in hitl block until the human reopens or cancels.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_regressions.LifecycleRegressions.test_R05_rejection_can_be_resolved_by_the_human",
+      "bypass": "None within the CLI."
+    },
+    {
+      "id": "G15",
+      "statement": "Playbook checks become proven only through the human's promote.",
+      "enforced_by": [
+        "cli",
+        "instruction"
+      ],
+      "test": "test_law.LearningLoopTests.test_only_the_human_promotes_a_playbook_check",
+      "bypass": "Playbooks are ordinary files: an agent can edit the status text directly (visible in review and the ledger has no record)."
+    },
+    {
+      "id": "G16",
+      "statement": "The seven hard human gates hold in every autonomy profile.",
+      "enforced_by": [
+        "cli",
+        "harness",
+        "instruction"
+      ],
+      "test": "test_authority.RiskModelTests",
+      "bypass": "An action taken without any declared task in a harness without hooks; keep production credentials out of agent environments."
+    },
+    {
+      "id": "G17",
+      "statement": "A task that fails the same way twice stops retrying; only the human reopens it.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_regressions.LifecycleRegressions.test_repeated_failure_signature_stops_retrying",
+      "bypass": "Failure reasons worded differently each time produce different signatures."
+    }
   ]
 }
