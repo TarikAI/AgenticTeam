@@ -154,9 +154,9 @@ class LifecycleRegressions(Base):
     def test_R09_reopen_keeps_attempts_and_budget_extension_is_human(self) -> None:
         run = self.run_()
         team.add_task(self.project, run, task_args("A", "backend-engineer"))
-        for _ in range(3):  # autonomous: 2 retries, so the third failure is final
+        for reason in ("import error", "timeout in fixture", "wrong column"):  # 2 retries: the third is final
             team.claim_task(self.project, run, "A", "backend-engineer", 60)
-            team.fail_task(self.project, run, "A", "backend-engineer", "boom")
+            team.fail_task(self.project, run, "A", "backend-engineer", reason)
         self.assertEqual(team.load_state(run)["tasks"]["A"]["status"], "failed")
         with self.assertRaises(team.TeamError):
             team.reopen_task(self.project, run, "A", "loop", extend_retries=5)
@@ -166,6 +166,18 @@ class LifecycleRegressions(Base):
         self.assertEqual(task["retry_extension"], 1)
         with self.assertRaises(team.TeamError):
             team.cancel_task(self.project, run, "A", "agent descopes", "backend-engineer", self.token(run))
+
+    def test_repeated_failure_signature_stops_retrying(self) -> None:
+        run = self.run_()
+        team.add_task(self.project, run, task_args("A", "backend-engineer"))
+        team.claim_task(self.project, run, "A", "backend-engineer", 60)
+        team.fail_task(self.project, run, "A", "backend-engineer", "AssertionError at line 42 in C:/src/a.py")
+        self.assertEqual(team.load_state(run)["tasks"]["A"]["status"], "ready")
+        team.claim_task(self.project, run, "A", "backend-engineer", 60)
+        team.fail_task(self.project, run, "A", "backend-engineer", "AssertionError at line 57 in C:/src/b.py")
+        task = team.load_state(run)["tasks"]["A"]
+        self.assertEqual(task["status"], "failed", "the same failure twice must escalate, not retry")
+        self.assertIn("failure-repeated", [event["type"] for event in team.read_events(run)])
 
     def test_R11_remediation_defaults_to_the_current_stage(self) -> None:
         run = self.run_()
@@ -187,9 +199,9 @@ class LifecycleRegressions(Base):
     def test_R15_failure_block_is_distinct_and_not_cleared_by_unrelated_approval(self) -> None:
         run = self.run_("hitl")
         team.add_task(self.project, run, task_args("A", "backend-engineer"))
-        for _ in range(2):  # hitl: 1 retry
+        for reason in ("import error", "wrong column"):  # hitl: 1 retry
             team.claim_task(self.project, run, "A", "backend-engineer", 60)
-            team.fail_task(self.project, run, "A", "backend-engineer", "boom")
+            team.fail_task(self.project, run, "A", "backend-engineer", reason)
         self.assertEqual(team.load_state(run)["status"], "blocked-failure")
         checkpoint = team.create_checkpoint(self.project, run, "Unrelated?", "yes", "R1", "decision", details={"alternatives": "wait", "impact": "delay", "evidence": "notes", "rollback": "revert"})
         team.approve_checkpoint(self.project, run, checkpoint, "Owner", "ok", self.token(run))

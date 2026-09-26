@@ -22,8 +22,9 @@ What to expect:
 - **Local edits to generated files.** v3 records a sha256 for every generated file. From now on,
   reinstall stops and names any generated role, skill, protocol, or template you edited; rerun
   with `--force` to back those files up under `.agentic-team/backup/<timestamp>/` and continue.
-  The v2 installer recorded no hashes, so the **first** v3 reinstall cannot detect your v2
-  edits: copy any generated file you changed before reinstalling.
+  The v2 installer recorded no hashes, so the **first** v3 reinstall cannot tell your v2
+  edits apart: it copies every previously generated file to
+  `.agentic-team/backup/<timestamp>-v2/` before overwriting, so nothing is lost.
 - **Project-owned files stay.** `knowledge/`, `runs/`, and text outside the managed AgenticTeam
   block in `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` are untouched. Generated files the new
   install no longer produces are removed.
@@ -146,18 +147,16 @@ waive one named requirement with `waive --requirement stage-exit:<stage>:<check>
   `~/.agentic-team`. The ledger and event chain make tampering evident, not impossible. Claude
   Code's sandbox runs on macOS, Linux, and WSL2, not native Windows
   ([harness security](../protocols/harness-security.md)).
-- Antigravity hooks and Gemini CLI `policy.toml` rules are not emitted (their formats are not
-  verified). Antigravity, Pi, and generic installs have no harness enforcement.
+- Pi, generic, and the six newer targets have no guard hook; Antigravity and Gemini CLI get one
+  (`.agents/hooks.json`, `.gemini/settings.json`).
 - On OpenCode, `edit: deny` does not stop writes through `bash`; review-role source protection
   is instruction only there.
 - Fusion proposal privacy is enforced by the guard hook on Claude Code only; elsewhere it is an
   instruction, and rewrites are detected at reveal only for proposals submitted with `--file`.
-- `fail` takes a `--reason`; repeated-failure fingerprints that escalate instead of retrying are
-  not implemented.
 - Tasks still live in `state.json` (about 0.7 KiB each); only events moved out.
 - Token and USD budgets see only the usage agents report with `complete --usage`.
 - `adaptive` runs need no `RELEASE.md`; the human release checkpoint still applies.
 - Agent identity is self-declared: the CLI checks that a claimant is the installed owner, not
   which model is actually calling.
-- The live-agent smoke evaluation is documented but not automated; it needs model credentials.
-  `evals/run_scenarios.py` runs the deterministic scenarios.
+- The live-agent smoke evaluation (`evals/live_smoke.py`) spends model usage, so it runs only
+  when you opt in; `evals/run_scenarios.py` runs the deterministic scenarios.

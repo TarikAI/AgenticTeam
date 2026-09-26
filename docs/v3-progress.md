@@ -14,10 +14,13 @@ Authority: `docs/v3-upgrade-plan.md`. Integration branch: `v3` (from `main` @ `d
 | P7 Protocols, skills, templates, knowledge | v3-p7-law | done | 1fd3cf7 | 160 tests OK (test_law: no retired vocabulary, gate lists match policy, templates used/present, protocol refs resolve, Agent Skills spec; learn/promote) | Found and fixed: Windows NUL stdin reports isatty() so the token prompt hung automated callers (now checks for a real console). Plan's fusion --file/sealed/ commit-reveal not implemented; privacy is guard-hook enforced on Claude Code, instruction elsewhere. |
 | P8 Team evaluation | v3-p8-evals | done | c2b44c3 | 163 tests OK; evals/run_scenarios.py 6/6 scenarios pass (101 CLI steps against installed CLIs); CI step added | Live-agent smoke eval is documented (protocols/team-evaluation.md) but not automated: it needs model credentials and is opt-in by design. |
 | P9 Docs, migration, release | v3-p9-release | done | b29caa9 | 173 tests OK; 6/6 eval scenarios; docs --check current; install.sh+doctor+uninstall clean for 13 harnesses; install.ps1 smoke with -ModelProfile | fail --signature (repeated-failure fingerprint) not implemented; first v3 reinstall over a v2 install cannot detect local edits (v2 recorded no hashes). |
+| P10 Finish open items | v3-p10-finish | done | 74fe4bc | 180 tests OK; 6/6 scenarios; 13 harnesses install+doctor+uninstall; plugin passes `claude plugin validate` | Live smoke eval built and tested offline, not run (it spends model usage; run it yourself) |
 
 ## Follow-ups
 
-- `fail --signature`: escalate on a repeated failure fingerprint (loop detection is instruction-only today).
-- Antigravity `.agents/hooks.json` and Gemini CLI `policy.toml` guard rules: emit once their formats are verified.
-- Optional `package-claude-plugin` distribution channel (plan §5.13) was not built.
-- Live-agent smoke eval is documented but needs model credentials to automate.
+Closed in P10: repeated-failure signatures (`fail --signature`, auto-derived), Antigravity and
+Gemini CLI guard hooks (formats verified 2026-09-26), `package-claude-plugin`, backup of every
+generated file on the first reinstall over a v2 install, and the opt-in live smoke eval
+(`evals/live_smoke.py`, CI job behind `ENABLE_LIVE_EVAL`).
+
+Remaining by design: running the live smoke eval needs your go-ahead (it uses model credits).

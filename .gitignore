@@ -24,3 +24,7 @@ tmp/
 
 # Do NOT ignore the team's own dotfiles/templates:
 # harnesses/ and knowledge/ are source, not artifacts.
+
+# Live eval transcripts (may contain model output)
+evals/out/
+dist/

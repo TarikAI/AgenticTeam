@@ -657,6 +657,51 @@ def codex_hook_entries(build: Build) -> dict[str, Any]:
     }
 
 
+def gemini_hook_entries(build: "Build") -> dict[str, Any]:
+    # Verified 2026-09-26: gemini-cli docs/hooks (BeforeTool in .gemini/settings.json; stdin
+    # tool_name/tool_input/cwd; {"decision": "deny", "reason": ...} or exit 2 blocks).
+    return {
+        "deny": [],
+        "hooks": {
+            "BeforeTool": [
+                {
+                    "matcher": "run_shell_command|write_file|replace|read_file",
+                    "hooks": [{"name": "agentic-team-guard", "type": "command", "command": build.guard_command("gemini-cli"), "timeout": 10000}],
+                }
+            ]
+        },
+    }
+
+
+ANTIGRAVITY_HOOK_NAME = "agentic-team-guard"
+
+
+def merge_antigravity_hooks(path: Path, build: "Build", backup_dir: Path) -> dict[str, Any]:
+    """.agents/hooks.json is keyed by hook name (antigravity.google/docs/hooks, 2026-09-26);
+    the installer owns exactly one named entry and leaves every other entry alone."""
+    data: dict[str, Any] = {}
+    if path.is_file():
+        raw = path.read_text(encoding="utf-8")
+        try:
+            data = json.loads(raw) if raw.strip() else {}
+        except json.JSONDecodeError as exc:
+            raise TeamError(f"{path} is not valid JSON ({exc}); fix it before installing") from exc
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, backup_dir / f"{path.name}.{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.bak")
+    command = build.guard_command("antigravity")
+    data[ANTIGRAVITY_HOOK_NAME] = {
+        "PreToolUse": [
+            {
+                "matcher": "run_command|write_to_file|replace_file_content|multi_replace_file_content|view_file",
+                "hooks": [{"type": "command", "command": command, "timeout": 10}],
+            }
+        ]
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return {"named_entries": [ANTIGRAVITY_HOOK_NAME], "hook_commands": [command], "deny": []}
+
+
 def merge_owned_json(path: Path, previous: dict[str, Any] | None, entries: dict[str, Any], backup_dir: Path, deny_key: bool = True) -> dict[str, Any]:
     """Merge installer-owned permission rules and hooks into a JSON settings file.
 
@@ -703,6 +748,14 @@ def remove_owned_json(path: Path, owned: dict[str, Any]) -> None:
     try:
         data = json.loads(path.read_text(encoding="utf-8") or "{}")
     except json.JSONDecodeError:
+        return
+    if owned.get("named_entries"):
+        for name in owned["named_entries"]:
+            data.pop(name, None)
+        if data:
+            path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        else:
+            path.unlink()
         return
     deny = set(owned.get("deny", []))
     commands = set(owned.get("hook_commands", []))
@@ -1089,7 +1142,12 @@ EMITTERS = {
 }
 
 
-OWNED_SETTINGS = {"claude-code": ".claude/settings.json", "codex": ".codex/hooks.json"}
+OWNED_SETTINGS = {
+    "claude-code": ".claude/settings.json",
+    "codex": ".codex/hooks.json",
+    "antigravity": ".agents/hooks.json",
+    "gemini-cli": ".gemini/settings.json",
+}
 
 
 def select_agents(manifest: dict[str, Any], preset: str, extra_agents: list[str], only_agents: list[str]) -> tuple[list[dict[str, Any]], str]:
@@ -1141,6 +1199,20 @@ def install_team(
             "These generated files were modified locally and would be overwritten: "
             + ", ".join(sorted(modified)) + ". Re-run with --force to back them up under .agentic-team/backup/ and continue."
         )
+    if previous_record and "generated_hashes" not in previous_record:
+        # A v2 install recorded no fingerprints, so local edits cannot be told apart from
+        # generated text: keep a copy of every previously generated file before overwriting.
+        legacy = [relative for relative in previous_record.get("generated_files", []) if (target / relative).is_file()]
+        for relative in legacy:
+            backup = bus / "backup" / f"{stamp}-v2" / relative
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target / relative, backup)
+        if legacy:
+            print(
+                f"note: upgraded from an install without fingerprints; {len(legacy)} generated file(s) backed up "
+                f"to .agentic-team/backup/{stamp}-v2/ before overwriting.",
+                file=sys.stderr,
+            )
     for relative in modified:
         backup = bus / "backup" / stamp / relative
         backup.parent.mkdir(parents=True, exist_ok=True)
@@ -1220,6 +1292,12 @@ def install_team(
             target / ".codex" / "hooks.json", previous_owned.get(".codex/hooks.json"), codex_hook_entries(build), bus / "backup", deny_key=False
         )
         print("note: Codex loads project hooks only in a trusted project after you review them with /hooks.", file=sys.stderr)
+    elif harness == "gemini-cli":
+        owned[".gemini/settings.json"] = merge_owned_json(
+            target / ".gemini" / "settings.json", previous_owned.get(".gemini/settings.json"), gemini_hook_entries(build), bus / "backup", deny_key=False
+        )
+    elif harness == "antigravity":
+        owned[".agents/hooks.json"] = merge_antigravity_hooks(target / ".agents" / "hooks.json", build, bus / "backup")
     for entries in owned.values():
         entries.pop("file", None)
     record = {
@@ -1242,6 +1320,60 @@ def install_team(
     }
     write_json_atomic(bus / "install-manifest.json", record)
     return record
+
+
+def package_claude_plugin(root: Path, out_dir: Path, profile_name: str | None = None) -> Path:
+    """Build a Claude Code plugin + marketplace from the full roster (code.claude.com/docs/en/plugins-reference).
+
+    The plugin carries the 50 subagents, the skills, the guard hook, and the bus CLI under bin/.
+    Plugin subagents ignore `hooks`, `mcpServers`, and `permissionMode`, so review roles rely on the
+    plugin-level guard hook and their prompt; per-project roster selection stays the installer's job.
+    """
+    manifest = load_json(root / "team.json")
+    build = Build(root, manifest, profile_name or manifest.get("defaults", {}).get("model_profile", "inherit"), load_json(root / "config" / "policies.json"), hook_python())
+    marketplace = out_dir.resolve()
+    plugin = marketplace / "plugins" / "agentic-team"
+    if plugin.exists():
+        shutil.rmtree(plugin)
+    (marketplace / ".claude-plugin").mkdir(parents=True, exist_ok=True)
+    (plugin / ".claude-plugin").mkdir(parents=True, exist_ok=True)
+    write_text(plugin / ".claude-plugin" / "plugin.json", json.dumps({
+        "name": "agentic-team",
+        "version": VERSION,
+        "description": manifest.get("description", "AgenticTeam"),
+        "author": {"name": "AgenticTeam"},
+        "license": "MIT",
+        "keywords": ["agents", "orchestration", "delivery", "multi-agent"],
+    }, indent=2))
+    write_text(marketplace / ".claude-plugin" / "marketplace.json", json.dumps({
+        "name": "agentic-team",
+        "description": "AgenticTeam: an evidence-gated AI delivery organization (50 roles, skills, and a guard hook) for Claude Code.",
+        "owner": {"name": "AgenticTeam"},
+        "plugins": [{"name": "agentic-team", "source": "./plugins/agentic-team", "description": manifest.get("description", "")}],
+    }, indent=2))
+    for agent in manifest["agents"]:
+        description, prompt = agent_prompt(agent, root)
+        tier = build.tier("claude-code", agent)
+        lines = ["---", f"name: {agent['id']}", f"description: {yaml_scalar(description)}", f"tools: {CLAUDE_TOOLS[agent['access']]}",
+                 f"model: {tier.get('model', 'inherit')}"]
+        if tier.get("effort"):
+            lines.append(f"effort: {tier['effort']}")
+        lines.append(f"color: {DEPARTMENT_COLORS.get(agent['department'], 'cyan')}")
+        if agent.get("preload_skills"):
+            lines.append("skills:")
+            lines.extend(f"  - {skill}" for skill in agent["preload_skills"])
+        lines.append("---")
+        write_text(plugin / "agents" / f"{agent['id']}.md", "\n".join(lines) + "\n\n" + prompt)
+    copy_managed_tree(root / "skills", plugin / "skills")
+    rewrite_installed_markdown(plugin / "skills")
+    (plugin / "bin").mkdir(parents=True, exist_ok=True)
+    for script in ("agentic_team.py", *HELPER_SCRIPTS):
+        shutil.copy2(root / "scripts" / script, plugin / "bin" / script)
+    command = f'{build.python} "${{CLAUDE_PLUGIN_ROOT}}/bin/agentic_team.py" guard --harness claude-code'
+    write_text(plugin / "hooks" / "hooks.json", json.dumps({
+        "hooks": {"PreToolUse": [{"matcher": GUARD_MATCHER, "hooks": [{"type": "command", "command": command}]}]}
+    }, indent=2))
+    return plugin
 
 
 def remove_empty_parents(path: Path, stop: Path) -> None:
@@ -2299,20 +2431,33 @@ def release_claim(task: dict[str, Any]) -> None:
         task.pop(field, None)
 
 
-def fail_task(project: Path, run_dir: Path, task_id: str, agent: str, reason: str) -> None:
+def failure_signature(reason: str) -> str:
+    """Fingerprint of a failure: the reason with numbers, paths, and whitespace normalized."""
+    text = re.sub(r"0x[0-9a-f]+|\d+", "#", reason.lower())
+    text = re.sub(r"[a-z]:[\\/][^\s]*|/[^\s]+", "<path>", text)
+    return hashlib.sha1(" ".join(text.split())[:200].encode("utf-8")).hexdigest()[:12]
+
+
+def fail_task(project: Path, run_dir: Path, task_id: str, agent: str, reason: str, signature: str | None = None) -> None:
     with state_lock(run_dir):
         state = load_state(run_dir)
         task = state["tasks"].get(task_id)
         if not task or task.get("claimed_by") != agent or task["status"] != "claimed":
             raise TeamError(f"Task {task_id} is not claimed by {agent}")
         profile = profile_policy(project, state)
+        fingerprint = signature or failure_signature(reason)
+        repeated = any(item.get("signature") == fingerprint for item in task.get("failures", []))
         task["attempts"] += 1
-        task["last_failure"] = {"time": utcnow(), "reason": reason, "agent": agent}
+        task["last_failure"] = {"time": utcnow(), "reason": reason, "agent": agent, "signature": fingerprint}
         task.setdefault("failures", []).append(task["last_failure"])
-        task["status"] = "ready" if task["attempts"] <= retry_limit(task, profile, state) else "failed"
+        # The same failure twice means retrying will not help: stop and escalate (autonomy.md).
+        retry = not repeated and task["attempts"] <= retry_limit(task, profile, state)
+        task["status"] = "ready" if retry else "failed"
         release_claim(task)
         refresh_ready(state)
-        append_event(state, "task-failed", task=task_id, agent=agent, reason=reason, retry=task["status"] == "ready")
+        if repeated:
+            append_event(state, "failure-repeated", task=task_id, signature=fingerprint)
+        append_event(state, "task-failed", task=task_id, agent=agent, reason=reason, retry=retry, signature=fingerprint)
         recompute_status(state, profile)
         save_state(project, run_dir, state)
 
@@ -3807,8 +3952,31 @@ def interactive_console() -> bool:
         return False
 
 
-WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "write_file", "replace", "edit"}
-SHELL_TOOLS = {"Bash", "PowerShell", "shell", "run_shell_command", "local_shell"}
+WRITE_TOOLS = {
+    "Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "write_file", "replace", "edit",
+    "write_to_file", "replace_file_content", "multi_replace_file_content",
+}
+SHELL_TOOLS = {"Bash", "PowerShell", "shell", "run_shell_command", "local_shell", "run_command"}
+READ_TOOLS = {"Read", "read_file", "view_file"}
+
+
+def normalize_hook_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Map each harness's PreToolUse/BeforeTool input onto one shape.
+
+    Claude Code, Codex, and Gemini CLI send tool_name/tool_input/cwd; Antigravity sends
+    toolCall.name/toolCall.args and workspacePaths (antigravity.google/docs/hooks, 2026-09-26).
+    """
+    if "toolCall" in payload and "tool_name" not in payload:
+        call = payload.get("toolCall") or {}
+        args = call.get("args") or {}
+        workspaces = payload.get("workspacePaths") or []
+        normalized = {
+            "tool_name": call.get("name", ""),
+            "tool_input": dict(args, command=args["CommandLine"]) if "CommandLine" in args else args,
+            "cwd": args.get("Cwd") or (workspaces[0] if workspaces else None),
+        }
+        return {**payload, **normalized}
+    return payload
 PROTECTED_RUN_FILE = re.compile(r"\.agentic-team[/\\]runs[/\\].*?(state\.json|events\.jsonl|[/\\]_evidence[/\\])", re.IGNORECASE)
 SHELL_WRITE_TO_RUN_FILE = re.compile(
     r"(>|\btee\b|set-content|out-file|add-content|\bsed\s+-i|\bmv\b|\bcp\b|\brm\b|remove-item)[^|;&\n]*"
@@ -3848,6 +4016,7 @@ def find_project_root(start: Path) -> Path | None:
 
 def guard_decision(payload: dict[str, Any], scope: str | None = None, agent: str | None = None) -> str | None:
     """Return a denial reason for a harness PreToolUse payload, or None to allow."""
+    payload = normalize_hook_payload(payload)
     tool = str(payload.get("tool_name", ""))
     tool_input = payload.get("tool_input") or {}
     strings = collect_strings(tool_input)
@@ -3899,7 +4068,7 @@ def guard_decision(payload: dict[str, Any], scope: str | None = None, agent: str
                         f"AgenticTeam guard: this command is {level} ({rule['reason']}). Run it only inside a claimed task "
                         f"declared --action {rule['action']} whose risk checkpoint the human approved."
                     )
-    if tool in {"Read", "read_file", "view_file"} and project is not None and payload.get("agent_type"):
+    if tool in READ_TOOLS and project is not None and payload.get("agent_type"):
         requester = str(payload["agent_type"])
         for text in strings:
             match = re.search(r"_fusion[/\\]([^/\\]+)[/\\]proposals[/\\]([^/\\]+)\.md", text)
@@ -3921,18 +4090,27 @@ def run_guard(harness: str, scope: str | None, agent: str | None, raw: str) -> i
     reason = guard_decision(payload, scope, agent)
     if reason is None:
         return EXIT_OK
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
+    if harness in {"claude-code", "codex"}:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
+    elif harness in {"antigravity", "gemini-cli"}:
+        print(json.dumps({"decision": "deny", "reason": reason}))
     print(reason, file=sys.stderr)
-    return EXIT_OK if harness in {"claude-code", "codex"} else 2
+    return EXIT_OK if harness in HOOKED_HARNESSES else 2
+
+
+HOOKED_HARNESSES = {"claude-code", "codex", "antigravity", "gemini-cli"}
 
 
 def hook_self_test(project: Path) -> list[str]:
     """Doctor: the installed guard must deny a read of the owner-token folder."""
     record = load_json(project_bus(project) / "install-manifest.json")
-    if record.get("harness") not in {"claude-code", "codex"}:
+    if record.get("harness") not in HOOKED_HARNESSES:
         return []
     problems = []
-    probe = {"tool_name": "Read", "tool_input": {"file_path": "~/.agentic-team/owner-tokens/probe.token"}, "cwd": str(project)}
+    if record["harness"] == "antigravity":
+        probe = {"toolCall": {"name": "view_file", "args": {"AbsolutePath": "~/.agentic-team/owner-tokens/probe.token"}}, "workspacePaths": [str(project)]}
+    else:
+        probe = {"tool_name": "Read", "tool_input": {"file_path": "~/.agentic-team/owner-tokens/probe.token"}, "cwd": str(project)}
     cli = project_bus(project) / "bin" / "agentic_team.py"
     try:
         result = subprocess.run(
@@ -3943,7 +4121,7 @@ def hook_self_test(project: Path) -> list[str]:
             problems.append("hook self-test: the guard did not deny a read of ~/.agentic-team/owner-tokens")
     except (OSError, subprocess.SubprocessError) as exc:
         problems.append(f"hook self-test could not run the guard: {exc}")
-    settings = project / (".claude/settings.json" if record["harness"] == "claude-code" else ".codex/hooks.json")
+    settings = project / OWNED_SETTINGS[record["harness"]]
     if not settings.is_file() or "guard --harness" not in settings.read_text(encoding="utf-8"):
         problems.append(f"{settings.relative_to(project)} does not register the AgenticTeam guard hook")
     return problems
@@ -4078,6 +4256,10 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--model-profile", help="Tier-to-model mapping: inherit, balanced (default), max-quality, economy")
     install.add_argument("--force", action="store_true", help="Overwrite locally modified generated files (backed up first)")
 
+    plugin = sub.add_parser("package-claude-plugin", help="Build a Claude Code plugin and marketplace from the full roster")
+    plugin.add_argument("out_dir", help="Marketplace folder to create (e.g. dist/claude-plugin)")
+    plugin.add_argument("--model-profile", help="Tier-to-model mapping (default from team.json)")
+
     uninstall = sub.add_parser("uninstall", help="Remove an installation (keeps knowledge/ and runs/ unless --purge)")
     uninstall.add_argument("target")
     uninstall.add_argument("--purge", action="store_true")
@@ -4211,6 +4393,7 @@ def build_parser() -> argparse.ArgumentParser:
     fail.add_argument("--task", required=True)
     fail.add_argument("--agent", required=True)
     fail.add_argument("--reason", required=True)
+    fail.add_argument("--signature", help="Short failure fingerprint; the same one twice stops retrying (default: derived from --reason)")
 
     recover = sub.add_parser("recover-leases", help="Recover expired task claims according to retry policy")
     add_common_run_args(recover)
@@ -4362,7 +4545,14 @@ def main(argv: list[str] | None = None) -> int:
             removed = uninstall_team(Path(args.target).expanduser().resolve(), args.purge)
             print(f"Removed {len(removed)} generated file(s)" + ("; purged .agentic-team" if args.purge else "; kept knowledge/ and runs/"))
             return EXIT_OK
-        root = source_root(args.source) if args.command in {"validate", "list", "install", "docs"} else None
+        root = source_root(args.source) if args.command in {"validate", "list", "install", "docs", "package-claude-plugin"} else None
+        if args.command == "package-claude-plugin":
+            if is_installed_bus(root):
+                raise TeamError("Run package-claude-plugin from the AgenticTeam source checkout.")
+            plugin_dir = package_claude_plugin(root, Path(args.out_dir).expanduser(), args.model_profile)
+            print(f"Plugin written to {plugin_dir}")
+            print(f"Add it with: claude plugin marketplace add {Path(args.out_dir).expanduser().resolve()}  then  claude plugin install agentic-team@agentic-team")
+            return EXIT_OK
         if args.command in {"validate", "install", "docs"} and is_installed_bus(root):
             raise TeamError(
                 "This is the installed copy of the CLI, which has no role source tree. "
@@ -4510,7 +4700,7 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "scaffold":
                 print(scaffold_artifact(project, run_dir, args.artifact))
             elif args.command == "fail":
-                fail_task(project, run_dir, args.task, args.agent, args.reason)
+                fail_task(project, run_dir, args.task, args.agent, args.reason, args.signature)
                 print(f"Recorded failure for {args.task}")
             elif args.command == "recover-leases":
                 print(f"Recovered {recover_leases(project, run_dir)} expired lease(s)")

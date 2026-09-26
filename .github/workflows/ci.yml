@@ -84,3 +84,30 @@ jobs:
           OCR_BASE_URL: ${{ secrets.OCR_BASE_URL }}
           OCR_MODEL: ${{ secrets.OCR_MODEL }}
         run: ocr review --from "${{ github.event.pull_request.base.sha || github.event.before }}" --to HEAD
+
+  # Optional live-agent smoke eval (protocols/team-evaluation.md). It spends model usage, so it
+  # runs only when repository variable ENABLE_LIVE_EVAL=true and secret ANTHROPIC_API_KEY exist.
+  live-smoke:
+    needs: test
+    if: vars.ENABLE_LIVE_EVAL == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Run live smoke eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python evals/live_smoke.py --i-understand-this-uses-model-credits
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: live-smoke
+          path: evals/out/
+

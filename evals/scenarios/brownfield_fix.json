@@ -1,26 +1,183 @@
 {
   "name": "brownfield-fix-retries",
-  "description": "A fix that keeps failing exhausts its retries; only the human can extend them; remediation found in verify gates the verify exit.",
+  "description": "A fix that fails the same way twice stops retrying (repeated signature); only the human reopens it with more retries; remediation found in verify gates the verify exit.",
   "steps": [
-    {"cli": ["init-run", "--name", "Fix", "--run-id", "fix", "--autonomy", "autonomous", "--entry", "execute-only"]},
-    {"cli": ["add-task", "--id", "FIX", "--title", "Fix the date parser", "--owner", "backend-engineer", "--path", "src/dates"]},
-    {"cli": ["claim", "--task", "FIX", "--agent", "backend-engineer"]},
-    {"cli": ["fail", "--task", "FIX", "--agent", "backend-engineer", "--reason", "timezone test"]},
-    {"cli": ["claim", "--task", "FIX", "--agent", "backend-engineer"]},
-    {"cli": ["fail", "--task", "FIX", "--agent", "backend-engineer", "--reason", "timezone test"]},
-    {"cli": ["claim", "--task", "FIX", "--agent", "backend-engineer"]},
-    {"cli": ["fail", "--task", "FIX", "--agent", "backend-engineer", "--reason", "timezone test"]},
-    {"task": {"id": "FIX", "status": "failed", "attempts": 3}},
-    {"cli": ["advance"], "exit": 1, "contains": "unfinished"},
-    {"note": "agents cannot buy more retries", "cli": ["reopen", "--task", "FIX", "--reason", "try again", "--extend-retries", "1"], "exit": 1},
-    {"human": ["reopen", "--task", "FIX", "--reason", "new approach: use zoneinfo", "--extend-retries", "1", "--by", "Owner"]},
-    {"cli": ["claim", "--task", "FIX", "--agent", "backend-engineer"]},
-    {"exec_py": "print('ok')", "task": "FIX", "agent": "backend-engineer"},
-    {"cli": ["complete", "--task", "FIX", "--agent", "backend-engineer", "--evidence", "cmd:FIX-1"]},
-    {"cli": ["advance"], "contains": "05_verify"},
-    {"note": "remediation lands in the current stage", "cli": ["add-task", "--id", "REM", "--title", "Handle DST edge", "--owner", "backend-engineer", "--path", "src/dates"]},
-    {"task": {"id": "REM", "stage": "05_verify"}},
-    {"write": "RUN/VERIFICATION.md", "text": "Verdict: PASS\nVerifier: qa-lead\nVerified-SHA: none\n"},
-    {"cli": ["advance"], "exit": 1, "contains": "REM"}
+    {
+      "cli": [
+        "init-run",
+        "--name",
+        "Fix",
+        "--run-id",
+        "fix",
+        "--autonomy",
+        "autonomous",
+        "--entry",
+        "execute-only"
+      ]
+    },
+    {
+      "cli": [
+        "add-task",
+        "--id",
+        "FIX",
+        "--title",
+        "Fix the date parser",
+        "--owner",
+        "backend-engineer",
+        "--path",
+        "src/dates"
+      ]
+    },
+    {
+      "cli": [
+        "claim",
+        "--task",
+        "FIX",
+        "--agent",
+        "backend-engineer"
+      ]
+    },
+    {
+      "cli": [
+        "fail",
+        "--task",
+        "FIX",
+        "--agent",
+        "backend-engineer",
+        "--reason",
+        "timezone test"
+      ]
+    },
+    {
+      "cli": [
+        "claim",
+        "--task",
+        "FIX",
+        "--agent",
+        "backend-engineer"
+      ]
+    },
+    {
+      "cli": [
+        "fail",
+        "--task",
+        "FIX",
+        "--agent",
+        "backend-engineer",
+        "--reason",
+        "timezone test"
+      ]
+    },
+    {
+      "note": "the same failure twice stops retrying",
+      "task": {
+        "id": "FIX",
+        "status": "failed",
+        "attempts": 2
+      }
+    },
+    {
+      "cli": [
+        "log",
+        "--type",
+        "failure-repeated"
+      ],
+      "contains": "failure-repeated"
+    },
+    {
+      "cli": [
+        "advance"
+      ],
+      "exit": 1,
+      "contains": "unfinished"
+    },
+    {
+      "note": "agents cannot buy more retries",
+      "cli": [
+        "reopen",
+        "--task",
+        "FIX",
+        "--reason",
+        "try again",
+        "--extend-retries",
+        "1"
+      ],
+      "exit": 1
+    },
+    {
+      "human": [
+        "reopen",
+        "--task",
+        "FIX",
+        "--reason",
+        "new approach: use zoneinfo",
+        "--extend-retries",
+        "1",
+        "--by",
+        "Owner"
+      ]
+    },
+    {
+      "cli": [
+        "claim",
+        "--task",
+        "FIX",
+        "--agent",
+        "backend-engineer"
+      ]
+    },
+    {
+      "exec_py": "print('ok')",
+      "task": "FIX",
+      "agent": "backend-engineer"
+    },
+    {
+      "cli": [
+        "complete",
+        "--task",
+        "FIX",
+        "--agent",
+        "backend-engineer",
+        "--evidence",
+        "cmd:FIX-1"
+      ]
+    },
+    {
+      "cli": [
+        "advance"
+      ],
+      "contains": "05_verify"
+    },
+    {
+      "note": "remediation lands in the current stage",
+      "cli": [
+        "add-task",
+        "--id",
+        "REM",
+        "--title",
+        "Handle DST edge",
+        "--owner",
+        "backend-engineer",
+        "--path",
+        "src/dates"
+      ]
+    },
+    {
+      "task": {
+        "id": "REM",
+        "stage": "05_verify"
+      }
+    },
+    {
+      "write": "RUN/VERIFICATION.md",
+      "text": "Verdict: PASS\nVerifier: qa-lead\nVerified-SHA: none\n"
+    },
+    {
+      "cli": [
+        "advance"
+      ],
+      "exit": 1,
+      "contains": "REM"
+    }
   ]
 }

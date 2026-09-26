@@ -41,11 +41,11 @@ disagree, apply the safer requirement and raise the mismatch.
 ## Failure behavior and loop detection
 
 - Retry only when new evidence changes the attempt, and only within `max_task_retries`.
-- Record every attempt with `fail --reason`; write the reason as a short failure signature
-  (the failing check and the error, not a story) so repeats are visible in `log` and `metrics`.
-- The same signature twice means you are looping: stop retrying, keep the artifacts, and
-  escalate with a `checkpoint --kind decision` instead of a third attempt. (The runtime counts
-  attempts; spotting a repeated signature is your job.)
+- Record every attempt with `fail --reason` (the failing check and the error, not a story).
+  The runtime fingerprints the reason (numbers and paths normalized), or takes `--signature`.
+- The same signature twice means you are looping: the runtime marks the task `failed` instead
+  of retrying and logs `failure-repeated`. Only the human reopens it (`reopen --extend-retries`),
+  so bring a changed approach and escalate with a `checkpoint --kind decision`.
 - Never hide a degraded result or weaken a check to make it pass.
 - Budgets (`policies.json` → `budgets`) open a `budget` checkpoint at 80 % and stop the command
   that would exceed the limit until the human waives it.

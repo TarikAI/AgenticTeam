@@ -24,7 +24,8 @@ isolation makes it impossible.
 | `claude-code` | `.claude/settings.json` deny rules (read/edit of `~/.agentic-team`, edits of run `state.json`, `events.jsonl`, `_evidence/`); `PreToolUse` guard hook; per-role `tools` allowlists; subagent-scoped guard hooks for review roles | anything done through a tool the hook does not see |
 | `codex` | `.codex/hooks.json` guard, loaded only in a trusted project after the human reviews it with `/hooks`; `sandbox_mode` per access (`read-only` for read-only/research roles) | per-agent tool limits (none exist); review-role source protection |
 | `opencode` | `permission` maps: `edit`, `webfetch`, `websearch`, `task`, and `bash` patterns from policy command rules (R4 deny, R3 ask) | `edit: deny` does not stop writes through `bash`; no guard hook, so owner-home and run-state protection |
-| `gemini-cli` | `tools` allowlists for read-only, research, and review roles | no guard hook; command rules; run-state and owner-home protection |
+| `gemini-cli` | `BeforeTool` guard hook in `.gemini/settings.json` (owner home, run state, command rules); `tools` allowlists for read-only, research, and review roles | review-role source protection |
+| `antigravity` | `PreToolUse` guard hook in `.agents/hooks.json` (owner home, run state, command rules) | per-agent read-only limits (no reliable switch) |
 | `copilot`, `factory`, `kiro` | read-only tool lists for read-only/research roles | everything else |
 | `cursor` | `readonly: true` for read-only/research roles | everything else |
 | `qwen-code`, `junie` | `tools` allowlists (junie also for review roles) | everything else |
