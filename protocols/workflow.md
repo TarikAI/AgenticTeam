@@ -41,9 +41,9 @@ artifact with `scaffold --artifact NAME`; a file that still contains a `{{...}}`
 | 01_product | `PRD.md` with `AC-` ids | — |
 | 02_solution | `ARCHITECTURE.md` | — |
 | 03_readiness | `READINESS.md` tracing every `AC-` id | — |
-| 04_build | every task closed; write tasks carry typed evidence | same |
-| 05_verify | `VERIFICATION.md` verdict lines, independent verifier, integration SHA | same |
-| 06_release | `RELEASE.md` + human release checkpoint | human release checkpoint |
+| 04_build | every task closed; write tasks carry typed evidence and passed their declared checks | same |
+| 05_verify | remediation tasks closed with evidence; `VERIFICATION.md` verdict lines, independent verifier, `Verified-SHA` = HEAD | same |
+| 06_release | `RELEASE.md`; HEAD still equals the verified commit; human release checkpoint | HEAD still equals the verified commit; human release checkpoint |
 | 07_learn | `RETROSPECTIVE.md`, `DELIVERY-REPORT.md` | `DELIVERY-REPORT.md` |
 
 In every stage `advance` also refuses while a task of the stage is open, a checkpoint is
@@ -54,6 +54,11 @@ to 05_verify (the default stage is always the current one), so it gates the veri
 
 `VERIFICATION.md` starts with three machine-read lines: `Verdict: PASS|CONDITIONAL|FAIL`,
 `Verifier: <role-id>` (installed, and never a 04_build claimant), and `Verified-SHA: <sha>`
-(the integration commit recorded when 04_build exits, or `none` without git). FAIL blocks;
-CONDITIONAL needs the human's waiver `stage-exit:05_verify:conditional`. Any named requirement
-can be waived only by the human (`waive --requirement stage-exit:<stage>:<check>`).
+(the project's current HEAD, or `none` without git). The verdict names the code as it is now:
+when remediation inside 05_verify moves HEAD, the verifier verifies again at the new HEAD and
+updates the line, and the integration commit recorded at the 04_build exit is only the review's
+starting point. The 06_release exit checks the same line against HEAD once more, so a commit
+made after verification (a version bump, a hotfix) cannot ride an older verdict into production;
+re-verify at HEAD, or the human waives `stage-exit:06_release:verified-head` with a reason.
+FAIL blocks; CONDITIONAL needs the human's waiver `stage-exit:05_verify:conditional`. Any named
+requirement can be waived only by the human (`waive --requirement stage-exit:<stage>:<check>`).

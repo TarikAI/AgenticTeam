@@ -253,6 +253,8 @@ class RuntimeTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.project = Path(self.temporary.name)
         team.install_team(ROOT, self.project, "generic", "full-company", [], [])
+        # Autonomous runs need a spend ceiling; a real project sets one in policies.local.json.
+        (self.project / ".agentic-team" / "config" / "policies.local.json").write_text('{"budgets": {"usd": 50}}', encoding="utf-8")
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -279,6 +281,7 @@ class RuntimeTests(unittest.TestCase):
             input=["authoritative plan"],
             acceptance=["checks pass"],
             evidence_contract=["test output"],
+            check=[f'"{sys.executable}" -c "pass"'],
         )
 
     def test_task_graph_claim_completion_and_dependency_refresh(self) -> None:

@@ -45,12 +45,15 @@ or **[instruction]** (the team follows it; nothing refuses a violation).
 - [instruction] The integrated result is checked out in the project root before `advance`
   leaves `04_build`; merged task branches may then be deleted locally (`git branch -d`).
 - [runtime] When `advance` exits `04_build`, the CLI records the project root's HEAD as the
-  run's integration SHA (`stage-advanced` event, `status --json`).
-- [runtime] The `05_verify` exit requires `Verified-SHA:` in VERIFICATION.md to match that
-  recorded SHA (`none` only when the project has no git history).
-- [instruction] The runtime records the integration SHA once. Code changed after `04_build`
-  exits is not covered by that match: raise `checkpoint --kind deviation` naming the new SHA and
-  the checks re-run on it, and let the human decide.
+  run's integration SHA (`stage-advanced` event, `status --json`); when it exits `05_verify`, it
+  records HEAD as the verified SHA.
+- [runtime] The `05_verify` exit requires `Verified-SHA:` in VERIFICATION.md to match the
+  current HEAD (`none` only when the project has no git history), and the `06_release` exit
+  requires HEAD to still match it. A passing acceptance check counts for `complete` only when it
+  ran at the current HEAD; otherwise completion runs it again.
+- [instruction] Code changed after the verdict was written is not covered by it: have the
+  verifier verify again at the new HEAD and update the line. Only the human waives the
+  `verified-head` check, and only with a written reason.
 
 ## Release identity
 

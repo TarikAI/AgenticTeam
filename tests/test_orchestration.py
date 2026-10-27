@@ -108,7 +108,7 @@ class MetricsAndBudgetTests(Base):
         role = data["roles"]["backend-engineer"]
         self.assertEqual((role["completed"], role["first_pass"], role["failures"]), (1, 0, 1))
         self.assertEqual(data["usage"], {"tokens": 1500.0})
-        self.assertEqual(data["commands_executed"], 1)
+        self.assertEqual(data["commands_executed"], 2, "the exec above plus the acceptance check completion ran")
 
     def test_budget_warns_then_stops_until_the_human_waives(self) -> None:
         policy_path = self.project / ".agentic-team" / "config" / "policies.json"
@@ -129,6 +129,68 @@ class MetricsAndBudgetTests(Base):
         self.assertEqual(team.parse_usage(["tokens=100,usd=0.5", "tokens=50"]), {"tokens": 150.0, "usd": 0.5})
         with self.assertRaises(team.TeamError):
             team.parse_usage(["dollars=3"])
+
+    def test_unwatched_profiles_need_a_spend_ceiling(self) -> None:
+        project = fresh_project()
+        (project / ".agentic-team" / "config" / "policies.local.json").unlink()
+        for profile in ("autonomous", "supervised"):
+            with self.assertRaises(team.TeamError) as raised:
+                team.init_run(project, "No ceiling", f"none-{profile}", profile, "execute-only", "adaptive")
+            self.assertIn("spend ceiling", str(raised.exception))
+        team.init_run(project, "Watched", "watched", "hitl", "execute-only", "adaptive")
+        with self.assertRaises(team.TeamError):
+            team.init_run(project, "Bad", "bad", "autonomous", "execute-only", "adaptive", {"usd": 0})
+        run = team.init_run(project, "Capped", "capped", "autonomous", "execute-only", "adaptive", {"usd": 2.5})
+        self.assertEqual(team.load_state(run)["budgets"], {"usd": 2.5})
+        code, _, err = run_cli(project, "init-run", "--project", str(project), "--name", "CLI", "--run-id", "cli",
+                               "--autonomy", "autonomous", "--entry", "execute-only")
+        self.assertEqual(code, 1)
+        self.assertIn("spend ceiling", err)
+        code, _, err = run_cli(project, "init-run", "--project", str(project), "--name", "CLI", "--run-id", "cli",
+                               "--autonomy", "autonomous", "--entry", "execute-only", "--budget", "usd=3")
+        self.assertEqual(code, 0, err)
+        # A per-run ceiling only tightens the policy's.
+        policy_budgets = team.load_policy(self.project)["budgets"]
+        self.assertEqual(team.budget_limit(policy_budgets, {"budgets": {"usd": 2.5}}, "usd"), 2.5)
+        self.assertEqual(team.budget_limit(policy_budgets, {"budgets": {"usd": 500}}, "usd"), 50.0)
+
+    def test_metered_usage_comes_from_the_harness_transcript_and_counts_against_the_ceiling(self) -> None:
+        transcript = self.project / "session.jsonl"
+        lines = [
+            json.dumps({"type": "system", "subtype": "init", "session_id": "s"}),
+            json.dumps({"type": "assistant", "message": {"usage": {"input_tokens": 10}}}),
+            json.dumps({"type": "result", "subtype": "success", "total_cost_usd": 30.0,
+                        "usage": {"input_tokens": 100, "output_tokens": 50},
+                        "modelUsage": {"claude-a": {"inputTokens": 1000, "outputTokens": 200, "cacheReadInputTokens": 300,
+                                                    "costUSD": 30.0, "contextWindow": 200000}}}),
+        ]
+        transcript.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with self.assertRaises(team.TeamError):
+            team.ingest_usage(self.project, self.run, transcript, "backend-engineer", self.token())  # agents do not meter
+        record = team.ingest_usage(self.project, self.run, transcript, "Owner", self.token())
+        self.assertEqual((record["tokens"], record["usd"]), (1500.0, 30.0))
+        state = team.load_state(self.run)
+        self.assertEqual(state["usage_metered"], {"tokens": 1500.0, "usd": 30.0})
+        self.assertEqual(team.usage_total(state, "usd"), 30.0)
+        self.assertIn("usage", {item["action"] for item in team.read_ledger(team.home_key(state))})
+        with self.assertRaises(team.TeamError):
+            team.ingest_usage(self.project, self.run, transcript, "Owner", self.token())  # the same transcript twice
+        second = self.project / "second.json"
+        second.write_text(json.dumps({"type": "result", "total_cost_usd": 15.0, "usage": {"output_tokens": 1}}), encoding="utf-8")
+        team.ingest_usage(self.project, self.run, second, "Owner", self.token())  # 45 of the project's 50 USD: warning
+        state = team.load_state(self.run)
+        self.assertTrue(any(item["kind"] == "budget" and item["budget"] == "usd" for item in state["checkpoints"]))
+        third = self.project / "third.jsonl"
+        third.write_text(json.dumps({"type": "result", "total_cost_usd": 10.0, "usage": {"output_tokens": 1}}) + "\n", encoding="utf-8")
+        with self.assertRaises(team.BlockedError):
+            team.ingest_usage(self.project, self.run, third, "Owner", self.token())
+        self.assertEqual(team.load_state(self.run)["usage_metered"]["usd"], 55.0, "spend that happened is recorded")
+        # An agent reporting less than the harness metered changes nothing: the larger figure counts.
+        team.add_task(self.project, self.run, task_args("A", "backend-engineer"))
+        team.claim_task(self.project, self.run, "A", "backend-engineer", 60)
+        with self.assertRaises(team.BlockedError):
+            team.complete_task(self.project, self.run, "A", "backend-engineer", ["note:done"], usage={"usd": 0.01})
+        self.assertEqual(team.load_state(self.run)["tasks"]["A"]["status"], "claimed")
 
 
 class MigrationTests(unittest.TestCase):

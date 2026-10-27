@@ -13,6 +13,29 @@ team's constitution changed and why. Append-only.
 
 ---
 
+## 2026-10-27 - evidence gates for unattended runs
+
+Four gaps a review of unattended operation found, each now refused by the CLI and covered by a
+test (`config/guarantees.json` G10, G13, G18, G19); approved by the human owner.
+
+- **Checks are no longer optional for build work.** `add-task` refuses a build or remediation
+  task owned by a writing role without `--check` (`evidence.write_tasks_need_checks`), and
+  `complete` runs every declared check that has no passing record at the current HEAD, so a
+  file or a note alone no longer completes workspace-changing work. Tasks recorded before this
+  rule complete only with the human's `waive --requirement checks:<task>`.
+- **The verdict names the code being released.** `Verified-SHA` must equal the current HEAD at
+  the 05_verify exit (the integration commit no longer counts once HEAD moved), and the new
+  `verified-head` exit check refuses to leave 06_release if HEAD moved after the verdict.
+- **Unattended runs need a ceiling, and the ceiling sees metered usage.** `autonomous` and
+  `supervised` runs refuse to start without a `tokens` or `usd` ceiling
+  (`profiles.<name>.require_budget_ceiling`; `init-run --budget` sets one per run). The new
+  `usage --transcript` command records what the harness itself reported (Claude Code
+  `stream-json`/`json` result message), hashed and signed into the ledger by the owner side;
+  the larger of reported and metered usage counts against the ceiling.
+- **The live smoke eval runs the acceptance criteria.** Its scorer executes `greet("World")`
+  and `python -m unittest discover -s tests`, requiring at least one test to run, instead of
+  checking that the files exist; it also meters the session's transcript against a 5 USD ceiling.
+
 ## 2026-09-25 - v3.0.0 upgrade
 
 Applied from `docs/v3-upgrade-plan.md` (phases P0-P9; progress and deviations in

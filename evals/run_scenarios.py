@@ -13,6 +13,7 @@ Step forms (JSON objects):
     {"cli": [...], "exit": 0, "contains": "text"}     run the installed CLI (--project added)
     {"human": [...], "exit": 0}                      same, with --token-file for the owner token
     {"write": "RUN/BRIEF.md", "text": "..."}         write a file (RUN = run dir, PROJECT = project)
+    In cli/human/write values, RUN, PROJECT, and PYTHON (this interpreter) are expanded.
     {"state": {"stage": "04_build", "status": "active"}}   assert top-level state fields
     {"task": {"id": "T1", "status": "completed"}}    assert one task's fields
     {"exec_py": "print(1)", "task": "T1", "agent": "backend-engineer", "exit": 0}
@@ -54,7 +55,7 @@ def run_scenario(spec: dict) -> list[str]:
                    "--harness", spec.get("harness", "generic"), "--preset", spec.get("preset", "full-company")]
         subprocess.run(install, check=True, capture_output=True, env=env)
         cli = [sys.executable, str(project / ".agentic-team" / "bin" / "agentic_team.py")]
-        context = {"PROJECT": str(project)}
+        context = {"PROJECT": str(project), "PYTHON": sys.executable}
 
         def state() -> dict:
             current = (project / ".agentic-team" / "CURRENT.md").read_text(encoding="utf-8")
@@ -104,7 +105,7 @@ def run_scenario(spec: dict) -> list[str]:
                 )
             if step.get("contains") and step["contains"] not in result.stdout + result.stderr:
                 raise ScenarioFailure(f"step {number} ({label}): output lacks {step['contains']!r}: {result.stdout[:300]} {result.stderr[:300]}")
-            if args[0] == "init-run":
+            if args[0] == "init-run" and result.returncode == 0:
                 context["RUN"] = result.stdout.strip().splitlines()[-1]
             log.append(f"{number:>2}. {' '.join(args[:2])} -> {result.returncode}")
         return log

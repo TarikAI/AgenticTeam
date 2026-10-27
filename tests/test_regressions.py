@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import threading
 import unittest
@@ -21,7 +22,12 @@ except ModuleNotFoundError:  # Python 3.10
     tomllib = None
 
 
+PASSING_CHECK = f'"{sys.executable}" -c "pass"'
+FAILING_CHECK = f'"{sys.executable}" -c "import sys; sys.exit(3)"'
+
+
 def task_args(task_id: str, owner: str, **overrides) -> argparse.Namespace:
+    """A well-formed task: build tasks must declare an acceptance check, so the fixture carries one."""
     values = dict(
         id=task_id,
         title=f"Task {task_id}",
@@ -35,6 +41,7 @@ def task_args(task_id: str, owner: str, **overrides) -> argparse.Namespace:
         input=[],
         acceptance=[],
         evidence_contract=[],
+        check=[PASSING_CHECK],
     )
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -149,7 +156,8 @@ class LifecycleRegressions(Base):
         task = team.load_state(run)["tasks"]["A"]
         self.assertEqual(task["status"], "ready")
         self.assertNotIn("lease_expires_at", task)
-        self.assertEqual(task["previous_evidence"], [["file:src/a.py", "note:tests: 3 passed"]])
+        # The third record is the acceptance check that `complete` ran itself.
+        self.assertEqual(task["previous_evidence"], [["file:src/a.py", "note:tests: 3 passed", "cmd:A-1"]])
 
     def test_R09_reopen_keeps_attempts_and_budget_extension_is_human(self) -> None:
         run = self.run_()
@@ -252,8 +260,9 @@ class LifecycleRegressions(Base):
         project = str(self.project)
         self.assertEqual(run_cli(self.project, "claim", "--project", project, "--task", "NOPE", "--agent", "ceo")[0], 1)
         self.assertEqual(run_cli(self.project, "claim", "--project", project)[0], 64)
-        run_cli(self.project, "add-task", "--project", project, "--id", "D", "--title", "deploy to production",
-                "--owner", "devops-engineer", "--path", "infra")
+        code, _, err = run_cli(self.project, "add-task", "--project", project, "--id", "D", "--title", "deploy to production",
+                               "--owner", "devops-engineer", "--path", "infra", "--check", PASSING_CHECK)
+        self.assertEqual(code, 0, err)
         self.assertEqual(run_cli(self.project, "claim", "--project", project, "--task", "D", "--agent", "devops-engineer")[0], 2)
         code, _, err = run_cli(self.project, "checkpoint", "--project", project, "--question", "q", "--recommendation", "r",
                                "--alternatives", "a", "--impact", "i", "--evidence", "e", "--rollback", "r")

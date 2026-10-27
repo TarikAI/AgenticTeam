@@ -1,6 +1,6 @@
 Verdict: {{PASS|CONDITIONAL|FAIL}}
 Verifier: {{installed role id that built none of the verified work}}
-Verified-SHA: {{integration commit, or "none" when the project has no git history}}
+Verified-SHA: {{the current HEAD this verdict covers, or "none" when the project has no git history}}
 
 # Verification — {{project}}
 

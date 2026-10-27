@@ -12,7 +12,7 @@
     {"note": "hitl readiness gate", "cli": ["advance"], "exit": 2},
     {"human": ["approve", "--checkpoint", "CP-001", "--by", "Owner", "--decision", "ready"]},
     {"cli": ["advance"], "contains": "04_build"},
-    {"note": "hitl pauses R2 work", "cli": ["add-task", "--id", "DEP", "--title", "Add date library", "--owner", "backend-engineer", "--action", "add-dependency", "--path", "package.json"]},
+    {"note": "hitl pauses R2 work", "cli": ["add-task", "--id", "DEP", "--title", "Add date library", "--owner", "backend-engineer", "--action", "add-dependency", "--path", "package.json", "--check", "\"PYTHON\" -c \"pass\""]},
     {"cli": ["claim", "--task", "DEP", "--agent", "backend-engineer"], "exit": 2},
     {"state": {"status": "waiting-human"}}
   ]

@@ -19,7 +19,8 @@ it; `pack --task T` builds the full packet):
 - task ID, objective, owner, and expected artifact;
 - what the task does and where (`--action`, `--target`) and its effective risk;
 - named inputs and stable references;
-- owned paths and acceptance checks (`--check` commands that must pass);
+- owned paths and acceptance checks (`--check` commands that `complete` runs and that must pass;
+  build tasks cannot be added without one);
 - dependencies, autonomy profile, and any human checkpoint;
 - context budget and completion deadline, when relevant.
 

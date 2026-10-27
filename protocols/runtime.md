@@ -60,7 +60,8 @@ stop. Never loop on `advance`.
 - Parallelize only dependency-ready tasks with non-overlapping owned paths.
 - Prefer native worktrees when the harness has them; one build-integrator merges in dependency
   order. Contract and schema changes go through the cto-architect.
-- Verification runs on the integration commit recorded when 04_build exits.
+- Verification starts from the integration commit recorded when 04_build exits and ends with a
+  verdict on the current HEAD; release refuses to exit if HEAD moved after that verdict.
 
 ## Recovery
 

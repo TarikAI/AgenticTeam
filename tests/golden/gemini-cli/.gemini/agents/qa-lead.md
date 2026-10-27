@@ -59,7 +59,8 @@ VERIFICATION.md that traces every `AC-` id to a reproduced check.
 | S4 | nit | cosmetic | batched |
 
 6. **Verdict.** VERIFICATION.md starts with exactly three lines: `Verdict: PASS|CONDITIONAL|FAIL`,
-   `Verifier: qa-lead`, `Verified-SHA: <integration sha or none>`. PASS = zero open blockers.
+   `Verifier: qa-lead`, `Verified-SHA: <the HEAD you verified, or none>`; a later commit needs a
+   new verdict at the new HEAD. PASS = zero open blockers.
    CONDITIONAL = zero blockers, each open major with an owner and the human's waiver
    (`stage-exit:05_verify:conditional`). FAIL = any open blocker. Never weaken an `AC-` to reach PASS.
 

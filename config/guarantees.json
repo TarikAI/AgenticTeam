@@ -97,12 +97,12 @@
     },
     {
       "id": "G10",
-      "statement": "Completion evidence is typed and checked: files exist and are hashed, exec records carry exit codes, commits resolve, acceptance checks must pass.",
+      "statement": "Completion evidence is typed and checked: files exist and are hashed, exec records carry exit codes, commits resolve; build and remediation tasks by writing roles must declare an acceptance check, and complete runs every check lacking a passing record at the current HEAD and refuses while one fails.",
       "enforced_by": [
         "cli"
       ],
       "test": "test_evidence.EvidenceTests",
-      "bypass": "Note-only evidence remains allowed for inspection and documentation tasks."
+      "bypass": "Note-only evidence remains allowed for inspection and documentation tasks; a task recorded before checks were required completes only with the human's checks:<task> waiver; the check command itself is what the task author declared."
     },
     {
       "id": "G11",
@@ -125,12 +125,12 @@
     },
     {
       "id": "G13",
-      "statement": "Budgets open a checkpoint at the warning threshold and stop the command that would exceed them.",
+      "statement": "Budgets open a checkpoint at the warning threshold and stop the command that would exceed them; a per-run --budget only tightens the policy's ceiling.",
       "enforced_by": [
         "cli"
       ],
       "test": "test_orchestration.MetricsAndBudgetTests.test_budget_warns_then_stops_until_the_human_waives",
-      "bypass": "Token and USD budgets only see usage that agents report with complete --usage."
+      "bypass": "Token and USD ceilings see what agents report and what the owner side meters from harness transcripts (G19); a harness that writes no transcript is unmetered."
     },
     {
       "id": "G14",
@@ -170,6 +170,24 @@
       ],
       "test": "test_regressions.LifecycleRegressions.test_repeated_failure_signature_stops_retrying",
       "bypass": "Failure reasons worded differently each time produce different signatures."
+    },
+    {
+      "id": "G18",
+      "statement": "Verification is pinned to the code being released: Verified-SHA must equal the current HEAD when 05_verify exits, and 06_release cannot exit while HEAD differs from the verified commit.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_evidence.VerificationTests.test_verified_sha_must_be_the_current_head_through_release",
+      "bypass": "Projects without git history (Verified-SHA: none); uncommitted edits do not move HEAD; the human's stage-exit:06_release:verified-head waiver."
+    },
+    {
+      "id": "G19",
+      "statement": "Autonomous and supervised runs start only with a token or USD ceiling, and the ceiling counts the larger of agent-reported usage and usage metered from the harness transcript by the owner side (usage --transcript, signed into the ledger).",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_orchestration.MetricsAndBudgetTests.test_metered_usage_comes_from_the_harness_transcript_and_counts_against_the_ceiling",
+      "bypass": "Metering depends on whoever launched the session running usage with the transcript; the figures are the harness's client-side estimate."
     }
   ]
 }

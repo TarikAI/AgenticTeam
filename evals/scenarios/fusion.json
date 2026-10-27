@@ -2,7 +2,7 @@
   "name": "fusion-council",
   "description": "A council runs in phase order; skipping, resubmitting, and agent-closing a human-sponsored council are refused.",
   "steps": [
-    {"cli": ["init-run", "--name", "Council", "--run-id", "council", "--autonomy", "autonomous", "--entry", "execute-only"]},
+    {"cli": ["init-run", "--name", "Council", "--run-id", "council", "--autonomy", "autonomous", "--entry", "execute-only", "--budget", "usd=20"]},
     {"cli": ["fusion-init", "--id", "stack", "--question", "Which stack?", "--contributor", "product-manager", "--contributor", "cto-architect"]},
     {"note": "synthesis before proposals", "cli": ["fusion-submit", "--fusion", "stack", "--kind", "synthesis", "--agent", "fusion-moderator", "--evidence", "skip"], "exit": 1},
     {"cli": ["fusion-submit", "--fusion", "stack", "--kind", "proposal", "--agent", "product-manager", "--evidence", "proposals/product-manager.md"]},

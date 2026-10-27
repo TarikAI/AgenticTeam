@@ -15,8 +15,10 @@ add to them, never silently subtract.
 
 Every completion carries typed evidence: `file:<path>`, `cmd:<exec-id>`, `commit:<sha>`,
 `url:`, `note:`. Work that changes the workspace needs at least one `file:`, `cmd:`, or
-`commit:`; a note alone is refused. Checks declared with `add-task --check` must pass through
-`exec` (`complete --run-checks`). "I ran the tests" is not evidence; the `cmd:` record is.
+`commit:`; a note alone is refused. Build and remediation tasks owned by a writing role must be
+added with at least one `--check` (the acceptance command); `complete` runs every check that has
+no passing record at the current HEAD and refuses while one fails, so a file or a note cannot
+stand in for the run. "I ran the tests" is not evidence; the `cmd:` record is.
 
 ## Feature (code)
 - [ ] Implements every acceptance criterion (`AC-` id) in the task.

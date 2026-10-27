@@ -12,7 +12,9 @@
         "--autonomy",
         "autonomous",
         "--entry",
-        "execute-only"
+        "execute-only",
+        "--budget",
+        "usd=20"
       ]
     },
     {
@@ -25,7 +27,9 @@
         "--owner",
         "backend-engineer",
         "--path",
-        "src/dates"
+        "src/dates",
+        "--check",
+        "\"PYTHON\" -c \"pass\""
       ]
     },
     {
@@ -159,7 +163,9 @@
         "--owner",
         "backend-engineer",
         "--path",
-        "src/dates"
+        "src/dates",
+        "--check",
+        "\"PYTHON\" -c \"pass\""
       ]
     },
     {

@@ -45,11 +45,12 @@ The harness orchestrator normally invokes these. Humans can use them to inspect 
 | `metrics [--json] [--write]` | Per-role completion, first-pass rate, failures; checkpoint latency and rejection rate; commands; usage. `--write` saves `METRICS.md`. |
 | `runs` / `switch-run --run R` / `close-run --reason` | List runs, point `CURRENT.md` at another run, or close one. Only `init-run` and `switch-run` move `CURRENT.md`. |
 | `route-specialists` / `deactivate-specialist` | Match installed trigger rules and record bounded specialist participation. |
-| `add-task` | Create a task envelope. The owner must be installed; the stage defaults to the current stage and may not be an earlier one; build tasks owned by a writing role need `--path` (or `--exclusive`). `--check CMD` adds an acceptance command; `--verifies T` marks a verification task whose claimant may not have built T. |
+| `add-task` | Create a task envelope. The owner must be installed; the stage defaults to the current stage and may not be an earlier one; build and remediation tasks owned by a writing role need `--path` (or `--exclusive`) and at least one `--check CMD`, the acceptance command `complete` runs. `--verifies T` marks a verification task whose claimant may not have built T. |
 | `claim` | Atomically claim a ready task of the current stage. The claiming agent must be installed and be the task owner; the profile's `max_concurrent_agents` caps open claims; owned paths may not overlap. |
 | `renew` | Extend the lease on a task you hold (1-480 minutes). |
 | `reassign` | Change the owner of an unclaimed open task, with a reason. |
-| `complete [--run-checks] [--usage tokens=N,usd=N]` | Attach typed evidence (`file:`, `cmd:`, `commit:`, `url:`, `note:`) and unlock dependents. Write tasks need at least one `file:`/`cmd:`/`commit:`; `--check` commands must have passed. |
+| `complete [--run-checks] [--usage tokens=N,usd=N]` | Attach typed evidence (`file:`, `cmd:`, `commit:`, `url:`, `note:`) and unlock dependents. Runs every `--check` command that has no passing record at the current HEAD (all of them with `--run-checks`) and refuses while one fails. Write tasks need at least one `file:`/`cmd:`/`commit:`. |
+| `usage --transcript FILE [--task T] --by NAME --token-file PATH` | Owner side: record the tokens and USD the harness itself reported (Claude Code `json`/`stream-json` result message), hashed and signed into the ledger. The larger of reported and metered usage counts against the ceilings. |
 | `exec --task T --agent A [--shell] -- CMD...` | Run a command for your claimed task; records exit code, duration, git HEAD, and output under `_evidence/`. Commands matching a policy command rule need an approved task of that action. Exit code mirrors the command (0/1). |
 | `scaffold --artifact NAME` | Create `BRIEF.md`, `PRD.md`, `READINESS.md`, `VERIFICATION.md`, `RELEASE.md`, and the other run artifacts from their templates. |
 | `fail` | Record an attempt and apply retry policy. Under a profile that stops on failure (hitl), an exhausted task blocks the run (`blocked-failure`). |
@@ -71,7 +72,8 @@ state; do not edit `state.json` manually. Events are appended to `runs/<id>/even
 carrying the previous line's hash; `doctor` and `audit verify` report a broken chain.
 
 Budgets (`config/policies.json` → `budgets`: `max_tasks`, `max_fusion_councils`, `max_lease_minutes`,
-and optional `tokens`/`usd` fed by `complete --usage`) open a `budget` checkpoint at `warn_at`
+and `tokens`/`usd`, fed by `complete --usage` and by owner-side `usage --transcript` metering and
+required before an autonomous or supervised run starts) open a `budget` checkpoint at `warn_at`
 (80 %) and stop the command that would exceed the limit until the human runs
 `waive --requirement budget:<metric>`.
 
@@ -426,6 +428,7 @@ Create a resumable progressive run
 | `--autonomy` (autonomous|supervised|hitl) |  | `hitl` |  |
 | `--entry` (idea|plan-given|execute-only) |  | `idea` |  |
 | `--context` (adaptive|bmad-progressive) |  | `adaptive` |  |
+| `--budget` |  |  | Spend ceiling for this run, e.g. usd=40 or tokens=3000000; only tightens the policy's. Autonomous and supervised runs refuse to start without one |
 
 ### `install`
 
@@ -720,6 +723,21 @@ Clear a state lock left by a process that died
 | `--project` |  | `.` | Installed project root |
 | `--run` |  |  | Run id; defaults to CURRENT.md |
 | `--force` |  |  | Clear even a recently touched lock |
+
+### `usage`
+
+Record usage metered from a harness transcript (owner side; it counts against the ceilings)
+
+| Flag | Required | Default | Meaning |
+|---|---|---|---|
+| `--project` |  | `.` | Installed project root |
+| `--run` |  |  | Run id; defaults to CURRENT.md |
+| `--transcript` | yes |  | Claude Code --output-format json or stream-json output; its last result message is read |
+| `--task` |  |  | Also attribute the figures to this task |
+| `--by` | yes |  | Name of the responsible human (never an agent id) |
+| `--token-file` |  |  | Read the owner token from this file (never pass it in argv) |
+| `--token-stdin` |  |  | Read the owner token from stdin |
+| `--token` |  |  | Deprecated: owner token in argv (lands in shell history) |
 
 ### `validate`
 
