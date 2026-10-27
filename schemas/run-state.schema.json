@@ -9,7 +9,7 @@
     "run_id": {"type": "string", "minLength": 1},
     "project": {"type": "string", "minLength": 1},
     "status": {"enum": ["active", "waiting-human", "blocked", "blocked-rejection", "blocked-failure", "verifying", "complete", "closed", "failed"]},
-    "autonomy": {"enum": ["autonomous", "supervised", "hitl"]},
+    "autonomy": {"enum": ["autonomous", "supervised", "hitl", "unattended"]},
     "entry_mode": {"enum": ["idea", "plan-given", "execute-only"]},
     "context_method": {"enum": ["adaptive", "bmad-progressive"]},
     "stage": {"enum": ["00_intake", "01_product", "02_solution", "03_readiness", "04_build", "05_verify", "06_release", "07_learn"]},

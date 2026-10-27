@@ -353,6 +353,7 @@ def validate_source(root: Path) -> list[str]:
         if not (root / relative).is_file():
             errors.append(f"missing required file: {relative}")
     errors.extend(roster_problems(root, manifest))
+    errors.extend(policy_problems(load_json(root / "config" / "policies.json")))
     errors.extend(schema_problems(manifest, load_json(root / "schemas" / "team.schema.json")))
     errors.extend(preset_problems(manifest))
     errors.extend(guarantee_problems(root))
@@ -1476,7 +1477,11 @@ def load_policy(project: Path) -> dict[str, Any]:
     config = project_bus(project) / "config"
     policy = load_json(config / "policies.json")
     local = config / "policies.local.json"
-    return tighten_policy(policy, load_json(local)) if local.is_file() else policy
+    policy = tighten_policy(policy, load_json(local)) if local.is_file() else policy
+    problems = policy_problems(policy)
+    if problems:
+        raise TeamError("config/policies.json is not a policy the runtime accepts:\n- " + "\n- ".join(problems))
+    return policy
 
 
 def profile_policy(project: Path, state: dict[str, Any]) -> dict[str, Any]:
@@ -1578,14 +1583,59 @@ def verify_events(run_dir: Path, state: dict[str, Any] | None = None) -> list[st
 
 
 GATE_KEYS = {"01_product": "product_gate", "02_solution": "architecture_gate", "03_readiness": "readiness_gate", "06_release": "release_gate"}
+# The only profile whose release stage may exit on executable conditions instead of a human click.
+EXECUTABLE_RELEASE_PROFILES = {"unattended"}
+# An unattended release needs a rehearsed rollback: a completed task of this action, owned by one
+# of these roles, whose declared --check (the rollback command) has a passing exec record.
+RELEASE_REHEARSAL_ACTION = "rollback-test"
+RELEASE_REHEARSAL_ROLES = {"release-manager", "devops-engineer"}
+# The executable release gate applies to low-risk runs only; one task above this restores the click.
+EXECUTABLE_RELEASE_MAX_RISK = "R1"
 
 
 def gate_value(profile: dict[str, Any], stage: str) -> str:
-    """The policy gate for a stage exit. Release is always human (absolute gate)."""
-    if stage == "06_release":
-        return "human"
+    """The policy gate for a stage exit.
+
+    Release is a human checkpoint in every profile except one whose `release_gate` is
+    `executable` (reserved for `unattended`, see policy_problems). Any other value for the
+    release gate still reads as human, so neither a typo nor an overlay can make a release automatic.
+    """
     key = GATE_KEYS.get(stage)
-    return str(profile.get(key, "automatic")) if key else "automatic"
+    if not key:
+        return "automatic"
+    value = str(profile.get(key, "automatic"))
+    if stage == "06_release":
+        return "executable" if value == "executable" else "human"
+    return value
+
+
+def policy_problems(policy: dict[str, Any]) -> list[str]:
+    """Shape rules of config/policies.json that the runtime relies on.
+
+    Every gate names a documented gate value; `release_gate: "executable"` is accepted on the
+    `unattended` profile only, and that profile must demand a spend ceiling and keep the
+    always-human risks in `pause_at`, because nobody watches it run.
+    """
+    problems: list[str] = []
+    known = set(policy.get("gate_values", {}))
+    for name, profile in policy.get("profiles", {}).items():
+        for key in sorted(set(GATE_KEYS.values())):
+            value = profile.get(key)
+            if known and value is not None and value not in known:
+                problems.append(f"profile {name}: {key} '{value}' is not a key of gate_values")
+        if profile.get("release_gate") != "executable":
+            continue
+        if name not in EXECUTABLE_RELEASE_PROFILES:
+            problems.append(
+                f"profile {name}: release_gate 'executable' is reserved for {', '.join(sorted(EXECUTABLE_RELEASE_PROFILES))}; "
+                "the release stage is a human checkpoint in every other profile"
+            )
+        if not profile.get("require_budget_ceiling"):
+            problems.append(f"profile {name}: an executable release gate needs require_budget_ceiling: true")
+        missing = sorted(set(policy.get("always_human_risk", [])) - set(profile.get("pause_at", [])))
+        if missing:
+            problems.append(f"profile {name}: pause_at must keep {', '.join(missing)} (always_human_risk)")
+    return problems
 
 
 def exit_criteria_text(exits: list[dict[str, Any]]) -> str:
@@ -1639,11 +1689,23 @@ def stage_contract(
         "07_learn": "- `../RETROSPECTIVE.md`\n- scoped lessons and evaluated proposals",
     }[stage_id]
     gate = gate_value(profile, stage_id)
-    human_check = (
-        "Human approval required before exit."
-        if gate == "human"
-        else f"No routine pause (gate: `{gate}`); record assumptions and continue if exit criteria pass."
-    )
+    if gate == "human":
+        human_check = "Human approval required before exit."
+    elif gate == "executable":
+        human_check = (
+            "No human checkpoint for a run with no task above R1 (gate: `executable`): the stage exits when the "
+            "unattended release conditions hold (autonomy protocol): exit contract incl. verified-head, a passing "
+            "record for every declared build/verify check, no task above R1, RELEASE.md complete plus a passing "
+            "rollback rehearsal (`--action rollback-test` by release-manager or devops-engineer), no budget "
+            "checkpoint pending. One R2+ task restores the human checkpoint; production deploys, publishing and "
+            "spending stay R3/R4 human actions."
+        )
+        process = process.replace(
+            "3. Obtain explicit human approval.",
+            "3. Rehearse the rollback as a `rollback-test` task; the exit conditions replace the approval.",
+        )
+    else:
+        human_check = f"No routine pause (gate: `{gate}`); record assumptions and continue if exit criteria pass."
     exit_criteria = exit_criteria_text(exits or [])
     return template.format(
         stage_title=title,
@@ -1668,13 +1730,13 @@ def init_run(
     budgets: dict[str, float] | None = None,
 ) -> Path:
     bus = project_bus(project)
-    policy = load_json(bus / "config" / "policies.json")
+    policy = load_policy(project)  # the project's tightening applies from the first stage contract on
     if autonomy not in policy["profiles"]:
         raise TeamError(f"Unknown autonomy profile '{autonomy}'")
     run_budgets = {key: float(value) for key, value in (budgets or {}).items()}
     if any(key not in {"tokens", "usd"} or value <= 0 for key, value in run_budgets.items()):
         raise TeamError("--budget takes tokens=N and/or usd=N above zero")
-    ceilings = load_policy(project).get("budgets", {})
+    ceilings = policy.get("budgets", {})
     if policy["profiles"][autonomy].get("require_budget_ceiling") and not any(
         ceilings.get(key) or run_budgets.get(key) for key in ("tokens", "usd")
     ):
@@ -3187,7 +3249,14 @@ def advance_stage(project: Path, run_dir: Path) -> str:
         if open_tasks:
             raise TeamError(f"Current stage has unfinished tasks: {', '.join(open_tasks)}")
         profile = profile_policy(project, state)
+        gate = gate_value(profile, current)
         pending = [item["id"] for item in state["checkpoints"] if verified.checkpoint_status(item) == "pending"]
+        if gate == "executable":
+            # Condition 5 of the unattended release: a budget question is the human's, and an
+            # unattended supervisor needs the refusal to say so rather than a bare "waiting-human".
+            budget_pending = [item for item in state["checkpoints"] if item.get("kind") == "budget" and item["id"] in pending]
+            if budget_pending:
+                raise TeamError(executable_release_refusal([budget_pending_problem(item) for item in budget_pending]))
         if not pending:
             problems = stage_exit_problems(project, run_dir, state, current)
             if problems:
@@ -3196,13 +3265,28 @@ def advance_stage(project: Path, run_dir: Path) -> str:
             recompute_status(state, profile)
             save_state(project, run_dir, state)
             return "waiting-human"
-        gate = gate_value(profile, current)
         requires_human = gate == "human"
+        recommendation = "Approve only after reviewing declared outputs and evidence."
+        release_facts: dict[str, Any] = {}
+        if gate == "executable":
+            above = tasks_above_risk(state, EXECUTABLE_RELEASE_MAX_RISK)
+            if above:
+                # Condition 3: the executable gate is for low-risk runs only; the human click returns.
+                requires_human = True
+                recommendation = (
+                    f"Task(s) {', '.join(above)} are above {EXECUTABLE_RELEASE_MAX_RISK}, so this unattended run keeps "
+                    "the human release checkpoint. " + recommendation
+                )
+            else:
+                problems = executable_release_problems(project, run_dir, state)
+                if problems:
+                    raise TeamError(executable_release_refusal(problems))
+                release_facts = executable_release_facts(state, git_head(project.resolve()))
         approved = any(
             item["kind"] == "stage" and item["stage"] == current and verified.checkpoint_status(item) == "approved"
             for item in state["checkpoints"]
         )
-        if not requires_human:
+        if not requires_human and gate != "executable":
             assert_automatic_gate(state, current, gate, project)
         if requires_human and not approved:
             checkpoint_id = f"CP-{len(state['checkpoints']) + 1:03d}"
@@ -3214,7 +3298,7 @@ def advance_stage(project: Path, run_dir: Path) -> str:
                     "stage": current,
                     "risk": "R3" if current == "06_release" else "R2",
                     "question": f"Approve exit from {current}?",
-                    "recommendation": "Approve only after reviewing declared outputs and evidence.",
+                    "recommendation": recommendation,
                     "facts": stage_facts(state, current, run_dir),
                     "created_at": utcnow(),
                 }
@@ -3223,6 +3307,9 @@ def advance_stage(project: Path, run_dir: Path) -> str:
             recompute_status(state, profile)
             save_state(project, run_dir, state)
             return "waiting-human"
+        if release_facts:
+            # The ledger must show why no human approved this exit: the conditions, as facts.
+            append_event(state, "release-conditions-met", stage=current, **release_facts)
         index = STAGE_NAMES.index(current)
         if index == len(STAGE_NAMES) - 1:
             state["status"] = "complete"
@@ -3462,6 +3549,124 @@ def assert_automatic_gate(state: dict[str, Any], stage: str, gate: str, project:
     if not (reviewed or council or waived):
         need = "a completed review task by a non-writing role" + (" or a closed Fusion council" if "fusion" in gate else "")
         raise TeamError(f"The {stage} gate is '{gate}': it needs {need} in this stage before exit")
+
+
+def tasks_above_risk(state: dict[str, Any], ceiling: str) -> list[str]:
+    """Tasks whose effective risk is above the ceiling, whatever their status: a run that ever
+    held R2+ work is not a low-risk run, so the human release checkpoint stays."""
+    return sorted(task["id"] for task in state["tasks"].values() if RISK_ORDER[task["risk"]] > RISK_ORDER[ceiling])
+
+
+def passing_check_records(task: dict[str, Any]) -> dict[str, dict[str, Any] | None]:
+    """For each declared check, its latest exec record when that record passed, else None."""
+    found = {}
+    for check in task.get("checks", []):
+        record = check_record(task, check)
+        found[check] = record if record and record["exit_code"] == 0 else None
+    return found
+
+
+def release_rehearsals(state: dict[str, Any]) -> list[dict[str, Any]]:
+    return [task for task in state["tasks"].values() if task.get("action") == RELEASE_REHEARSAL_ACTION]
+
+
+def rehearsal_problem(task: dict[str, Any], head: str | None) -> str | None:
+    """Why one rollback-test task does not count as the rehearsed rollback (None when it does).
+
+    The record must be by a release role and, like the verdict, made at the commit being
+    released: a rollback rehearsed on older code says nothing about this one.
+    """
+    roles = " or ".join(sorted(RELEASE_REHEARSAL_ROLES))
+    if task["owner"] not in RELEASE_REHEARSAL_ROLES:
+        return f"rollback rehearsal {task['id']} is owned by {task['owner']}; it must be {roles}"
+    if task["status"] != "completed":
+        return f"rollback rehearsal {task['id']} is {task['status']}, not completed"
+    if not task.get("checks"):
+        return f"rollback rehearsal {task['id']} declares no --check: the rollback command is what the rehearsal records"
+    records = passing_check_records(task)
+    missing = [
+        check for check, record in records.items()
+        if record is None or record.get("agent") not in RELEASE_REHEARSAL_ROLES or not check_is_current(record, head)
+    ]
+    if missing:
+        where = f" at the current HEAD {head[:12]}" if head else ""
+        return f"rollback rehearsal {task['id']} has no passing exec record by {roles}{where} for: " + "; ".join(missing)
+    return None
+
+
+def budget_pending_problem(item: dict[str, Any]) -> str:
+    return (
+        f"budget checkpoint {item['id']} ('{item.get('budget')}') is pending: the human approves it "
+        f"or waives budget:{item.get('budget')} before an unattended release"
+    )
+
+
+def executable_release_problems(project: Path, run_dir: Path, state: dict[str, Any]) -> list[str]:
+    """What keeps an unattended run from leaving 06_release without a human.
+
+    Conditions 2, 4 and 5 of the unattended release (protocols/autonomy.md). Condition 1 is the
+    stage exit contract (stage_exit_problems) and condition 3, no task above R1, is not a refusal
+    but the human checkpoint coming back (tasks_above_risk); both are applied in advance_stage.
+    """
+    problems: list[str] = []
+    verified = verified_view(state)
+    installed = installed_agents(project)
+    head = git_head(project.resolve())
+    for task in state["tasks"].values():
+        if task["stage"] not in WRITE_STAGES or task["status"] != "completed":
+            continue
+        if not task.get("checks"):
+            owner_access = installed.get(task["owner"], {}).get("access")
+            if writes_workspace(task["stage"], owner_access, task.get("action", "build")) and not verified.waiver(f"checks:{task['id']}"):
+                problems.append(
+                    f"task {task['id']} changed the workspace but declares no acceptance check "
+                    f"(only the human's checks:{task['id']} waiver covers it)"
+                )
+            continue
+        failing = [check for check, record in passing_check_records(task).items() if record is None]
+        if failing:
+            problems.append(f"task {task['id']} has no passing exec record for: " + "; ".join(failing))
+    release = run_dir / "RELEASE.md"
+    if not release.is_file():
+        problems.append("RELEASE.md is missing (scaffold it with `scaffold --artifact RELEASE.md`, then fill it)")
+    elif PLACEHOLDER.search(release.read_text(encoding="utf-8")):
+        problems.append("RELEASE.md still has unfilled {{...}} markers or TODO")
+    rehearsals = release_rehearsals(state)
+    if not rehearsals:
+        problems.append(
+            f"no rollback rehearsal: add a task with `--action {RELEASE_REHEARSAL_ACTION} --check \"<rollback command>\"` "
+            f"owned by {' or '.join(sorted(RELEASE_REHEARSAL_ROLES))}, claim it, and complete it (completion runs the check)"
+        )
+    elif all(rehearsal_problem(task, head) for task in rehearsals):
+        problems.extend(rehearsal_problem(task, head) or "" for task in rehearsals)
+    for item in state["checkpoints"]:
+        if item.get("kind") == "budget" and verified.checkpoint_status(item) == "pending":
+            problems.append(budget_pending_problem(item))
+    return problems
+
+
+def executable_release_facts(state: dict[str, Any], head: str | None) -> dict[str, Any]:
+    """The facts an executable release exit is recorded with."""
+    rehearsal = next((task for task in release_rehearsals(state) if rehearsal_problem(task, head) is None), None)
+    checked = [
+        task["id"] for task in state["tasks"].values()
+        if task["stage"] in WRITE_STAGES and task["status"] == "completed" and task.get("checks")
+    ]
+    risks = [task["risk"] for task in state["tasks"].values()]
+    return {
+        "autonomy": state.get("autonomy"),
+        "max_risk": max(risks, key=lambda level: RISK_ORDER[level]) if risks else "R0",
+        "checked_tasks": sorted(checked),
+        "rehearsal": rehearsal["id"] if rehearsal else None,
+        "released_head": head,
+    }
+
+
+def executable_release_refusal(problems: list[str]) -> str:
+    return (
+        "06_release stays gated: the unattended release conditions are not met (no human checkpoint is "
+        "offered; meet the condition, or set release_gate to human in policies.local.json):\n- " + "\n- ".join(problems)
+    )
 
 
 def next_tasks(project: Path, run_dir: Path, agent: str | None) -> list[dict[str, Any]]:
@@ -4464,12 +4669,12 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--project", default=".")
     init.add_argument("--name", required=True)
     init.add_argument("--run-id")
-    init.add_argument("--autonomy", choices=["autonomous", "supervised", "hitl"], default="hitl")
+    init.add_argument("--autonomy", choices=["autonomous", "supervised", "hitl", "unattended"], default="hitl")
     init.add_argument("--entry", choices=["idea", "plan-given", "execute-only"], default="idea")
     init.add_argument("--context", choices=["adaptive", "bmad-progressive"], default="adaptive")
     init.add_argument("--budget", action="append", default=[],
                       help="Spend ceiling for this run, e.g. usd=40 or tokens=3000000; only tightens the policy's. "
-                           "Autonomous and supervised runs refuse to start without one")
+                           "Autonomous, supervised, and unattended runs refuse to start without one")
 
     status = sub.add_parser("status", help="Show durable run status")
     add_common_run_args(status)

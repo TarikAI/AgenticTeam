@@ -153,13 +153,13 @@
     },
     {
       "id": "G16",
-      "statement": "The seven hard human gates hold in every autonomy profile.",
+      "statement": "The seven hard human gates (R3/R4 actions) hold in every autonomy profile, unattended included; the release-stage exit is a human checkpoint in autonomous, supervised, and hitl, and executable only under unattended for a run with no task above R1.",
       "enforced_by": [
         "cli",
         "harness",
         "instruction"
       ],
-      "test": "test_authority.RiskModelTests",
+      "test": "test_authority.RiskModelTests.test_hard_gates_hold_under_unattended",
       "bypass": "An action taken without any declared task in a harness without hooks; keep production credentials out of agent environments."
     },
     {
@@ -182,12 +182,21 @@
     },
     {
       "id": "G19",
-      "statement": "Autonomous and supervised runs start only with a token or USD ceiling, and the ceiling counts the larger of agent-reported usage and usage metered from the harness transcript by the owner side (usage --transcript, signed into the ledger).",
+      "statement": "Autonomous, supervised, and unattended runs start only with a token or USD ceiling, and the ceiling counts the larger of agent-reported usage and usage metered from the harness transcript by the owner side (usage --transcript, signed into the ledger).",
       "enforced_by": [
         "cli"
       ],
       "test": "test_orchestration.MetricsAndBudgetTests.test_metered_usage_comes_from_the_harness_transcript_and_counts_against_the_ceiling",
       "bypass": "Metering depends on whoever launched the session running usage with the transcript; the figures are the harness's client-side estimate."
+    },
+    {
+      "id": "G20",
+      "statement": "Under unattended, 06_release exits without a human checkpoint only when the exit contract passes (verified-head included), every completed build and verify task has a passing exec record for each declared check, no task in the run is above R1 (one R2+ task puts the human checkpoint back), RELEASE.md is complete and a rollback-test task by release-manager or devops-engineer passed its declared rollback command at the current HEAD, and no budget checkpoint is pending; release_gate executable is refused on every other profile, and policies.local.json can set it back to human.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_unattended.UnattendedReleaseTests",
+      "bypass": "The checks and the rollback command are what the task authors declared; work declared as a benign action (G04's bypass) looks low-risk; the human's stage-exit:06_release:<check> waivers cover the exit contract; actions taken without a task are invisible, as everywhere."
     }
   ]
 }

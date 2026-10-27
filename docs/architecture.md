@@ -121,15 +121,16 @@ Agents must never read this folder; the Claude Code deny rules and the guard hoo
   checkpoint is pending, activated specialists are closed out, and the stage exit contract in
   `policies.json` passes (required artifacts without template markers, `AC-` traceability,
   `VERIFICATION.md` verdict lines from a non-builder verifier on the current HEAD, HEAD still
-  equal to that verified commit at release, a human release checkpoint). Details:
+  equal to that verified commit at release, a human release checkpoint, or under `unattended`
+  the five executable release conditions for a run with no task above R1). Details:
   [workflow](../protocols/workflow.md).
 - **Fusion.** Councils move one way through proposals → critiques → synthesis → verification →
   decision; each submission kind is accepted only in its phase and never twice; moderator,
   verifier, and contributors are distinct. Proposals submitted with `--file` are hashed and
   re-checked at reveal.
 - **Budgets.** At the warning threshold the CLI opens a `budget` checkpoint; a command that would
-  exceed a limit stops until the human waives it. Autonomous and supervised runs start only with a
-  token or USD ceiling, and the ceiling counts the larger of what agents report and what the
+  exceed a limit stops until the human waives it. Autonomous, supervised, and unattended runs start
+  only with a token or USD ceiling, and the ceiling counts the larger of what agents report and what the
   owner side meters from the harness transcript (`usage`).
 - **Runs.** Only `init-run` and `switch-run` move `CURRENT.md`; `--run` never repoints it.
 
@@ -198,8 +199,9 @@ _Generated from `config/guarantees.json` by `python scripts/agentic_team.py docs
 | G13 | Budgets open a checkpoint at the warning threshold and stop the command that would exceed them; a per-run --budget only tightens the policy's ceiling. | cli | `test_orchestration.MetricsAndBudgetTests.test_budget_warns_then_stops_until_the_human_waives` | Token and USD ceilings see what agents report and what the owner side meters from harness transcripts (G19); a harness that writes no transcript is unmetered. |
 | G14 | A rejection blocks the run until the human resolves it; exhausted retries in hitl block until the human reopens or cancels. | cli | `test_regressions.LifecycleRegressions.test_R05_rejection_can_be_resolved_by_the_human` | None within the CLI. |
 | G15 | Playbook checks become proven only through the human's promote. | cli, instruction | `test_law.LearningLoopTests.test_only_the_human_promotes_a_playbook_check` | Playbooks are ordinary files: an agent can edit the status text directly (visible in review and the ledger has no record). |
-| G16 | The seven hard human gates hold in every autonomy profile. | cli, harness, instruction | `test_authority.RiskModelTests` | An action taken without any declared task in a harness without hooks; keep production credentials out of agent environments. |
+| G16 | The seven hard human gates (R3/R4 actions) hold in every autonomy profile, unattended included; the release-stage exit is a human checkpoint in autonomous, supervised, and hitl, and executable only under unattended for a run with no task above R1. | cli, harness, instruction | `test_authority.RiskModelTests.test_hard_gates_hold_under_unattended` | An action taken without any declared task in a harness without hooks; keep production credentials out of agent environments. |
 | G17 | A task that fails the same way twice stops retrying; only the human reopens it. | cli | `test_regressions.LifecycleRegressions.test_repeated_failure_signature_stops_retrying` | Failure reasons worded differently each time produce different signatures. |
 | G18 | Verification is pinned to the code being released: Verified-SHA must equal the current HEAD when 05_verify exits, and 06_release cannot exit while HEAD differs from the verified commit. | cli | `test_evidence.VerificationTests.test_verified_sha_must_be_the_current_head_through_release` | Projects without git history (Verified-SHA: none); uncommitted edits do not move HEAD; the human's stage-exit:06_release:verified-head waiver. |
-| G19 | Autonomous and supervised runs start only with a token or USD ceiling, and the ceiling counts the larger of agent-reported usage and usage metered from the harness transcript by the owner side (usage --transcript, signed into the ledger). | cli | `test_orchestration.MetricsAndBudgetTests.test_metered_usage_comes_from_the_harness_transcript_and_counts_against_the_ceiling` | Metering depends on whoever launched the session running usage with the transcript; the figures are the harness's client-side estimate. |
+| G19 | Autonomous, supervised, and unattended runs start only with a token or USD ceiling, and the ceiling counts the larger of agent-reported usage and usage metered from the harness transcript by the owner side (usage --transcript, signed into the ledger). | cli | `test_orchestration.MetricsAndBudgetTests.test_metered_usage_comes_from_the_harness_transcript_and_counts_against_the_ceiling` | Metering depends on whoever launched the session running usage with the transcript; the figures are the harness's client-side estimate. |
+| G20 | Under unattended, 06_release exits without a human checkpoint only when the exit contract passes (verified-head included), every completed build and verify task has a passing exec record for each declared check, no task in the run is above R1 (one R2+ task puts the human checkpoint back), RELEASE.md is complete and a rollback-test task by release-manager or devops-engineer passed its declared rollback command at the current HEAD, and no budget checkpoint is pending; release_gate executable is refused on every other profile, and policies.local.json can set it back to human. | cli | `test_unattended.UnattendedReleaseTests` | The checks and the rollback command are what the task authors declared; work declared as a benign action (G04's bypass) looks low-risk; the human's stage-exit:06_release:<check> waivers cover the exit contract; actions taken without a task are invisible, as everywhere. |
 <!-- GUARANTEES:END -->

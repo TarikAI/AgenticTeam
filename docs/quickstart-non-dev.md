@@ -60,7 +60,9 @@ Choices:
 
 - `--autonomy`: `hitl` (you approve product, architecture, readiness, and release; the
   default), `supervised` (the team proceeds and pauses for deviations and external actions),
-  or `autonomous` (the team continues through all reversible, in-scope work).
+  `autonomous` (the team continues through all reversible, in-scope work), or `unattended`
+  (`autonomous`, and a run with no task above R1 leaves the release stage on checked conditions
+  instead of your click; deploys, publishing, and spending still wait for you).
 - `--entry`: `idea` (start from a description), `plan-given` (you already have a plan), or
   `execute-only` (build exactly the plan you supply).
 - `--context`: `adaptive` (lighter paperwork for clear, bounded work) or `bmad-progressive`
@@ -179,7 +181,7 @@ the team continue past a budget limit (`--requirement budget:<metric>`). Only yo
 
 ## 9. Decisions that always come back to you
 
-These seven hard gates hold in every autonomy profile, including `autonomous`:
+These seven hard gates hold in every autonomy profile, including `autonomous` and `unattended`:
 
 1. production deployment;
 2. public publishing or messaging real people;

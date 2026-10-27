@@ -44,7 +44,7 @@ detail):
 ## 2. The human starts the run
 
 The owner token must never reach the agent. Ask the human to run, in their own terminal
-(choose `--autonomy autonomous|supervised|hitl`, `--entry idea|plan-given|execute-only`,
+(choose `--autonomy autonomous|supervised|hitl|unattended`, `--entry idea|plan-given|execute-only`,
 `--context adaptive|bmad-progressive`):
 
 ```powershell

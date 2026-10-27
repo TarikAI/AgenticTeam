@@ -73,7 +73,7 @@ carrying the previous line's hash; `doctor` and `audit verify` report a broken c
 
 Budgets (`config/policies.json` → `budgets`: `max_tasks`, `max_fusion_councils`, `max_lease_minutes`,
 and `tokens`/`usd`, fed by `complete --usage` and by owner-side `usage --transcript` metering and
-required before an autonomous or supervised run starts) open a `budget` checkpoint at `warn_at`
+required before an autonomous, supervised, or unattended run starts) open a `budget` checkpoint at `warn_at`
 (80 %) and stop the command that would exceed the limit until the human runs
 `waive --requirement budget:<metric>`.
 
@@ -425,10 +425,10 @@ Create a resumable progressive run
 | `--project` |  | `.` |  |
 | `--name` | yes |  |  |
 | `--run-id` |  |  |  |
-| `--autonomy` (autonomous|supervised|hitl) |  | `hitl` |  |
+| `--autonomy` (autonomous|supervised|hitl|unattended) |  | `hitl` |  |
 | `--entry` (idea|plan-given|execute-only) |  | `idea` |  |
 | `--context` (adaptive|bmad-progressive) |  | `adaptive` |  |
-| `--budget` |  |  | Spend ceiling for this run, e.g. usd=40 or tokens=3000000; only tightens the policy's. Autonomous and supervised runs refuse to start without one |
+| `--budget` |  |  | Spend ceiling for this run, e.g. usd=40 or tokens=3000000; only tightens the policy's. Autonomous, supervised, and unattended runs refuse to start without one |
 
 ### `install`
 
