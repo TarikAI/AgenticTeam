@@ -19,7 +19,7 @@ was unset), and `init-run --budget usd=40,tokens=3000000` for one run (may only 
 | `usd` | total USD: the larger of reported and metered | `complete`, `usage` | unset |
 | `warn_at` | fraction of a ceiling that opens the checkpoint | all of the above | 0.8 |
 
-`autonomous` and `supervised` runs refuse to start (`init-run`) until a `tokens` or `usd` ceiling
+`autonomous`, `supervised`, and `unattended` runs refuse to start (`init-run`) until a `tokens` or `usd` ceiling
 exists, because nobody watches the meter while they run (`profiles.<name>.require_budget_ceiling`).
 Set one for the project, for example `{"budgets": {"tokens": 3000000, "usd": 40}}` in
 `policies.local.json`, or per run with `--budget`.

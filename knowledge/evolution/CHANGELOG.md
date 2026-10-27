@@ -13,6 +13,32 @@ team's constitution changed and why. Append-only.
 
 ---
 
+## 2026-10-27 - unattended profile: an executable release gate for low-risk runs
+
+A fourth autonomy profile, `unattended`, for supervisors that run issue-to-release loops with
+nobody clicking (`config/guarantees.json`: G16 reworded, G19, new G20); approved by the human owner.
+
+- **`unattended` is `autonomous` with `release_gate: executable`.** For a run with no task above
+  R1, `advance` leaves 06_release without a human checkpoint when five executable conditions
+  hold, each refused by name otherwise: the exit contract including `verified-head`; a passing
+  `exec` record for every `--check` of every completed 04_build and 05_verify task (a check-less
+  writing task only with the human's `checks:<task>` waiver); no task in the run above R1 (one
+  R2+ task puts the human checkpoint back, as a `stage` checkpoint naming it); `RELEASE.md`
+  without template markers plus a completed `--action rollback-test` task by `release-manager` or
+  `devops-engineer` whose declared rollback command passed at the current HEAD; no `budget`
+  checkpoint pending. The exit is logged as `release-conditions-met` with the facts it rested on.
+- **What stays human.** R3/R4 actions (production deploys, publishing, messaging, spending,
+  credentials, destructive operations) keep their risk checkpoints in every profile; `unattended`
+  removes only the click on the release stage of R0-R1 work, needs a spend ceiling like
+  `autonomous`, and `policies.local.json` can set its `release_gate` back to `human`.
+  `release_gate: "executable"` on any other profile, or an unknown gate value, is refused by
+  `validate` and by every command of an installed project (`policy_problems`).
+- **New action `rollback-test`** (R1 on local and ci, R2 on staging, R3 on production and
+  external) is the rehearsal convention; release-manager and devops-engineer document it.
+- Tests: `tests/test_unattended.py` (every refusal, the passing path, the R2 fallback, the
+  tightening), `test_authority.RiskModelTests.test_hard_gates_hold_under_unattended`, and the
+  `unattended-release` eval scenario.
+
 ## 2026-10-27 - evidence gates for unattended runs
 
 Four gaps a review of unattended operation found, each now refused by the CLI and covered by a

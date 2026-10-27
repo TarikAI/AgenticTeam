@@ -41,7 +41,8 @@ The two methods differ in their exit contracts (`config/policies.json` → `stag
   `VERIFICATION.md`, `RELEASE.md`, `RETROSPECTIVE.md` + `DELIVERY-REPORT.md`. Use it for large,
   regulated, or multi-team work, or when asked.
 - **`adaptive`:** 00-03 collapse into one `BRIEF.md` carrying the `AC-` ids and the task list;
-  05_verify still needs the verdict lines, 06_release still needs the human release checkpoint,
+  05_verify still needs the verdict lines, 06_release still needs the human release checkpoint
+  (or, under `unattended`, the executable release conditions of `autonomy.md`),
   and 07_learn needs `DELIVERY-REPORT.md`. Use it for small, well-specified work.
 
 Entry modes (`idea`, `plan-given`, `execute-only`) are orthogonal: `plan-modes.md`.

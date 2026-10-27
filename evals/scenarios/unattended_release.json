@@ -1,0 +1,161 @@
+{
+  "name": "unattended-release",
+  "description": "An unattended R1 run leaves 06_release on executable conditions: each missing condition is refused by name, the rollback rehearsed by release-manager completes them, and no human checkpoint is opened.",
+  "steps": [
+    {
+      "cli": [
+        "init-run",
+        "--name",
+        "Unattended",
+        "--run-id",
+        "ua",
+        "--autonomy",
+        "unattended",
+        "--entry",
+        "execute-only",
+        "--budget",
+        "usd=20"
+      ]
+    },
+    {
+      "cli": [
+        "add-task",
+        "--id",
+        "T1",
+        "--title",
+        "Fix the typo in the greeting",
+        "--owner",
+        "backend-engineer",
+        "--path",
+        "src/greeting",
+        "--check",
+        "\"PYTHON\" -c \"pass\""
+      ]
+    },
+    {
+      "cli": [
+        "claim",
+        "--task",
+        "T1",
+        "--agent",
+        "backend-engineer"
+      ]
+    },
+    {
+      "exec_py": "print('ok')",
+      "task": "T1",
+      "agent": "backend-engineer"
+    },
+    {
+      "note": "completion runs the declared check and records it",
+      "cli": [
+        "complete",
+        "--task",
+        "T1",
+        "--agent",
+        "backend-engineer",
+        "--evidence",
+        "cmd:T1-1"
+      ]
+    },
+    {
+      "cli": [
+        "advance"
+      ],
+      "contains": "05_verify"
+    },
+    {
+      "write": "RUN/VERIFICATION.md",
+      "text": "Verdict: PASS\nVerifier: qa-lead\nVerified-SHA: none\n"
+    },
+    {
+      "cli": [
+        "advance"
+      ],
+      "contains": "06_release"
+    },
+    {
+      "note": "condition 4: no release packet yet",
+      "cli": [
+        "advance"
+      ],
+      "exit": 1,
+      "contains": "RELEASE.md is missing"
+    },
+    {
+      "write": "RUN/RELEASE.md",
+      "text": "# Release\n\nArtifact: HEAD as verified. Rollout: local. Rollback: rehearsed by RB.\n"
+    },
+    {
+      "note": "condition 4: no rehearsed rollback yet",
+      "cli": [
+        "advance"
+      ],
+      "exit": 1,
+      "contains": "no rollback rehearsal"
+    },
+    {
+      "cli": [
+        "add-task",
+        "--id",
+        "RB",
+        "--title",
+        "Rehearse the rollback",
+        "--owner",
+        "release-manager",
+        "--action",
+        "rollback-test",
+        "--check",
+        "\"PYTHON\" -c \"pass\""
+      ]
+    },
+    {
+      "cli": [
+        "claim",
+        "--task",
+        "RB",
+        "--agent",
+        "release-manager"
+      ]
+    },
+    {
+      "note": "completion runs the rollback command at HEAD and records it",
+      "cli": [
+        "complete",
+        "--task",
+        "RB",
+        "--agent",
+        "release-manager",
+        "--evidence",
+        "note:rolled back and forward on a local copy"
+      ]
+    },
+    {
+      "task": {
+        "id": "RB",
+        "status": "completed"
+      }
+    },
+    {
+      "note": "the stage exits on the conditions; no human checkpoint",
+      "cli": [
+        "advance"
+      ],
+      "contains": "07_learn"
+    },
+    {
+      "state": {
+        "stage": "07_learn",
+        "status": "active"
+      }
+    },
+    {
+      "cli": [
+        "log",
+        "--type",
+        "release-conditions-met"
+      ],
+      "contains": "release-conditions-met"
+    }
+  ]
+}

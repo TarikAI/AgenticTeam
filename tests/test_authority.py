@@ -212,6 +212,20 @@ class RiskModelTests(Base):
         team.claim_task(other, hitl, "MIG", "database-engineer", 60)
         self.assertEqual(team.load_state(hitl)["tasks"]["MIG"]["risk"], "R1")
 
+    def test_hard_gates_hold_under_unattended(self) -> None:
+        """G16: the executable release gate removes a click on the stage, never a gate on an action."""
+        other = fresh_project()
+        run = team.init_run(other, "U", "u", "unattended", "execute-only", "adaptive")
+        for task_id, owner, action in (("SHIP", "devops-engineer", "deploy"), ("PUB", "release-manager", "publish"),
+                                       ("PAY", "ceo", "spend"), ("WIPE", "database-engineer", "data-destructive")):
+            team.add_task(other, run, task_args(task_id, owner, action=action, target="production", path=[task_id.lower()]))
+            self.assertGreaterEqual(team.RISK_ORDER[team.load_state(run)["tasks"][task_id]["risk"]], 3, task_id)
+            with self.assertRaises(team.GateError):
+                team.claim_task(other, run, task_id, owner, 60)
+        checkpoints = team.load_state(run)["checkpoints"]
+        self.assertEqual(sorted(item["task"] for item in checkpoints if item["kind"] == "risk"), ["PAY", "PUB", "SHIP", "WIPE"])
+        self.assertEqual(team.load_state(run)["status"], "waiting-human")
+
 
 class TokenInputTests(Base):
     def test_R35_token_file_and_stdin_work_and_argv_warns(self) -> None:

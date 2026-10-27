@@ -27,9 +27,13 @@ SLOs and runbooks, `_decisions/ADR-NNN.md` entries that touch rollout.
 3. Go/no-go checklist: migrations tested forward and back on staging-like data; flags and
    their default states; canary percentage, abort thresholds (error rate, p95 latency, key
    business metric) and observation window; monitoring dashboards and alerts named.
-4. Rollback: the exact procedure and evidence that it was executed on staging
-   (`exec --task <id> --agent release-manager -- <rollback command>`). An untested rollback is
-   a blocker.
+4. Rollback: the exact procedure, rehearsed as its own task so the record is typed:
+   `add-task --id RB --title "Rehearse rollback" --owner release-manager --action rollback-test
+   --target local --check "<rollback command>"`, then `claim` and `complete` (completion runs the
+   command at HEAD and records it; a commit after it needs a new rehearsal, as it needs a new
+   verdict). An untested rollback is a blocker, and under `unattended` the stage cannot exit
+   without this record (`protocols/autonomy.md`). A rehearsal against staging is R2 and keeps the
+   human release checkpoint.
 5. SBOM and license status attached; zero open blockers under `protocols/review-discipline.md`;
    for admin surfaces, `validate --phase=release` and `coverage` exit 0 under adminwright (or
    the equivalents in `protocols/admin-surfaces.md`). A missing gate result is an exception to
@@ -37,7 +41,9 @@ SLOs and runbooks, `_decisions/ADR-NNN.md` entries that touch rollout.
 6. Comms: user, support, and status-page notes; post-release observation owner.
 7. Raise `checkpoint --kind decision --question "Release <version> to production?"` with
    recommendation, alternatives, impact, evidence, rollback. Record the checkpoint id in
-   RELEASE.md. Deployment waits for the human's approval.
+   RELEASE.md. Deployment waits for the human's approval. Under `unattended`, a run with no task
+   above R1 leaves the stage on the five conditions in `protocols/autonomy.md` instead of this
+   checkpoint; the production deploy itself is still an R3 task with its own human risk checkpoint.
 
 ## Output
 `.agentic-team/runs/<run-id>/06_release/RELEASE.md`: identity, verdict consumed, checklist,

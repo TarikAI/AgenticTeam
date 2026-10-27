@@ -59,6 +59,22 @@
       "max_concurrent_agents": 6,
       "max_task_retries": 1,
       "continue_after_noncritical_failure": false
+    },
+    "unattended": {
+      "description": "As autonomous, and the release stage of a run with no task above R1 exits on executable conditions instead of a human checkpoint; R3/R4 actions stay human.",
+      "pause_at": [
+        "R3",
+        "R4"
+      ],
+      "product_gate": "automatic-with-recorded-assumptions",
+      "architecture_gate": "automatic-with-independent-review",
+      "readiness_gate": "automatic",
+      "release_gate": "executable",
+      "deviation": "record",
+      "max_concurrent_agents": 8,
+      "max_task_retries": 2,
+      "continue_after_noncritical_failure": true,
+      "require_budget_ceiling": true
     }
   },
   "gate_values": {
@@ -66,7 +82,8 @@
     "automatic": "The stage exits when its tasks and exit contract pass.",
     "automatic-with-recorded-assumptions": "Exits automatically; assumptions must be recorded (ASSUMPTIONS.md, checked from P3 on).",
     "automatic-with-independent-review": "Exits automatically once a completed review task by a non-writing role exists in the stage.",
-    "automatic-after-fusion-or-review": "Exits automatically once a Fusion council closed in the stage or a completed review task exists."
+    "automatic-after-fusion-or-review": "Exits automatically once a Fusion council closed in the stage or a completed review task exists.",
+    "executable": "Release stage only, unattended profile only: exits without a human checkpoint when the exit contract (incl. verified-head) passes, every completed build/verify task passed each declared check, no task in the run is above R1, RELEASE.md is complete with a passing rollback rehearsal (--action rollback-test) by release-manager or devops-engineer, and no budget checkpoint is pending; any R2+ task restores the human checkpoint."
   },
   "risk": {
     "actions": [
@@ -75,6 +92,7 @@
       "docs",
       "build",
       "test",
+      "rollback-test",
       "add-dependency",
       "migrate",
       "infra-change",
@@ -112,6 +130,13 @@
         "external": "R3"
       },
       "test": {
+        "local": "R1",
+        "ci": "R1",
+        "staging": "R2",
+        "production": "R3",
+        "external": "R3"
+      },
+      "rollback-test": {
         "local": "R1",
         "ci": "R1",
         "staging": "R2",

@@ -35,7 +35,9 @@ and scripted staging deploys with a tested rollback, reproducible from a clean m
    human provisions secret values.
 6. **Staging:** scripted deploy to staging and a scripted rollback; prove both work and
    that the app actually serves. Tasks use `--action deploy --target staging` or
-   `--action infra-change`.
+   `--action infra-change`. A rollback rehearsal is its own task, `--action rollback-test` with
+   the rollback command as `--check` (R1 on local/ci, R2 on staging); under `unattended` the
+   release stage needs that record (`protocols/autonomy.md`).
 7. For `06_release`, hand release-manager the deploy and rollback scripts, artifact digest,
    and SBOM. Production deploys happen only through release-manager and an approved human
    checkpoint.

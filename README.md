@@ -40,9 +40,11 @@ promise.
 - **Signed decision ledger:** the human starts each run and holds an owner token outside the
   project. Approvals, rejections, resolutions, and waivers are HMAC-signed and hash-chained in
   `~/.agentic-team/ledger/`; gates read the ledger, and `audit verify` detects forgery.
-- **Three autonomy profiles:** `autonomous`, `supervised`, and `hitl`, over one policy file
-  (`config/policies.json`). Risk comes from what a task does and where (`--action`/`--target`),
-  not from words in its title. Seven hard human gates hold in every profile.
+- **Four autonomy profiles:** `autonomous`, `supervised`, `hitl`, and `unattended`, over one
+  policy file (`config/policies.json`). Risk comes from what a task does and where
+  (`--action`/`--target`), not from words in its title. Seven hard human gates hold in every
+  profile; `unattended` swaps the release-stage click of a run with no task above R1 for five
+  executable conditions (checks passed, HEAD verified, rollback rehearsed, no open budget question).
 - **Stage exit contracts:** `advance` leaves a stage only when its required artifacts exist
   without template placeholders, acceptance ids trace to tasks and checks, and
   `VERIFICATION.md` carries a verdict from a verifier who did not build the work.
@@ -50,7 +52,7 @@ promise.
   with its exit code, a resolved commit, a URL, or a note. Build tasks must declare an acceptance
   check; `complete` runs it at the current HEAD and refuses while it fails.
 - **Verification pinned to HEAD, spend pinned to a ceiling:** the verdict names the current
-  HEAD and release refuses to exit if HEAD moved; autonomous runs start only with a token or USD
+  HEAD and release refuses to exit if HEAD moved; unwatched runs start only with a token or USD
   ceiling, counted from what agents report and what the owner meters from harness transcripts.
 - **Fusion mode:** independent proposals, reveal, cross-critique, synthesis, independent
   verification, and a preserved dissent record, in a one-way phase order.

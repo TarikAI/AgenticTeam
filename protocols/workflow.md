@@ -43,7 +43,7 @@ artifact with `scaffold --artifact NAME`; a file that still contains a `{{...}}`
 | 03_readiness | `READINESS.md` tracing every `AC-` id | — |
 | 04_build | every task closed; write tasks carry typed evidence and passed their declared checks | same |
 | 05_verify | remediation tasks closed with evidence; `VERIFICATION.md` verdict lines, independent verifier, `Verified-SHA` = HEAD | same |
-| 06_release | `RELEASE.md`; HEAD still equals the verified commit; human release checkpoint | HEAD still equals the verified commit; human release checkpoint |
+| 06_release | `RELEASE.md`; HEAD still equals the verified commit; human release checkpoint (under `unattended`, the executable release conditions of `autonomy.md` for a run with no task above R1) | HEAD still equals the verified commit; human release checkpoint (same `unattended` rule) |
 | 07_learn | `RETROSPECTIVE.md`, `DELIVERY-REPORT.md` | `DELIVERY-REPORT.md` |
 
 In every stage `advance` also refuses while a task of the stage is open, a checkpoint is
