@@ -130,9 +130,14 @@ def _next_ids(count, taken):
     return ids
 
 
-def build_tasks(findings, context=None, stage=None):
-    """One task per blocker/major; minor and nit findings are batched into one task."""
+def build_tasks(findings, context=None, stage=None, checks=None):
+    """One task per blocker/major; minor and nit findings are batched into one task.
+
+    `checks` are the acceptance commands every remediation task must pass (typically the
+    project's test command): the runtime refuses a build task by a writing role without one.
+    """
     context = context or {}
+    checks = list(checks or [])
     individual = [f for f in findings if f["severity"] in ("blocker", "major")]
     batched = [f for f in findings if f["severity"] in ("minor", "nit")]
     ids = _next_ids(len(individual) + (1 if batched else 0), set((context.get("tasks") or {}).keys()))
@@ -160,6 +165,7 @@ def build_tasks(findings, context=None, stage=None):
                 "Re-run the review gate on the touched files",
             ],
             "evidence_contract": ["test output showing the regression test passing", "review gate re-run result"],
+            "checks": checks,
         })
     if batched:
         files = sorted({finding["file"] for finding in batched})
@@ -173,6 +179,7 @@ def build_tasks(findings, context=None, stage=None):
             "inputs": [summary(finding) for finding in batched],
             "acceptance": ["Each finding fixed or explicitly waived with a reason"],
             "evidence_contract": ["list of findings with fix or waiver"],
+            "checks": checks,
         })
     return tasks
 
@@ -191,6 +198,8 @@ def add_task_argv(task, project="."):
         argv += ["--acceptance", value]
     for value in task.get("evidence_contract", []):
         argv += ["--evidence-contract", value]
+    for value in task.get("checks", []):
+        argv += ["--check", value]
     return argv
 
 
@@ -234,7 +243,7 @@ def apply_tasks(tasks, project, run=None):
             id=task["id"], title=task["title"], objective=None, owner=task["owner"], stage=task.get("stage"),
             risk=task["risk"], depends_on=[], path=task.get("paths", []), exclusive=False,
             input=task.get("inputs", []), acceptance=task.get("acceptance", []),
-            evidence_contract=task.get("evidence_contract", []),
+            evidence_contract=task.get("evidence_contract", []), check=task.get("checks", []),
         )
         agentic_team.add_task(project_path, run_dir, args)
 
@@ -248,6 +257,9 @@ def main(argv=None):
     parser.add_argument("--project", help="installed project: resolve owners and stage from its roster and run")
     parser.add_argument("--run", help="run id (default: CURRENT.md)")
     parser.add_argument("--stage", help="stage for remediation tasks (default: the run's current stage)")
+    parser.add_argument("--check", action="append", default=[],
+                        help="acceptance command every remediation task must pass, e.g. the project's test command "
+                             "(repeatable; the runtime refuses build tasks without one)")
     parser.add_argument("--apply", action="store_true", help="add the tasks to the run (requires --project)")
     args = parser.parse_args(argv)
 
@@ -263,7 +275,12 @@ def main(argv=None):
 
     context = load_context(args.project, args.run) if args.project else {}
     stage = args.stage or context.get("stage")
-    tasks = build_tasks(findings, context, stage)
+    tasks = build_tasks(findings, context, stage, args.check)
+    if tasks and not args.check:
+        print("No --check given: the runtime refuses remediation tasks without an acceptance command "
+              "(pass the project's test command).", file=sys.stderr)
+        if args.apply:
+            return 2
     result = {
         "total_findings": len(findings),
         "by_severity": {

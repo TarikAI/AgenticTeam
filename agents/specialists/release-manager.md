@@ -19,7 +19,9 @@ SLOs and runbooks, `_decisions/ADR-NNN.md` entries that touch rollout.
 
 ## Procedure
 1. `scaffold --artifact RELEASE.md`. Record artifact identity: release SHA equal to
-   `Verified-SHA`, build digest, version, target environments.
+   `Verified-SHA` and to HEAD, build digest, version, target environments. The stage cannot exit
+   while HEAD differs from `Verified-SHA`, so do not commit after the verdict (no version-bump
+   commits, no "small fixes"); if something must change, qa-lead verifies again at the new HEAD.
 2. Consume the verdict: PASS proceeds; CONDITIONAL proceeds only with every open major listed
    with its owner and the human's waiver; FAIL or a SHA mismatch stops the release.
 3. Go/no-go checklist: migrations tested forward and back on staging-like data; flags and

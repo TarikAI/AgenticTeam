@@ -188,9 +188,16 @@ class TestFindingsToTasks(unittest.TestCase):
         team.init_run(project, "Bridge", "bridge", "autonomous", "execute-only", "adaptive")
         findings = [findings_to_tasks.normalize(f) for f in FINDINGS_OCR]
         context = findings_to_tasks.load_context(str(project))
-        tasks = findings_to_tasks.build_tasks(findings, context, context["stage"])
+        check = f'"{sys.executable}" -c "pass"'
+        without_check = findings_to_tasks.build_tasks(findings, context, context["stage"])
+        code, _, err = helpers.run_cli(project, *findings_to_tasks.add_task_argv(without_check[0], str(project)))
+        self.assertEqual(code, 1, "remediation is build work: the runtime wants an acceptance check")
+        self.assertIn("--check", err)
+        tasks = findings_to_tasks.build_tasks(findings, context, context["stage"], checks=[check])
         for task in tasks:
-            code, _, err = helpers.run_cli(project, *findings_to_tasks.add_task_argv(task, str(project)))
+            argv = findings_to_tasks.add_task_argv(task, str(project))
+            self.assertIn("--check", argv)
+            code, _, err = helpers.run_cli(project, *argv)
             self.assertEqual(code, 0, err)
         state = team.load_state(team.find_run(project, None))
         self.assertEqual(set(state["tasks"]), {task["id"] for task in tasks})

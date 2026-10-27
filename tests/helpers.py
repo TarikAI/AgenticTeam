@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import atexit
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
@@ -32,11 +33,19 @@ _SPEC.loader.exec_module(team)
 TEST_HOME = Path(_HOME)
 
 
+LOCAL_POLICY = {"budgets": {"usd": 50}}
+
+
 def fresh_project(preset: str = "full-company", harness: str = "generic", only: list[str] | None = None) -> Path:
-    """Install AgenticTeam into a new temporary directory and return the project root."""
+    """Install AgenticTeam into a new temporary directory and return the project root.
+
+    The project sets a spend ceiling the way a real one would (policies.local.json), because
+    autonomous and supervised runs refuse to start without one.
+    """
     target = Path(tempfile.mkdtemp(prefix="agentic-project-"))
     atexit.register(shutil.rmtree, str(target), True)
     team.install_team(ROOT, target, harness, preset, [], only or [])
+    (target / ".agentic-team" / "config" / "policies.local.json").write_text(json.dumps(LOCAL_POLICY), encoding="utf-8")
     return target
 
 

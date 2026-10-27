@@ -120,14 +120,17 @@ Agents must never read this folder; the Claude Code deny rules and the guard hoo
 - **Stage exits.** `advance` leaves a stage only when every task of the stage is closed, no
   checkpoint is pending, activated specialists are closed out, and the stage exit contract in
   `policies.json` passes (required artifacts without template markers, `AC-` traceability,
-  `VERIFICATION.md` verdict lines from a non-builder verifier on the recorded integration commit,
-  a human release checkpoint). Details: [workflow](../protocols/workflow.md).
+  `VERIFICATION.md` verdict lines from a non-builder verifier on the current HEAD, HEAD still
+  equal to that verified commit at release, a human release checkpoint). Details:
+  [workflow](../protocols/workflow.md).
 - **Fusion.** Councils move one way through proposals → critiques → synthesis → verification →
   decision; each submission kind is accepted only in its phase and never twice; moderator,
   verifier, and contributors are distinct. Proposals submitted with `--file` are hashed and
   re-checked at reveal.
 - **Budgets.** At the warning threshold the CLI opens a `budget` checkpoint; a command that would
-  exceed a limit stops until the human waives it.
+  exceed a limit stops until the human waives it. Autonomous and supervised runs start only with a
+  token or USD ceiling, and the ceiling counts the larger of what agents report and what the
+  owner side meters from the harness transcript (`usage`).
 - **Runs.** Only `init-run` and `switch-run` move `CURRENT.md`; `--run` never repoints it.
 
 What the CLI cannot see: actions an agent takes without declaring a task, files edited outside a
@@ -189,12 +192,14 @@ _Generated from `config/guarantees.json` by `python scripts/agentic_team.py docs
 | G07 | Only the CLI writes state.json, events.jsonl, and _evidence/. | harness, tamper-evident | `test_orchestration.EventLogTests.test_event_chain_detects_edits` | Edits in harnesses without hooks; detected by doctor/audit verify (event hash chain, owner-key binding). |
 | G08 | Fusion councils run in phase order, without resubmission, with moderator, verifier, and contributors independent. | cli | `test_regressions.FusionRegressions` | None within the CLI. |
 | G09 | Fusion proposals stay private until every contributor has submitted, and cannot be rewritten after submission. | harness, tamper-evident, instruction | `test_harness.GuardTests.test_fusion_proposals_stay_private_until_reveal` | Reading other proposals in harnesses without the guard hook; rewrites are caught at reveal only when submitted with --file. |
-| G10 | Completion evidence is typed and checked: files exist and are hashed, exec records carry exit codes, commits resolve, acceptance checks must pass. | cli | `test_evidence.EvidenceTests` | Note-only evidence remains allowed for inspection and documentation tasks. |
+| G10 | Completion evidence is typed and checked: files exist and are hashed, exec records carry exit codes, commits resolve; build and remediation tasks by writing roles must declare an acceptance check, and complete runs every check lacking a passing record at the current HEAD and refuses while one fails. | cli | `test_evidence.EvidenceTests` | Note-only evidence remains allowed for inspection and documentation tasks; a task recorded before checks were required completes only with the human's checks:<task> waiver; the check command itself is what the task author declared. |
 | G11 | Claims respect ownership, the current stage, owned-path overlap, and the concurrency cap. | cli | `test_regressions.LifecycleRegressions.test_R16_claim_requires_installed_owner_and_respects_cap` | Editing files outside the claimed paths is not detected (instruction). |
 | G12 | Review roles never edit project source. | harness, instruction | `test_harness.GuardTests.test_review_scope_limits_writes` | Shell commands that write files, and every harness other than Claude Code. |
-| G13 | Budgets open a checkpoint at the warning threshold and stop the command that would exceed them. | cli | `test_orchestration.MetricsAndBudgetTests.test_budget_warns_then_stops_until_the_human_waives` | Token and USD budgets only see usage that agents report with complete --usage. |
+| G13 | Budgets open a checkpoint at the warning threshold and stop the command that would exceed them; a per-run --budget only tightens the policy's ceiling. | cli | `test_orchestration.MetricsAndBudgetTests.test_budget_warns_then_stops_until_the_human_waives` | Token and USD ceilings see what agents report and what the owner side meters from harness transcripts (G19); a harness that writes no transcript is unmetered. |
 | G14 | A rejection blocks the run until the human resolves it; exhausted retries in hitl block until the human reopens or cancels. | cli | `test_regressions.LifecycleRegressions.test_R05_rejection_can_be_resolved_by_the_human` | None within the CLI. |
 | G15 | Playbook checks become proven only through the human's promote. | cli, instruction | `test_law.LearningLoopTests.test_only_the_human_promotes_a_playbook_check` | Playbooks are ordinary files: an agent can edit the status text directly (visible in review and the ledger has no record). |
 | G16 | The seven hard human gates hold in every autonomy profile. | cli, harness, instruction | `test_authority.RiskModelTests` | An action taken without any declared task in a harness without hooks; keep production credentials out of agent environments. |
 | G17 | A task that fails the same way twice stops retrying; only the human reopens it. | cli | `test_regressions.LifecycleRegressions.test_repeated_failure_signature_stops_retrying` | Failure reasons worded differently each time produce different signatures. |
+| G18 | Verification is pinned to the code being released: Verified-SHA must equal the current HEAD when 05_verify exits, and 06_release cannot exit while HEAD differs from the verified commit. | cli | `test_evidence.VerificationTests.test_verified_sha_must_be_the_current_head_through_release` | Projects without git history (Verified-SHA: none); uncommitted edits do not move HEAD; the human's stage-exit:06_release:verified-head waiver. |
+| G19 | Autonomous and supervised runs start only with a token or USD ceiling, and the ceiling counts the larger of agent-reported usage and usage metered from the harness transcript by the owner side (usage --transcript, signed into the ledger). | cli | `test_orchestration.MetricsAndBudgetTests.test_metered_usage_comes_from_the_harness_transcript_and_counts_against_the_ceiling` | Metering depends on whoever launched the session running usage with the transcript; the figures are the harness's client-side estimate. |
 <!-- GUARANTEES:END -->

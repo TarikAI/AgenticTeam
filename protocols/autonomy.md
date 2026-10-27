@@ -16,6 +16,7 @@ the mismatch is a defect to report.
 | Retries per task (`max_task_retries`) | 2 | 2 | 1 |
 | Exhausted task | run continues | run continues | run is `blocked-failure` |
 | Concurrent claims (`max_concurrent_agents`) | 8 | 6 | 6 |
+| Spend ceiling at `init-run` (`require_budget_ceiling`) | required | required | optional |
 
 R3 and R4 always need the human (`always_human_risk`), and the release gate is human in every
 profile. The hard gates are listed once in `guardrails.md`. A project may tighten the policy with
@@ -47,5 +48,7 @@ disagree, apply the safer requirement and raise the mismatch.
   of retrying and logs `failure-repeated`. Only the human reopens it (`reopen --extend-retries`),
   so bring a changed approach and escalate with a `checkpoint --kind decision`.
 - Never hide a degraded result or weaken a check to make it pass.
-- Budgets (`policies.json` → `budgets`) open a `budget` checkpoint at 80 % and stop the command
-  that would exceed the limit until the human waives it.
+- Budgets (`policies.json` → `budgets`, tightened per run by `init-run --budget`) open a `budget`
+  checkpoint at 80 % and stop the command that would exceed the limit until the human waives it.
+  The larger of what agents report (`complete --usage`) and what the owner side meters from the
+  harness transcript (`usage --transcript`) counts (`budgets.md`).

@@ -22,8 +22,9 @@ python .agentic-team/bin/agentic_team.py status --project . --json
 ```
 
 Collect: `stage` (must be `05_verify`), `integration_sha` (HEAD recorded when 04_build exited),
-the 04_build tasks and who held them, and the base commit (the commit the run started from; ask
-the human if unknown). Read the `AC-` ids in `<run>/PRD.md` (or `BRIEF.md`) and the contracts in
+the current HEAD (`git rev-parse HEAD`; the verdict names this, and it must still be HEAD when
+you write it), the 04_build tasks and who held them, and the base commit (the commit the run
+started from; ask the human if unknown). Read the `AC-` ids in `<run>/PRD.md` (or `BRIEF.md`) and the contracts in
 `<run>/ARCHITECTURE.md`.
 
 **Independence check:** if the intended verifier appears as `claimed_by` or in `failures` of any
@@ -50,7 +51,8 @@ python .agentic-team/bin/agentic_team.py exec --project . --task V-1 --agent qa-
 Run each of these as `<command>`, one `exec` per command (put `--shell` before `--` when the
 command needs pipes or shell quoting):
 
-1. `git diff --stat <base>..<integration_sha>`, the scope of review;
+1. `git diff --stat <base>..HEAD`, the scope of review (remediation after `integration_sha`
+   is part of it);
 2. the project's test command (from ARCHITECTURE.md or the build tasks' `--check` commands);
 3. if `_context/capabilities.json` lists the `ocr` CLI, the delegation sequence from
    `.agentic-team/protocols/review-discipline.md`: `ocr delegate preview --format json`, then
@@ -71,8 +73,12 @@ The first three lines must read exactly:
 ```text
 Verdict: PASS|CONDITIONAL|FAIL
 Verifier: qa-lead
-Verified-SHA: <integration_sha from status --json, or none without git>
+Verified-SHA: <the current HEAD you verified, or none without git>
 ```
+
+The exit contract compares that line with HEAD at `advance` time, and again when the release
+stage exits. If anyone commits after you write it (a remediation, a version bump), verify again
+at the new HEAD and update the line; a stale verdict is refused, not stretched.
 
 Fill the traceability matrix (one row per `AC-` id, each with an exec id, file, or commit),
 findings (`blocker|major|minor|nit`, `file:line`, failing scenario, owner), and review coverage.
@@ -85,7 +91,7 @@ Write findings as a JSON array (OCR comment schema or `{severity, file, line, cl
 fix}`) to `<run>/05_verify/findings.json`, then:
 
 ```text
-python .agentic-team/bin/agentic_team.py findings-to-tasks .agentic-team/runs/<run-id>/05_verify/findings.json --project . --apply
+python .agentic-team/bin/agentic_team.py findings-to-tasks .agentic-team/runs/<run-id>/05_verify/findings.json --project . --check "<project test command>" --apply
 ```
 
 Tasks land in the current stage, owned by installed writing roles; the verifier re-verifies after

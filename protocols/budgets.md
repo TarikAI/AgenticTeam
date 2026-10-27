@@ -1,25 +1,28 @@
 # Budgets
 
 A run spends tasks, councils, time, tokens, and money. The human sets the ceilings; the CLI
-counts and stops; agents report what they used.
+counts and stops; agents report what they used, and the owner side meters what the harness
+itself reported.
 
 ## Where budgets live
 
-`config/policies.json → budgets` (defaults) and the project-owned
+`config/policies.json → budgets` (defaults), the project-owned
 `.agentic-team/config/policies.local.json → budgets` (may only lower a ceiling or set one that
-was unset):
+was unset), and `init-run --budget usd=40,tokens=3000000` for one run (may only lower further):
 
 | Key | Meaning | Checked at | Default |
 |---|---|---|---|
 | `max_tasks` | tasks in the run | `add-task` | 400 |
 | `max_fusion_councils` | Fusion councils in the run | `fusion-init` | 12 |
 | `max_lease_minutes` | longest lease one `renew --lease-minutes` may set | `renew` | 480 |
-| `tokens` | total tokens reported via `complete --usage` | `complete` | unset (not checked) |
-| `usd` | total USD reported via `complete --usage` | `complete` | unset (not checked) |
+| `tokens` | total tokens: the larger of reported (`complete --usage`) and metered (`usage`) | `complete`, `usage` | unset |
+| `usd` | total USD: the larger of reported and metered | `complete`, `usage` | unset |
 | `warn_at` | fraction of a ceiling that opens the checkpoint | all of the above | 0.8 |
 
-Set a token or money ceiling before the run starts, for example
-`{"budgets": {"tokens": 3000000, "usd": 40}}` in `policies.local.json`.
+`autonomous` and `supervised` runs refuse to start (`init-run`) until a `tokens` or `usd` ceiling
+exists, because nobody watches the meter while they run (`profiles.<name>.require_budget_ceiling`).
+Set one for the project, for example `{"budgets": {"tokens": 3000000, "usd": 40}}` in
+`policies.local.json`, or per run with `--budget`.
 
 ## What the runtime does
 
@@ -27,17 +30,34 @@ Set a token or money ceiling before the run starts, for example
   CLI opens one `budget` checkpoint per metric. Like any pending checkpoint it blocks `advance`
   until the human approves (continue) or rejects (stop and re-plan).
 - A command that would take a metric past its ceiling is refused with exit 3 (blocked). For
-  `complete`, the completion is refused and the task stays claimed.
+  `complete`, the completion is refused and the task stays claimed. For `usage`, the spend has
+  already happened: it is recorded, and the command still exits 3 so the caller stops the next one.
 - Only the human lifts a ceiling for the rest of the run:
   `agentic_team.py waive --requirement budget:<metric> --reason "<why>" --by <name> --token-file <path>`
   (`<metric>` is the key, e.g. `budget:usd`).
-- `status --brief` and `metrics` show the running usage totals.
+- `status --brief` and `metrics` show reported and metered totals side by side.
+
+## Metered usage (owner side)
+
+The runtime never calls a model, so it cannot count tokens itself; it can read what the harness
+counted. Whoever launched the session (the human, or the supervisor that holds the owner token)
+records it:
+
+```text
+agentic_team.py usage --project . --transcript <session.jsonl> [--task <id>] --by <name> --token-file <path>
+```
+
+`--transcript` is Claude Code's `--output-format stream-json` (or `json`) output; its last
+`result` message carries `total_cost_usd` and per-model token counts. The command hashes the
+transcript, signs the figures into the decision ledger, refuses the same transcript twice, and
+needs the owner token, so an agent cannot "meter" itself. A harness that writes no such
+transcript stays unmetered; its agents' reports are then all the ceiling sees.
 
 ## What agents do (instruction)
 
 - Report usage on every completion, from the harness's own usage or cost report:
   `complete --task <id> --agent <role> --evidence <...> --usage tokens=48000,usd=0.62`.
-  The runtime does not meter models; unreported usage is invisible to the ceiling.
+  Under-reporting changes nothing once the session is metered: the larger figure counts.
 - Stop at a budget refusal (exit 3). Do not split, rename, or re-add tasks to get under a cap,
   and do not under-report usage; either is a deviation.
 - When a `budget` checkpoint is pending, finish claimed work but claim nothing new that the
@@ -67,5 +87,5 @@ fewer councils are the next levers.
 
 - DELIVERY-REPORT.md, section "Cost and learning", states actual spend against each ceiling
   (tasks, councils, tokens, USD), budget checkpoints and waivers, and the model profile used,
-  taken from `metrics --json`, not from memory.
-- A metric with no reported usage is written as "not reported", never as zero.
+  taken from `metrics --json` (`usage` reported, `usage_metered` metered), not from memory.
+- A metric with no reported and no metered usage is written as "not reported", never as zero.

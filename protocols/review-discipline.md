@@ -40,7 +40,7 @@ and attach it as `file:` evidence. The orchestrator turns it into a verdict and 
 owned by installed writable roles, in the current stage, so they gate its exit:
 
 ```text
-python .agentic-team/bin/agentic_team.py findings-to-tasks .agentic-team/runs/<id>/05_verify/findings-code-reviewer.json --project . --apply
+python .agentic-team/bin/agentic_team.py findings-to-tasks .agentic-team/runs/<id>/05_verify/findings-code-reviewer.json --project . --check "<project test command>" --apply
 ```
 
 Blockers and majors become one task each; minors and nits are batched. The reviewer re-verifies

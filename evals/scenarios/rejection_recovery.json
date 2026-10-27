@@ -2,8 +2,8 @@
   "name": "rejection-recovery",
   "description": "A human rejection blocks the run (exit 3) until the human resolves it; approving something else does not clear it.",
   "steps": [
-    {"cli": ["init-run", "--name", "Reject", "--run-id", "reject", "--autonomy", "supervised", "--entry", "execute-only"]},
-    {"cli": ["add-task", "--id", "T1", "--title", "Build the importer", "--owner", "backend-engineer", "--path", "src/import"]},
+    {"cli": ["init-run", "--name", "Reject", "--run-id", "reject", "--autonomy", "supervised", "--entry", "execute-only", "--budget", "usd=20"]},
+    {"cli": ["add-task", "--id", "T1", "--title", "Build the importer", "--owner", "backend-engineer", "--path", "src/import", "--check", "\"PYTHON\" -c \"pass\""]},
     {"cli": ["checkpoint", "--question", "Use CSV only?", "--recommendation", "Yes", "--alternatives", "XLSX too", "--impact", "one week", "--evidence", "PRD", "--rollback", "add later"]},
     {"human": ["reject", "--checkpoint", "CP-001", "--by", "Owner", "--decision", "XLSX is required"]},
     {"state": {"status": "blocked-rejection"}},

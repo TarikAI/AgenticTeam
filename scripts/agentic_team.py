@@ -1663,11 +1663,26 @@ def initial_stage(entry_mode: str) -> str:
     return {"idea": "00_intake", "plan-given": "03_readiness", "execute-only": "04_build"}[entry_mode]
 
 
-def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_mode: str, context_method: str) -> Path:
+def init_run(
+    project: Path, name: str, run_id: str | None, autonomy: str, entry_mode: str, context_method: str,
+    budgets: dict[str, float] | None = None,
+) -> Path:
     bus = project_bus(project)
     policy = load_json(bus / "config" / "policies.json")
     if autonomy not in policy["profiles"]:
         raise TeamError(f"Unknown autonomy profile '{autonomy}'")
+    run_budgets = {key: float(value) for key, value in (budgets or {}).items()}
+    if any(key not in {"tokens", "usd"} or value <= 0 for key, value in run_budgets.items()):
+        raise TeamError("--budget takes tokens=N and/or usd=N above zero")
+    ceilings = load_policy(project).get("budgets", {})
+    if policy["profiles"][autonomy].get("require_budget_ceiling") and not any(
+        ceilings.get(key) or run_budgets.get(key) for key in ("tokens", "usd")
+    ):
+        raise TeamError(
+            f"Profile '{autonomy}' runs without a human watching each step, so the run needs a spend ceiling: "
+            "`init-run --budget usd=<n>` (and/or tokens=<n>), or budgets.usd / budgets.tokens in "
+            ".agentic-team/config/policies.local.json"
+        )
     run_id = run_id or f"{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{slug(name)}"
     run_dir = bus / "runs" / slug(run_id)
     if run_dir.exists():
@@ -1702,11 +1717,15 @@ def init_run(project: Path, name: str, run_id: str | None, autonomy: str, entry_
         "active_specialists": {},
         "checkpoints": [],
         "fusion_sessions": [],
+        "budgets": run_budgets,
         "event_count": 0,
         "events_head": "0" * 64,
     }
     state["base_sha"] = git_head(project.resolve())
-    append_event(state, "run-created", stage=active_stage, autonomy=autonomy, entry_mode=entry_mode, base_sha=state["base_sha"])
+    append_event(
+        state, "run-created", stage=active_stage, autonomy=autonomy, entry_mode=entry_mode,
+        base_sha=state["base_sha"], budgets=run_budgets,
+    )
     token_path = issue_owner_token(home_key(state), state)
     bind_owner_key(home_key(state), state["owner_token_sha256"], name)
     write_state(run_dir, state)
@@ -1930,6 +1949,12 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
         action = getattr(args, "action", None) or "build"
         target = getattr(args, "target", None) or "local"
         policy = load_policy(project)
+        checks = list(getattr(args, "check", []) or [])
+        if writes_workspace(stage, owner_access, action) and policy.get("evidence", {}).get("write_tasks_need_checks", True) and not checks:
+            raise TeamError(
+                "Build tasks owned by a writing role must declare at least one --check: an acceptance command that "
+                "completion runs and that must exit 0 (a file or a note alone does not prove the work)."
+            )
         floor, reasons = derive_risk(policy, action, target, args.title, objective, args.path)
         effective_risk = args.risk if RISK_ORDER[args.risk] >= RISK_ORDER[floor] else floor
         task = {
@@ -1951,7 +1976,7 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
             "inputs": args.input,
             "acceptance": args.acceptance,
             "evidence_contract": args.evidence_contract,
-            "checks": list(getattr(args, "check", []) or []),
+            "checks": checks,
             "verifies": list(getattr(args, "verifies", []) or []),
             "attempts": 0,
             "evidence": [],
@@ -2287,15 +2312,140 @@ def parse_usage(values: list[str]) -> dict[str, float]:
     return usage
 
 
+WRITE_ACTIONS = {"build", "test", "migrate", "infra-change", "add-dependency"}
+WRITE_STAGES = {"04_build", "05_verify"}
+
+
+def writes_workspace(stage: str | None, owner_access: str | None, action: str | None) -> bool:
+    """Build and remediation work by a writing role: the tasks whose completion must be executable."""
+    return stage in WRITE_STAGES and owner_access in WRITE_ACCESS and (action or "build") in WRITE_ACTIONS
+
+
+def check_record(task: dict[str, Any], check: str) -> dict[str, Any] | None:
+    """The latest exec record of one acceptance check, if it ever ran."""
+    runs = [item for item in task.get("execs", []) if item["command"] == check]
+    return runs[-1] if runs else None
+
+
+def check_is_current(record: dict[str, Any] | None, head: str | None) -> bool:
+    """A passing record counts only when it ran at the commit the task is completing at."""
+    if not record or record["exit_code"] != 0:
+        return False
+    return not (head and record.get("git_head") and record["git_head"] != head)
+
+
+def usage_total(state: dict[str, Any], metric: str) -> float:
+    """What counts against a ceiling: the larger of agent-reported and harness-metered usage."""
+    return max(float(state.get("usage", {}).get(metric, 0.0)), float(state.get("usage_metered", {}).get(metric, 0.0)))
+
+
+def transcript_usage(path: Path) -> dict[str, float]:
+    """Tokens and USD as the harness itself reported them.
+
+    Reads the last `result` message of Claude Code's `--output-format stream-json` (one JSON
+    object per line) or `json` output: `total_cost_usd`, and tokens from the per-model
+    `modelUsage` block (which covers subagents too), falling back to `usage`.
+    """
+    text = path.read_text(encoding="utf-8", errors="replace")
+    results: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict) and item.get("type") == "result":
+            results.append(item)
+    if not results:
+        try:
+            whole = json.loads(text)
+        except json.JSONDecodeError:
+            whole = None
+        candidates = whole if isinstance(whole, list) else [whole]
+        results = [item for item in candidates if isinstance(item, dict) and item.get("type") == "result"]
+    if not results:
+        raise TeamError(f"{path} holds no harness `result` message (expected Claude Code --output-format json or stream-json output)")
+    last = results[-1]  # a session's result totals are cumulative; the last one is the whole session
+
+    def token_sum(block: Any) -> float:
+        if not isinstance(block, dict):
+            return 0.0
+        return float(sum(value for key, value in block.items() if "token" in key.lower() and isinstance(value, (int, float))))
+
+    per_model = last.get("modelUsage") or {}
+    tokens = sum(token_sum(block) for block in per_model.values()) if isinstance(per_model, dict) else 0.0
+    tokens = tokens or token_sum(last.get("usage"))
+    cost = last.get("total_cost_usd")
+    usd = float(cost) if isinstance(cost, (int, float)) else 0.0
+    if not tokens and not usd:
+        raise TeamError(f"{path}: the result message carries no token or cost figures")
+    return {"tokens": tokens, "usd": usd}
+
+
+def ingest_usage(
+    project: Path, run_dir: Path, transcript: Path, by: str, token: str | None, task_id: str | None = None
+) -> dict[str, Any]:
+    """Owner-side metering: what the harness reported, hashed and signed into the ledger.
+
+    Agents report usage with `complete --usage`; the supervisor or human who launched the
+    session records the harness's own figures here. Both count against the ceilings, and
+    the larger one wins, so under-reporting changes nothing. Spend that already happened is
+    recorded even when it crosses a ceiling; the ceiling then stops the next command.
+    """
+    transcript = transcript if transcript.is_absolute() else Path.cwd() / transcript
+    if not transcript.is_file():
+        raise TeamError(f"transcript does not exist: {transcript}")
+    figures = transcript_usage(transcript)
+    with state_lock(run_dir):
+        state = load_state(run_dir)
+        human_decision(project, run_dir, state, by, token, "usage")
+        if task_id and task_id not in state["tasks"]:
+            raise TeamError(f"Unknown task: {task_id}")
+        digest = file_sha256(transcript)
+        sources = state.setdefault("usage_sources", [])
+        if any(item["sha256"] == digest for item in sources):
+            raise TeamError(f"transcript {transcript.name} was already metered ({digest[:12]})")
+        record = {
+            "id": f"U-{len(sources) + 1:03d}",
+            "transcript": str(transcript),
+            "sha256": digest,
+            "task": task_id,
+            "by": by,
+            "time": utcnow(),
+            **figures,
+        }
+        sources.append(record)
+        totals = state.setdefault("usage_metered", {})
+        for key, amount in figures.items():
+            totals[key] = round(totals.get(key, 0.0) + amount, 6)
+        if task_id:
+            task_totals = state["tasks"][task_id].setdefault("usage_metered", {})
+            for key, amount in figures.items():
+                task_totals[key] = round(task_totals.get(key, 0.0) + amount, 6)
+        append_ledger(home_key(state), token, action="usage", subject=record["id"], by=by, sha256=digest, **figures)
+        append_event(state, "usage-metered", source=record["id"], task=task_id, sha256=digest, **figures)
+        try:
+            for key in ("tokens", "usd"):
+                budget_check(project, state, key, usage_total(state, key))
+        finally:
+            save_state(project, run_dir, state)
+    return record
+
+
 def complete_task(
     project: Path, run_dir: Path, task_id: str, agent: str, evidence: list[str], run_checks: bool = False,
     usage: dict[str, float] | None = None,
 ) -> None:
-    if run_checks:
-        state = load_state(run_dir)
-        task = state["tasks"].get(task_id)
-        if task:
-            for check in task.get("checks", []):
+    state = load_state(run_dir)
+    task = state["tasks"].get(task_id)
+    if task and task["status"] == "claimed" and task.get("claimed_by") == agent:
+        head = git_head(project.resolve())
+        for check in task.get("checks", []):
+            # Completion runs every declared check that has no passing record at this HEAD (all of
+            # them with --run-checks), so "the checks pass" is always a record, never a claim.
+            if run_checks or not check_is_current(check_record(task, check), head):
                 record = exec_command(project, run_dir, task_id, agent, [check], shell=True)
                 evidence = list(evidence) + [f"cmd:{record['id']}"]
     if not evidence:
@@ -2308,20 +2458,23 @@ def complete_task(
         if task["status"] != "claimed" or task.get("claimed_by") != agent:
             raise TeamError(f"Task {task_id} is not claimed by {agent}")
         records = [classify_evidence(project.resolve(), task, value) for value in evidence]
-        failed_checks = []
-        for check in task.get("checks", []):
-            runs = [item for item in task.get("execs", []) if item["command"] == check]
-            if not runs or runs[-1]["exit_code"] != 0:
-                failed_checks.append(check)
+        policy = load_policy(project).get("evidence", {})
+        owner_access = installed_agents(project).get(task["owner"], {}).get("access")
+        writes = writes_workspace(task.get("stage"), owner_access, task.get("action", "build"))
+        if writes and policy.get("write_tasks_need_checks", True) and not task.get("checks") \
+                and not verified_view(state).waiver(f"checks:{task_id}"):
+            raise TeamError(
+                f"Task {task_id} changes the workspace but declares no acceptance check. Add build tasks with "
+                f"--check; for this one only the human can waive `checks:{task_id}`."
+            )
+        head = git_head(project.resolve())
+        failed_checks = [check for check in task.get("checks", []) if not check_is_current(check_record(task, check), head)]
         if failed_checks:
             raise TeamError(
-                "Acceptance checks have no passing exec record: " + "; ".join(failed_checks)
-                + " (run them with `exec` or `complete --run-checks`)"
+                "Acceptance checks have no passing exec record at the current HEAD: " + "; ".join(failed_checks)
+                + " (fix the work, then `complete` again or `exec` them)"
             )
-        policy = load_policy(project)
-        owner_access = installed_agents(project).get(task["owner"], {}).get("access")
-        writes = task.get("stage") == "04_build" and owner_access in WRITE_ACCESS and task.get("action", "build") in {"build", "test", "migrate", "infra-change", "add-dependency"}
-        if writes and policy.get("evidence", {}).get("write_tasks_need_typed_evidence", True):
+        if writes and policy.get("write_tasks_need_typed_evidence", True):
             if not any(record["type"] in {"file", "cmd", "commit"} for record in records):
                 raise TeamError(
                     f"Task {task_id} changes the workspace: attach at least one file:, cmd:, or commit: evidence "
@@ -2333,7 +2486,7 @@ def complete_task(
             totals = state.setdefault("usage", {})
             for key, amount in usage.items():
                 totals[key] = round(totals.get(key, 0.0) + amount, 6)
-                budget_check(project, state, key, totals[key])
+                budget_check(project, state, key, usage_total(state, key))
         task.pop("lease_expires", None)
         refresh_ready(state)
         append_event(state, "task-completed", task=task_id, agent=agent, evidence=evidence)
@@ -2494,10 +2647,16 @@ AGENT_CHECKPOINTS = {"decision", "deviation", "injection", "budget"}
 CHECKPOINT_DETAILS = ("alternatives", "impact", "evidence", "rollback")
 
 
+def budget_limit(budgets: dict[str, Any], state: dict[str, Any], metric: str) -> float | None:
+    """The ceiling in force: the policy's, tightened by what the human set with `init-run --budget`."""
+    values = [float(value) for value in (budgets.get(metric), (state.get("budgets") or {}).get(metric)) if value]
+    return min(values) if values else None
+
+
 def budget_check(project: Path, state: dict[str, Any], metric: str, used: float) -> None:
     """Checkpoint at the warn threshold, stop at the limit (unless the human waived it)."""
     budgets = load_policy(project).get("budgets", {})
-    limit = budgets.get(metric)
+    limit = budget_limit(budgets, state, metric)
     if not limit:
         return
     verified = verified_view(state)
@@ -2765,16 +2924,18 @@ def audit_verify(project: Path, run_dir: Path, token: str) -> list[str]:
 
 
 def waive_requirement(project: Path, run_dir: Path, requirement: str, reason: str, by: str, token: str | None, level: str | None = None) -> None:
-    """Human waiver of one named requirement: `risk:<task>` (with --level) or `stage-exit:<stage>:<check>`."""
-    if not requirement.startswith(("risk:", "stage-exit:", "budget:")):
-        raise TeamError("A waiver names 'risk:<task-id>', 'stage-exit:<stage>:<check>', or 'budget:<metric>'")
+    """Human waiver of one named requirement: `risk:<task>` (with --level), `stage-exit:<stage>:<check>`,
+    `budget:<metric>`, or `checks:<task>` (a legacy build task that declared no acceptance check)."""
+    if not requirement.startswith(("risk:", "stage-exit:", "budget:", "checks:")):
+        raise TeamError("A waiver names 'risk:<task-id>', 'stage-exit:<stage>:<check>', 'budget:<metric>', or 'checks:<task-id>'")
     if requirement.startswith("risk:") and level not in RISK_ORDER:
         raise TeamError("A risk waiver needs --level R0..R4")
     with state_lock(run_dir):
         state = load_state(run_dir)
         human_decision(project, run_dir, state, by, token, f"waive {requirement}")
-        if requirement.startswith("risk:") and requirement[5:] not in state["tasks"]:
-            raise TeamError(f"Unknown task in waiver: {requirement[5:]}")
+        for prefix in ("risk:", "checks:"):
+            if requirement.startswith(prefix) and requirement[len(prefix):] not in state["tasks"]:
+                raise TeamError(f"Unknown task in waiver: {requirement[len(prefix):]}")
         waiver = {"requirement": requirement, "reason": reason, "by": by, "level": level, "time": utcnow()}
         state.setdefault("waivers", []).append(waiver)
         append_ledger(home_key(state), token, action="waive", subject=requirement, by=by, reason=reason, level=level)
@@ -3071,8 +3232,13 @@ def advance_stage(project: Path, run_dir: Path) -> str:
             return "complete"
         if current == "04_build":
             state["integration_sha"] = git_head(project.resolve())
+        if current == "05_verify":
+            state["verified_sha"] = git_head(project.resolve())
         state["stage"] = STAGE_NAMES[index + 1]
-        append_event(state, "stage-advanced", previous=current, stage=state["stage"], integration_sha=state.get("integration_sha"))
+        append_event(
+            state, "stage-advanced", previous=current, stage=state["stage"],
+            integration_sha=state.get("integration_sha"), verified_sha=state.get("verified_sha"),
+        )
         recompute_status(state, profile)
         save_state(project, run_dir, state)
         refresh_stage_contexts(run_dir, state)
@@ -3151,11 +3317,13 @@ def stage_exit_problems(project: Path, run_dir: Path, state: dict[str, Any], sta
                 if records is None:
                     continue  # completed before typed evidence existed
                 owner_access = installed_agents(project).get(task["owner"], {}).get("access")
-                if owner_access in WRITE_ACCESS and task.get("action", "build") in {"build", "test", "migrate", "infra-change", "add-dependency"}:
+                if writes_workspace(task["stage"], owner_access, task.get("action", "build")):
                     if not any(record["type"] in {"file", "cmd", "commit"} for record in records):
                         problems.append(f"task {task['id']} has no typed evidence")
         elif check == "verdict":
             problems.extend(verdict_problems(project, run_dir, state, rule["file"], waived))
+        elif check == "verified-head" and not waived("verified-head"):
+            problems.extend(released_head_problems(project, run_dir, rule.get("file", "VERIFICATION.md")))
     for agent, record in state.get("active_specialists", {}).items():
         if record.get("status") != "active":
             continue
@@ -3163,6 +3331,24 @@ def stage_exit_problems(project: Path, run_dir: Path, state: dict[str, Any], sta
         if not finished and STAGE_NAMES.index(record.get("stage", stage)) <= STAGE_NAMES.index(stage):
             problems.append(f"specialist {agent} is active with no completed task; complete its review or `deactivate-specialist` with a reason")
     return problems
+
+
+def released_head_problems(project: Path, run_dir: Path, name: str) -> list[str]:
+    """The code leaving the release stage must be the code the verdict names."""
+    current = git_head(project.resolve())
+    path = run_dir / name
+    if not current or not path.is_file():
+        return []
+    header = "\n".join(path.read_text(encoding="utf-8").splitlines()[:25])
+    sha = re.search(r"^Verified-SHA:\s*([0-9a-fA-F]{7,40})\b", header, flags=re.MULTILINE)
+    if not sha:
+        return [f"{name} names no Verified-SHA, but the project has git history: the release needs a verdict on HEAD {current[:12]}"]
+    if not current.lower().startswith(sha.group(1).lower()):
+        return [
+            f"HEAD {current[:12]} is not the verified commit {sha.group(1)}: the code changed after verification; "
+            f"have the verifier verify again at HEAD and update {name} before release"
+        ]
+    return []
 
 
 def verdict_problems(project: Path, run_dir: Path, state: dict[str, Any], name: str, waived: Any) -> list[str]:
@@ -3201,12 +3387,16 @@ def verdict_problems(project: Path, run_dir: Path, state: dict[str, Any], name: 
             problems.append(f"verifier {role} built 04_build work; verification must be independent")
     integration = state.get("integration_sha")
     if integration:
-        # Remediation inside 05_verify moves HEAD; verifying the current HEAD is equally valid.
-        accepted = {integration.lower()} | ({head.lower()} if (head := git_head(project.resolve())) else set())
+        # The verdict must name the code as it is now. Remediation inside 05_verify moves HEAD, and a
+        # verdict on the older integration commit says nothing about what changed since.
+        current = (git_head(project.resolve()) or integration).lower()
+        moved = "" if current == integration.lower() else (
+            f" (the integration commit {integration[:12]} is behind it: the code changed after that verification)"
+        )
         if not sha or sha.group(1) == "none":
-            problems.append(f"{name} needs `Verified-SHA:` matching the integration commit {integration[:12]} or the current HEAD")
-        elif not any(candidate.startswith(sha.group(1).lower()) for candidate in accepted):
-            problems.append(f"Verified-SHA {sha.group(1)} is not the integration commit {integration[:12]} or the current HEAD")
+            problems.append(f"{name} needs `Verified-SHA:` matching the current HEAD {current[:12]}")
+        elif not current.startswith(sha.group(1).lower()):
+            problems.append(f"Verified-SHA {sha.group(1)} is not the current HEAD {current[:12]}{moved}: verify again at HEAD")
     return problems
 
 
@@ -3465,6 +3655,7 @@ def compute_metrics(run_dir: Path) -> dict[str, Any]:
         "commands_executed": sum(1 for event in events if event["type"] == "command-executed"),
         "failed_commands": sum(1 for event in events if event["type"] == "command-executed" and event.get("exit_code")),
         "usage": state.get("usage", {}),
+        "usage_metered": state.get("usage_metered", {}),
         "events": len(events),
     }
 
@@ -3476,7 +3667,7 @@ def render_metrics(metrics: dict[str, Any]) -> str:
         f"- Stage {metrics['stage']} · status {metrics['status']} · {metrics['tasks']} tasks · {metrics['events']} events",
         f"- Checkpoints: {metrics['checkpoints']} (median decision latency: {metrics['checkpoint_latency_seconds_median']} s; rejection rate: {metrics['rejection_rate']})",
         f"- Authority refusals: {metrics['authority_refusals']} · commands executed: {metrics['commands_executed']} (non-zero exits: {metrics['failed_commands']})",
-        f"- Usage: {metrics['usage'] or 'not reported'}",
+        f"- Usage reported by agents: {metrics['usage'] or 'not reported'} · metered from harness transcripts: {metrics.get('usage_metered') or 'not metered'}",
         "",
         "| Role | Tasks | Completed | First pass | Failed attempts | Failed tasks |",
         "|---|---|---|---|---|---|",
@@ -3762,8 +3953,8 @@ def render_status(state: dict[str, Any], brief: bool = False) -> str:
         claimed = [f"{task['id']}({task.get('claimed_by')})" for task in state["tasks"].values() if task["status"] == "claimed"]
         lines.append(f"Ready now: {', '.join(ready[:12]) or 'none'}" + (" ..." if len(ready) > 12 else ""))
         lines.append(f"Claimed: {', '.join(claimed[:12]) or 'none'}")
-        if state.get("usage"):
-            lines.append(f"Usage: {state['usage']}")
+        if state.get("usage") or state.get("usage_metered"):
+            lines.append(f"Usage: reported {state.get('usage') or '-'} · metered {state.get('usage_metered') or '-'}")
     return "\n".join(lines[:20])
 
 
@@ -4276,6 +4467,9 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--autonomy", choices=["autonomous", "supervised", "hitl"], default="hitl")
     init.add_argument("--entry", choices=["idea", "plan-given", "execute-only"], default="idea")
     init.add_argument("--context", choices=["adaptive", "bmad-progressive"], default="adaptive")
+    init.add_argument("--budget", action="append", default=[],
+                      help="Spend ceiling for this run, e.g. usd=40 or tokens=3000000; only tightens the policy's. "
+                           "Autonomous and supervised runs refuse to start without one")
 
     status = sub.add_parser("status", help="Show durable run status")
     add_common_run_args(status)
@@ -4376,6 +4570,13 @@ def build_parser() -> argparse.ArgumentParser:
     complete.add_argument("--evidence", action="append", default=[], help="file:<path>, cmd:<exec-id>, commit:<sha>, url:<url>, or note:<text>")
     complete.add_argument("--run-checks", action="store_true", help="Run the task's --check commands through exec first")
     complete.add_argument("--usage", action="append", default=[], help="Reported cost, e.g. tokens=12000,usd=0.40")
+
+    usage = sub.add_parser("usage", help="Record usage metered from a harness transcript (owner side; it counts against the ceilings)")
+    add_common_run_args(usage)
+    usage.add_argument("--transcript", required=True,
+                       help="Claude Code --output-format json or stream-json output; its last result message is read")
+    usage.add_argument("--task", help="Also attribute the figures to this task")
+    add_human_args(usage)
 
     execute = sub.add_parser("exec", help="Run a command for a claimed task and record its exit code and output")
     add_common_run_args(execute)
@@ -4599,7 +4800,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"Installed {len(record['agents'])} agents for {record['harness']} using {record['preset']} (models: {record['model_profile']})")
         elif args.command == "init-run":
-            run_dir = init_run(Path(args.project), args.name, args.run_id, args.autonomy, args.entry, args.context)
+            run_dir = init_run(Path(args.project), args.name, args.run_id, args.autonomy, args.entry, args.context, parse_usage(args.budget))
             print(run_dir)
         elif args.command == "doctor":
             findings = doctor(Path(args.project))
@@ -4690,6 +4891,9 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "complete":
                 complete_task(project, run_dir, args.task, args.agent, args.evidence, args.run_checks, parse_usage(args.usage))
                 print(f"Completed {args.task}")
+            elif args.command == "usage":
+                record = ingest_usage(project, run_dir, Path(args.transcript), args.by, args.token, args.task)
+                print(f"{record['id']}: metered {record['tokens']:g} tokens and {record['usd']:g} USD from {Path(record['transcript']).name}")
             elif args.command == "exec":
                 command = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
                 if args.shell:

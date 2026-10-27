@@ -25,7 +25,8 @@
       "deviation": "record",
       "max_concurrent_agents": 8,
       "max_task_retries": 2,
-      "continue_after_noncritical_failure": true
+      "continue_after_noncritical_failure": true,
+      "require_budget_ceiling": true
     },
     "supervised": {
       "description": "Autonomous execution with human checkpoints for deviations and external actions.",
@@ -40,7 +41,8 @@
       "deviation": "pause",
       "max_concurrent_agents": 6,
       "max_task_retries": 2,
-      "continue_after_noncritical_failure": true
+      "continue_after_noncritical_failure": true,
+      "require_budget_ceiling": true
     },
     "hitl": {
       "description": "Human approves product intent, architecture, readiness, and release.",
@@ -554,6 +556,9 @@
       ],
       "05_verify": [
         {
+          "check": "evidence"
+        },
+        {
           "check": "verdict",
           "file": "VERIFICATION.md"
         }
@@ -562,6 +567,10 @@
         {
           "check": "artifact",
           "file": "RELEASE.md"
+        },
+        {
+          "check": "verified-head",
+          "file": "VERIFICATION.md"
         }
       ],
       "07_learn": [
@@ -590,7 +599,16 @@
       ],
       "05_verify": [
         {
+          "check": "evidence"
+        },
+        {
           "check": "verdict",
+          "file": "VERIFICATION.md"
+        }
+      ],
+      "06_release": [
+        {
+          "check": "verified-head",
           "file": "VERIFICATION.md"
         }
       ],
@@ -604,6 +622,7 @@
   },
   "evidence": {
     "write_tasks_need_typed_evidence": true,
+    "write_tasks_need_checks": true,
     "exec_output_bytes": 65536,
     "exec_timeout_seconds": 1800
   },

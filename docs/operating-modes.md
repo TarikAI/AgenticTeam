@@ -6,7 +6,9 @@
 assumptions and deviations, and exits architecture after an independent review. `supervised`
 additionally pauses on deviation checkpoints and exits product/architecture only after a Fusion
 council or independent review. `hitl` pauses at product, architecture, readiness, R2+ tasks,
-and release. The values are data in `config/policies.json`.
+and release. `autonomous` and `supervised` runs start only with a spend ceiling (`init-run
+--budget`, or `budgets` in `policies.local.json`), since nobody watches the meter while they run.
+The values are data in `config/policies.json`.
 
 All profiles stop for production deploys, public publishing/messaging, spending or paid resources,
 real credentials/payment methods, destructive/irreversible operations, and legal commitments.

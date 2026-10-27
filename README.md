@@ -47,7 +47,11 @@ promise.
   without template placeholders, acceptance ids trace to tasks and checks, and
   `VERIFICATION.md` carries a verdict from a verifier who did not build the work.
 - **Typed evidence and `exec`:** completion evidence is a hashed file, a recorded command run
-  with its exit code, a resolved commit, a URL, or a note; declared acceptance checks must pass.
+  with its exit code, a resolved commit, a URL, or a note. Build tasks must declare an acceptance
+  check; `complete` runs it at the current HEAD and refuses while it fails.
+- **Verification pinned to HEAD, spend pinned to a ceiling:** the verdict names the current
+  HEAD and release refuses to exit if HEAD moved; autonomous runs start only with a token or USD
+  ceiling, counted from what agents report and what the owner meters from harness transcripts.
 - **Fusion mode:** independent proposals, reveal, cross-critique, synthesis, independent
   verification, and a preserved dissent record, in a one-way phase order.
 - **Progressive context:** short router files, numbered stage contracts, one home per fact, and
