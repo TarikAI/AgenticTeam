@@ -13,6 +13,46 @@ team's constitution changed and why. Append-only.
 
 ---
 
+## 2026-10-29 - durable supervisor (offline-verified)
+
+The supervisor the [implementation plan](../../docs/supervisor-implementation-plan.md) specifies,
+implemented in phases P0-P7 on one branch (`docs/supervisor-progress.md` records each phase);
+guarantees G21-G25; approved scope: local implementation and offline verification only (no paid
+pilot, push, merge, or host registration).
+
+- **Authority (P1).** A worker runs with its own empty `AGENTIC_TEAM_HOME` and reads the human's
+  decisions through an owner-exported verification view (`export-view`, `AGENTIC_TEAM_VIEW`:
+  binding and ledger, no token). A v3 run with neither the home binding nor a view counts no
+  decision in `state.json` and refuses gated commands, instead of silently trusting edited state.
+- **Budget admission (P1).** `claim` and `exec` refuse once a token or USD ceiling is spent, until
+  the human waives `budget:<metric>`; reporting, metering, `fail`, recovery, and human decisions
+  keep working. Non-finite or negative usage figures are refused everywhere.
+- **The supervisor (P2-P6).** `scripts/agentic_supervisor.py`, exposed as `supervise`: validated,
+  idempotent intake with quarantine; an owner store outside the checkout with atomic records and a
+  cross-process lock; one writer per checkout; attempt intent and reservation before launch; a
+  detached wrapper that claims the attempt once, owns the worker's process tree (a job object on
+  Windows), and writes start and exit receipts; conservative reconciliation that never kills by
+  PID and holds when ownership is uncertain; exactly-once metering by transcript digest; one `fail`
+  per abandoned claim; `audit verify` after every attempt; done only when the run is complete,
+  accounted, audited, and clean at the verified commit; owner `pause`, `resume`, `cancel`,
+  `release`, and `allowance`; GitHub polling by configured repository and label; host examples.
+- **Paid workers.** The Claude adapter launches only through an isolation boundary proven by
+  `verify-isolation`, inspects `claude --help` first, passes `--max-budget-usd` below the
+  reservation, and refuses an unadvertised turn limit unless the owner accepts timeout-only bounds.
+- **Independent review (P7).** A read-only review reproduced eleven defects offline; all are fixed
+  with regression tests: a worker's view now outranks its own writable home; the owner's
+  `audit verify` replays stage exits, risk-gated claims, and waivers against the signed home
+  ledger; `done` needs the owner-side re-check of the exit contracts and the event log, not the
+  status field; cancel and release wait for the last attempt to be reconciled; owner-side work runs
+  from an owner copy outside the checkout (`supervise owner-copy`) and the copy inside the checkout
+  refuses `serve`, `resume`, `poll-github`, and `verify-isolation`; the store lock is an OS file
+  lock; launch failures before the wrapper are visible holds; a failed enqueue keeps the polling
+  watermark; spend is kept by key; `resume --refresh-config`, the human's `budget:usd` waiver, and
+  `enqueue --requeue` give every hold a way out; hidden or unreadable tree state is never clean;
+  `verify-isolation` also requires a read-only view; the digest shows how each worker is bounded.
+- Tests: `tests/test_supervisor.py` with a scripted fake worker driving the installed CLI, the
+  authority and budget regressions, guard coverage, and the `supervisor-unattended` eval scenario.
+
 ## 2026-10-27 - unattended profile: an executable release gate for low-risk runs
 
 A fourth autonomy profile, `unattended`, for supervisors that run issue-to-release loops with

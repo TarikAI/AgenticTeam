@@ -67,6 +67,14 @@ The exit is recorded as a `release-conditions-met` event with the facts it reste
 checked tasks, the rehearsal task, the highest risk in the run, HEAD), so the ledger shows why
 no human approved it. `unattended` needs a spend ceiling at `init-run`, as `autonomous` does.
 
+## The supervisor
+
+The owner-side supervisor (`supervise`; the AgenticTeam source's `docs/supervisor-operator-guide.md`)
+runs jobs under whichever profile its configuration names and changes nothing above: it adds no
+gate, waives nothing, and never approves, rejects, resolves, or reopens. A run that reaches a
+human checkpoint holds its job (`needs-human`) with the checkpoint's question and the exact next
+command; the owner decides with the runtime's own commands and then resumes the job.
+
 ## Checkpoints
 
 - Agents raise `decision`, `deviation`, `injection`, and `budget` checkpoints; the CLI refuses

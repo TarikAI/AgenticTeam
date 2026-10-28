@@ -6,22 +6,27 @@ kept distinct: **planned**, **implemented**, **offline-verified** (fake workers,
 **pilot-verified** (a bounded paid run on a configured host), **activated** (a persistent host
 task registered by the owner).
 
-Branch: `claude/pensive-poincare-5e61a2` (one phase-group branch; one commit per phase or phase
-group, merged into local `main` only when the owner authorizes it). Baseline: `main` at
-`719aad0` (design `6781b11`, plan and prompts `6d4eb3f`, unattended profile `2f04554`).
+**Where it stands (2026-10-29): implemented and offline-verified on Windows 11 / Python 3.14.**
+Not pilot-verified, not activated, not run on macOS, Linux, or Python 3.10 (those come from the
+CI matrix once the branch is pushed, which has not happened). Nothing was pushed or merged.
+
+Branch: `claude/pensive-poincare-5e61a2`, one phase-group branch based on `main` at `719aad0`
+(design `6781b11`, plan and prompts `6d4eb3f`, unattended profile `2f04554`). P0 and P1 have one
+commit each; P2 to P7 landed as one commit, because the review fixes rewrote the same functions
+the earlier phases introduced and an honest split was not possible.
 
 ## Phase status
 
-| Phase | State | Commit | Notes |
-|---|---|---|---|
-| P0 Contract and baseline | implemented | see `git log` | This file; baseline checks green before any code change. |
-| P1 Runtime prerequisites | offline-verified | see `git log` | Verification view (`export-view`, `AGENTIC_TEAM_VIEW`), fail-closed missing authority for v3 runs, budget admission on `claim`/`exec`, finite usage; G21, G22. 207 tests OK, 7/7 scenarios. |
-| P2 Storage and intake | planned | | |
-| P3 Attempt lifecycle | planned | | |
-| P4 Orchestration and accounting | planned | | |
-| P5 Adapter and packaging | planned | | |
-| P6 Triggers and host operation | planned | | |
-| P7 Review and release candidate | planned | | |
+| Phase | State | Evidence |
+|---|---|---|
+| P0 Contract and baseline | done | This file; baseline green (below). |
+| P1 Runtime prerequisites | offline-verified | Verification view, fail-closed authority, budget admission, finite usage; G21, G22. |
+| P2 Storage and intake | offline-verified | `IntakeTests`, `StoreTests`. |
+| P3 Attempt lifecycle | offline-verified | `LaunchRecoveryTests`, wrapper and `ProcessTree`. |
+| P4 Orchestration and accounting | offline-verified | `LifecycleTests`, `MeteringTests`, `HumanTests`, `EvidenceTests`, `TamperTests`, `CheckoutTests`, `OperationsTests`. |
+| P5 Adapter and packaging | offline-verified (adapter not run against a real CLI session) | `PackagingTests`, `AuthorityTests`, `IsolationProbeTests`, guard test. |
+| P6 Triggers and host operation | offline-verified | `GithubPollTests`, host examples, operator guide, `supervisor-unattended` scenario. |
+| P7 Review and release candidate | offline release candidate | Independent review below; every finding fixed with a regression test. Pilot not run (no authorization for spend). |
 
 ## Baseline (P0, 2026-10-29, Windows 11, Python 3.14.5)
 
@@ -33,226 +38,271 @@ group, merged into local `main` only when the owner authorizes it). Baseline: `m
 | `python evals/run_scenarios.py` | 7/7 scenarios passed |
 | Claude Code CLI on this host | 2.1.310; `--help` lists `--print`, `--output-format`, `--max-budget-usd`, `--permission-mode`, `--allowedTools`, `--model`, `--bare`; it does **not** list `--max-turns` |
 
-No existing failure is carried into P1.
+## Final verification (P7)
+
+| Check | Result |
+|---|---|
+| `python scripts/agentic_team.py validate` | OK: 50 agents, 9 presets, 13 harnesses |
+| `python scripts/agentic_team.py docs --check` | Generated docs are current |
+| `python -m unittest discover -s tests` | 284 tests in 515 s, OK (1 skip: the opt-in live smoke); `test_supervisor.py` alone: 73 tests |
+| `python evals/run_scenarios.py` | 8/8 scenarios passed (adds `supervisor-unattended`) |
+| `python scripts/preflight_skills.py` | passed |
+| Live smoke, paid pilot | not run (needs the owner's authorization for model spend) |
 
 ## Frozen contract
 
-Where this contract and `supervisor-design.md` differ, this contract wins; the design describes
-the intent, the plan corrected it, and this section is what the code implements.
+Where this contract and `supervisor-design.md` differ, this contract wins. Changes made in P7
+after the independent review are marked **(P7)**.
 
 ### Authority boundary
 
 - **Two homes, one view.** The supervisor runs as the owner with `AGENTIC_TEAM_HOME` (tokens,
-  bindings, ledger). A worker gets its own empty `AGENTIC_TEAM_HOME` (a scratch folder in the
-  owner store with no tokens) and `AGENTIC_TEAM_VIEW`, a directory the owner side exports before
-  every launch with the run's binding (`runs/<key>.json`) and ledger (`ledger/<key>.jsonl`), the
-  same layout as the home, and no tokens.
-- **Lookup order.** `VerifiedView` reads the binding and ledger from the home first, then from
-  the view. A run whose state carries `owner_token_sha256` (every v3 run) with neither source is
-  *bound but unreadable*: approvals in `state.json` count for nothing, and every gated command
-  (`claim`, `advance`, human decisions) refuses with a message naming the missing view. Runs
-  created before the owner binding (no `owner_token_sha256`) keep their explicit legacy path.
-- **Integrity of the view.** The view is trusted only as far as the worker cannot write it: with
-  the same OS user and no isolation it is defense in depth, exactly like the home ledger today.
-  The supervisor therefore re-checks after every attempt, as the owner, with `audit verify`
-  (ledger MACs, forged state approvals, event chain) and compares the view with the home ledger;
-  either failure holds the job as `tamper`.
-- **No new authority.** The supervisor never calls `approve`, `reject`, `resolve`, `waive`,
-  `cancel` (runtime), or `reopen`. It records `fail` for tasks an ended attempt still held, meters
-  usage as the owner (`usage --transcript`), and runs `audit verify`; nothing else.
+  bindings, ledger). A worker gets its own empty `AGENTIC_TEAM_HOME` and `AGENTIC_TEAM_VIEW`, a
+  directory the owner side exports before every launch with the run's binding and ledger, no token.
+- **Lookup.** With `AGENTIC_TEAM_VIEW` set, `VerifiedView` reads only the view, never the worker's
+  writable home **(P7)**; without it, the home. A v3 run with neither is *bound but unreadable*:
+  no decision in `state.json` counts and gated commands refuse, naming the missing view. v2 runs
+  awaiting `migrate` keep the explicit legacy path.
+- **Where the real check is (P7).** The CLI's gates run in the worker's process, which can point
+  the CLI at a view it wrote or edit `state.json`; they are defense in depth. After every attempt
+  the owner runs `audit verify` with the token, which now replays every stage exit through a human
+  (or executable) gate, every claim of a risk-gated task, and every waiver against the signed home
+  ledger, and compares the view with its export digests (a deleted file counts). Any gap holds the
+  job as `tamper`. Production credentials stay out of the worker's reach.
+- **Owner copy (P7).** Owner-side work (metering with the token, audits, launching wrappers) runs
+  from `<store>/bin/` (a copy of the runtime and the supervisor taken when the store is created,
+  refreshed with `supervise owner-copy --refresh`), never from the checkout's `bin/`. `serve`,
+  `resume`, `poll-github`, and `verify-isolation` refuse (exit 3) when the running supervisor's own
+  code lives inside the checkout.
+- **No new authority.** The supervisor never approves, rejects, resolves, waives, cancels runtime
+  tasks, or reopens. It records `fail` for tasks an ended attempt still held, meters usage as the
+  owner, and runs `audit verify`.
 
 ### Storage
 
-| Location | Holds | Writable by |
+| Location | Holds | Written by |
 |---|---|---|
-| `<project>/.agentic-team/supervisor/inbox/<event-id>.json` | triggers waiting for intake | `enqueue`, `poll-github`, file-drop adapters |
-| `<project>/.agentic-team/supervisor/quarantine/` | refused inbox files plus a `.reason` file | the tick |
-| `<project>/.agentic-team/supervisor/STATUS.md` | readable digest (a view, never proof) | the tick |
-| `<owner home>/supervisor/<name>-<hash12>/` | the owner store: `store.json`, `config.json`, `control.json` (checkout reservation, pause, aggregate allowance and reservations), `jobs/`, `sources/`, `attempts/<job>/<attempt>/`, `view/`, `worker-home/`, `log.jsonl`, `.lock` | the supervisor only |
+| `<project>/.agentic-team/supervisor/inbox/`, `quarantine/`, `STATUS.md` | intake, refused files with a `.reason`, the digest | `enqueue`, `poll-github`, file drops; the tick |
+| `<owner home>/supervisor/<name>-<hash12>/` | `store.json`, `config.json`, `control.json` (checkout, pause, aggregate allowance, reservations, keyed charges), `jobs/`, `sources/`, `attempts/<job>/<attempt>/`, `bin/` (owner copy), `view/`, `worker-home/`, `log.jsonl`, `digest.json`, `.lock` | the supervisor only |
 
-`<hash12>` is the SHA-256 of the normalized absolute project path, so the worker cannot redirect
-the store. Records carry `"schema": 1`; an unknown schema or an unreadable record refuses new
-launches and names the file. Writes are atomic (temporary file, fsync, `os.replace` with bounded
-Windows retries). One cross-process lock (`.lock`, `O_EXCL`) serializes every store mutation; a
-tick holds it from reconciliation to digest. State records are authoritative; `log.jsonl` and
-`STATUS.md` are derived, and a failed log write never undoes a committed transition.
+`<hash12>` is the SHA-256 of the normalized project path. Records carry `"schema": 1`; an unknown
+schema or an unreadable record refuses launches and names the file, while intake continues. Writes
+are atomic with an fsync and bounded Windows retries. The store lock is an operating-system file
+lock (`msvcrt` / `flock`), released when the holder dies **(P7)**; a tick holds it from
+reconciliation to digest. Spend is a keyed record (`charges`, one entry per attempt) merged with
+the job records, so a crash between two writes neither loses nor doubles it and a record moved
+aside never refunds it **(P7)**.
 
 ### Events and jobs
 
-- Event: `id` (`[a-z0-9][a-z0-9._-]{0,79}`, no `..`, no Windows reserved stem), `kind`
-  (`issue|alert|schedule|manual`), `title` (≤ 200), `brief` (≤ 20 000), `acceptance` (≤ 50 lines of
-  ≤ 500), `source_key` (≤ 300, default `manual:<id>`), optional `source` object; ≤ 64 KiB; unknown
-  keys refused. Text is untrusted brief material; it never selects settings, paths, or commands.
-- Acceptance is atomic and idempotent: the source key's SHA-256 indexes `sources/`; the same key
-  and payload digest is a harmless duplicate; a different payload is a reported conflict and
-  never replaces the job. The job id is the event id.
-- The job freezes the effective configuration at acceptance (profile, entry, context, adapter,
-  executable or command template, tool allowlist, run budget, attempt reservation, retries,
-  timeouts, isolation, accepted HEAD). Later `configure` changes affect only new jobs.
+- Event: `id` (`[a-z0-9][a-z0-9._-]{0,79}`, no `..`, no reserved device stem), `kind`
+  (`issue|alert|schedule|manual`), `title` ≤ 200, `brief` ≤ 20 000, `acceptance` ≤ 50 × 500,
+  `source_key` ≤ 300, small `source`; ≤ 64 KiB; unknown keys refused; text is untrusted.
+- Same source key and digest: duplicate. Different payload: `ConflictError`, never replacing the
+  job. A cancelled or failed source runs again only with the owner's `enqueue --requeue` (new id)
+  **(P7)**.
+- The job freezes its configuration at acceptance; `resume --refresh-config` re-freezes one held
+  job on the owner's request **(P7)**. Command templates are validated against the known
+  placeholders at `configure` **(P7)**.
 
 ### Job states
 
 `queued → starting → running → reconciling → (done | retrying | needs-human | failed | cancelled)`,
-`retrying → starting`, `needs-human → retrying | done | cancelled` (owner `resume` or `cancel`
-only). `paused` is a flag, not a state: a paused job is not launched; a running one finishes its
-attempt. Every transition records `from`, `to`, `reason`, the attempt or owner action, and time.
+`retrying → starting`, `needs-human → retrying | done | cancelled`. `paused` is a flag. Hold kinds:
+`checkpoint`, `failed-task`, `unknown-usage`, `ownership`, `budget`, `tamper`, `evidence` **(P7)**,
+`source`, `pointer`, `config`, `adapter`. A held job whose last attempt is not reconciled keeps
+being reconciled every tick **(P7)**.
 
 ### Launch handshake and process ownership
 
-1. Under the lock: reserve the checkout, check the tree and policy, create or adopt the run,
-   write `BRIEF.md`, export the view, record the attempt (unique id, nonce) and its budget
-   reservation, write `intent.json`, set the job `starting`. Only then spawn.
-2. The supervisor spawns a detached wrapper. The wrapper claims the attempt by creating
-   `claim` with `O_EXCL` (exactly one wrapper per attempt), writes `start.json`, starts the
-   worker (argv, `shell=False`, stdout and stderr to separate files) inside a process tree it
-   controls (a Windows job object that kills the tree when the wrapper dies; a new POSIX session),
-   writes `worker.json`, touches `heartbeat`, enforces the timeout, honors a `cancel` request, and
-   writes `exit.json` (exit code, reason, transcript digest) before freezing the transcript.
-3. Reconciliation never trusts a PID alone. No claim after the start grace: the supervisor creates
-   `claim` itself (`O_EXCL`), so a late wrapper cannot start, and the attempt is `abandoned` at no
-   cost. A claim with a fresh heartbeat is running. A stale heartbeat with a live wrapper (by PID
-   and process start time where the platform exposes it), or a live worker without its wrapper,
-   holds the job as `ownership`. Wrapper and worker both gone without an exit receipt is a lost
-   attempt. The supervisor never kills by PID; only the wrapper ends the tree it started.
-4. Leases are never recovered while an attempt can act; `fail` is recorded only after the attempt
-   provably ended, with the stable signature `supervisor-attempt-ended`, so the runtime's
-   repeated-failure rule applies and a replay records nothing twice (the task is no longer claimed).
+1. Under the lock: reserve the checkout; create or adopt the run (`init-run --name=<title>` so a
+   title cannot be read as a flag, **(P7)**); write `BRIEF.md`; export the view; record the attempt
+   and its reservation; write `intent.json`; set `starting`; then spawn. Any failure before the
+   wrapper is a visible `config` hold, and a launch interrupted after the reservation resumes on the
+   next tick **(P7)**.
+2. The wrapper claims the attempt with `O_EXCL`, writes `start.json`, marks `spawning.json`
+   **(P7)**, starts the worker in a tree it controls (a Windows job object that ends with the
+   wrapper; a POSIX session), writes `worker.json`, heartbeats, enforces the timeout, honors
+   `cancel` (also before the worker starts), and writes `exit.json` before freezing the transcript.
+3. Reconciliation never trusts a PID alone. A live wrapper this supervisor started is never
+   abandoned while it starts **(P7)**; otherwise an unclaimed attempt past the grace is abandoned by
+   taking its claim. A claim with a fresh heartbeat is running. A stale heartbeat with a live or
+   unidentifiable wrapper, a live worker without its wrapper, a wrapper that died while spawning,
+   a POSIX process group that still has members, or a Windows tree without a job object holds the
+   job as `ownership` **(P7)**. The supervisor never kills by PID.
+4. `fail` is recorded only after the attempt provably ended, with the signature
+   `supervisor-attempt-ended`; a replay records nothing twice.
 
 ### Checkout reservation
 
-One writer per checkout: `max_workers` other than 1 is refused at `configure`. A job holds the
-reservation from its first launch until it is terminal and the tree is clean (or the owner
-records a disposition with `release`); paused, retrying, and held jobs keep it. The first launch
-of a job refuses a dirty tree (excluding `.agentic-team/runs/`, `.agentic-team/supervisor/`,
-`.agentic-team/CURRENT.md`, `.agentic-team/backup/`) and an unrelated active run in `CURRENT.md`.
-The supervisor never resets, cleans, or checks out anything. A changed `CURRENT.md` while a job
-owns the checkout holds the job as `pointer`.
+One writer per checkout (`max_workers` must be 1). A job holds the reservation from its first
+launch until it is terminal, its last attempt is reconciled, and the tree is clean, or until the
+owner's `release`, which also refuses an unreconciled attempt **(P7)**. `cancel` of a job whose
+last attempt is unreconciled only asks the wrapper to stop and keeps everything until a tick
+reconciles the attempt **(P7)**. The tree is clean only when `git diff HEAD` is empty, nothing is
+flagged skip-worktree or assume-unchanged, and no untracked file exists outside the committed
+`.gitignore` files; runtime output is excluded (`.agentic-team/runs/`, `supervisor/`,
+`knowledge/`, `CURRENT.md`, `backup/`; `knowledge/` because 07_learn writes lessons after
+verification); an unreadable tree is never clean **(P7)**. The supervisor never resets or cleans.
 
 ### Budget policy
 
-- Every job runs under an explicit run ceiling (`init-run --budget usd=N`), an attempt reservation
-  (`attempt_usd`), and the persisted aggregate allowance in `control.json`, which only the owner
-  replenishes (`allowance --add-usd`) and which does not reset on restart.
-- Before a launch: reservation ≤ run ceiling − max(runtime usage, supervisor charges) − open
-  reservations, and ≤ aggregate allowance − spent − open reservations. Otherwise the job holds
-  (`budget`) or the queue blocks (aggregate exhausted).
-- The Claude adapter passes `--max-budget-usd` = reservation ÷ headroom (default 1.25), because the
-  harness limit is an estimate that can overshoot; the wall-clock timeout always applies. The turn
-  limit is required unless the owner configures `turn_limit: timeout-only`, which the digest shows,
-  because this CLI version does not advertise `--max-turns`.
-- After an attempt the frozen transcript is metered once (digest checked against the run's
-  `usage_sources` first; exit 3 from `usage` still means the usage was saved). Unknown usage keeps
-  the reservation as spent and holds the job; only the owner clears it by metering a transcript
-  (`resume --usage-transcript`) or charging the reservation (`resume --charge-reservation`).
-- Runtime admission (P1): `claim` and `exec` refuse once a token or USD ceiling is spent, unless the
-  human waived `budget:<metric>`; status, metering, `fail`, `recover-leases`, and human decisions
-  keep working. Usage figures that are negative or not finite are refused.
+Explicit run ceiling, attempt reservation, and an aggregate allowance only the owner replenishes.
+Launch needs the reservation within the run's remaining allowance (ceiling minus the larger of
+runtime and supervisor-known spend, minus open reservations; lifted by the human's `budget:usd`
+waiver **(P7)**) and within the aggregate. The Claude adapter passes `--max-budget-usd` =
+reservation ÷ headroom and requires a turn limit unless `--turn-limit timeout-only`. Metering is
+once per transcript digest; exit 3 from `usage` still counts; unknown usage keeps its reservation
+and holds, and may be settled even on a finished job **(P7)**. Runtime admission refuses `claim`
+and `exec` once a ceiling is spent.
 
 ### Completion
 
-`done` requires: run `complete` (07_learn exited, so the delivery report exists); the attempt's
-usage metered; no pending checkpoint after metering; `audit verify` clean; the tree clean
-outside runtime paths; and HEAD equal to the run's verified commit when git exists. A project
-without git is held (`source`), because source integrity cannot be shown.
+`done` requires: the attempt metered; no pending checkpoint after metering; `audit verify` clean
+(including the decision replay); the owner-side re-check of the 05_verify, 06_release (with the
+executable release conditions when no human approved it), and 07_learn exit contracts; an event log
+that shows the run reaching 07_learn and `run-completed`; a recorded verified commit; and a clean
+tree at it (a later commit may touch only runtime output) **(P7)**. A forged `complete` status
+holds as `evidence`.
 
 ### Owner controls and exit codes
 
-`enqueue`, `configure`, `serve`, `status`, `pause`, `resume`, `cancel`, `release`, `allowance`,
-`verify-isolation`, `poll-github`, `host-example`, `prune`. They change scheduling only.
-`serve --once` is one tick; `--until-idle` ticks until nothing is starting, running, reconciling,
-queued and launchable, or retrying (backoff included), then prints the hold summary; `--interval`
-ticks forever and, on interrupt, stops intake and exits, leaving wrapped workers running (the next
-start reconciles them). Exit codes: 0 ok, 1 operational failure, 2 a job needs the human, 3 blocked
-(lock busy, store refuses launches, queue blocked), 64 usage error; precedence 1 > 3 > 2 > 0.
-`resume` revalidates the hold: signed decisions in the ledger, no failed task, usage known,
-ownership proven, pointer and tree as required. `cancel` stops only the attempt's own tree through
-its wrapper and preserves every change.
+`enqueue [--requeue]`, `configure`, `serve`, `status`, `pause`, `resume [--confirm-stopped]
+[--usage-transcript F | --charge-reservation] [--refresh-config]`, `cancel`, `release`,
+`allowance`, `verify-isolation` (sentinel unreadable **and** view unwritable **(P7)**),
+`owner-copy [--refresh]` **(P7)**, `poll-github`, `host-example` (prints the owner copy's command),
+`prune`. Exit codes 0 / 1 / 2 (a job needs the human) / 3 (blocked) / 64, precedence 1 > 3 > 2 > 0.
+The digest shows how each job's worker is bounded **(P7)**.
+
+## Independent review (P7)
+
+A read-only reviewer traced the code against this contract and reproduced each finding offline.
+It did not approve a pilot. Disposition of every finding:
+
+| # | Severity | Finding | Fix | Regression test |
+|---|---|---|---|---|
+| 1 | critical | a worker's own writable home outranked the view; forged unsigned records passed gates, invisible to the owner's audit | view-exclusive lookup; `audit verify` replays stage exits, risk-gated claims, and waivers; deleted view files count | `test_authority.VerificationViewTests.test_a_binding_planted_in_the_worker_home_is_ignored`, `..._replays_gated_steps_a_forged_view_allowed`, `..._finds_a_stage_exit_without_a_signed_approval` |
+| 2 | high | `done` rested on the worker-written status field | owner-side completion re-check of exit contracts and the event log; missing verified commit is a problem | `test_supervisor.ReviewFindingTests.test_forged_completion_is_not_done`, `..._compares_head_with_the_verified_commit` |
+| 3 | high | cancelling a held job freed the checkout while its worker lived | cancel and release wait for the last attempt to be reconciled; held unreconciled attempts keep being reconciled | `..._cancelling_an_ownership_hold_keeps_the_checkout_until_the_writer_ends` |
+| 4 | high | the owner side ran the checkout's `bin/` with the token | owner copy in the store; credential ops refuse from inside the checkout; `verify-isolation` also requires a read-only view | `test_supervisor.IsolationProbeTests`, `OperationsTests.test_host_examples_use_absolute_paths_and_register_nothing` |
+| 5 | medium-high | breaking a stale lock could let two contenders hold it | OS file lock, released on holder death; nothing stale to break | `StoreTests.test_lock_contention_is_blocked` (a killed holder process) |
+| 6 | medium | a failure between run creation and `starting` stranded the job | launch failures become visible holds; an interrupted first launch resumes; template placeholders validated | `..._a_launch_failure_before_the_wrapper_is_a_visible_hold`, `..._an_interrupted_first_launch_resumes` |
+| 7 | medium | `poll-github` advanced the watermark past an issue it failed to accept | only `ConflictError` is reported; any other failure propagates and keeps the watermark | `GithubPollTests.test_pagination_auth_and_rate_limits` |
+| 8 | medium | moving a torn record aside refunded its spend | keyed `charges` merged with job records | `..._moving_a_record_aside_keeps_its_spend` |
+| 9 | low-medium | config holds, budget holds, and cancelled sources had no way out | `--refresh-config`, the human's `budget:usd` waiver honored, `enqueue --requeue`; config resume re-checks and refuses at once | `..._config_and_budget_holds_have_a_way_out`, `..._a_cancelled_source_can_be_requeued_by_the_owner` |
+| 10 | low | skip-worktree, `.git/info/exclude`, and git failures hid changes | new `dirty_paths`; unreadable is never clean | `..._hidden_changes_and_unreadable_trees_are_not_clean` |
+| 11 | low | the digest did not show unisolated or timeout-only workers; this file was stale | Worker column in the digest; this file rewritten | `..._the_digest_says_how_the_worker_is_bounded` |
+| — | unverified (POSIX) | a wrapper dying while spawning, or descendants outliving the worker, looked dead | `spawning.json` marker; process-group liveness; Windows trees without a job object hold | covered by the reconcile rules; POSIX runs only in CI |
+
+The reviewer's reproduction scripts were re-run against the fixed code: the planted-home waiver
+is refused, the cancelled-hold scenario keeps the second job queued, the polling script now sees
+the failure instead of a silent skip, the template typo is refused at `configure`, and hidden
+changes are reported.
 
 ## Acceptance mapping
 
 Milestone column: **offline** gates the offline milestone; **hardening** must pass before the
-pilot is called operational. Test ids are `module.Class.method` under `tests/`.
+pilot is called operational; **pilot** needs the configured host. Test ids are under `tests/`.
 
-| Area | Case | Phase | Test | Milestone |
-|---|---|---|---|---|
-| Event integrity | duplicate event | P2 | `test_supervisor.IntakeTests.test_duplicate_event_is_harmless` | offline |
-| | same key, conflicting payload | P2 | `test_supervisor.IntakeTests.test_conflicting_payload_is_reported` | offline |
-| | concurrent enqueue | P2 | `test_supervisor.IntakeTests.test_concurrent_enqueue_accepts_one_job` | offline |
-| | cross-repository issue number | P6 | `test_supervisor.GithubPollTests.test_issue_numbers_are_namespaced_by_repository` | offline |
-| | traversal, absolute, reserved names | P2 | `test_supervisor.IntakeTests.test_unsafe_ids_are_refused` | hardening |
-| | oversized and malformed event | P2 | `test_supervisor.IntakeTests.test_malformed_and_oversized_events_are_quarantined` | hardening |
-| Store durability | torn write | P2 | `test_supervisor.StoreTests.test_torn_record_blocks_launches` | hardening |
-| | crash before/after inbox handoff | P2 | `test_supervisor.IntakeTests.test_crash_between_job_record_and_inbox_removal` | offline |
-| | lock contention | P2 | `test_supervisor.StoreTests.test_lock_contention_is_blocked` | hardening |
-| | schema mismatch | P2 | `test_supervisor.StoreTests.test_schema_mismatch_refuses_launches` | hardening |
-| | log-write failure after a transition | P2 | `test_supervisor.StoreTests.test_log_failure_keeps_the_transition` | hardening |
-| | disk full | P2 | `test_supervisor.StoreTests.test_disk_full_stops_launches` | hardening |
-| Launch recovery | crash before spawn | P3 | `test_supervisor.LaunchRecoveryTests.test_crash_before_spawn_abandons_the_attempt` | offline |
-| | after spawn, before parent save | P3 | `test_supervisor.LaunchRecoveryTests.test_crash_after_spawn_adopts_the_wrapper` | offline |
-| | after start receipt | P3 | `test_supervisor.LaunchRecoveryTests.test_late_wrapper_cannot_claim_an_abandoned_attempt` | offline |
-| | after exit receipt | P3 | `test_supervisor.LaunchRecoveryTests.test_exit_receipt_is_reconciled_once` | offline |
-| | stale PID | P3 | `test_supervisor.LaunchRecoveryTests.test_dead_wrapper_without_receipt_is_a_lost_attempt` | offline |
-| | PID reuse | P3 | `test_supervisor.LaunchRecoveryTests.test_reused_pid_holds_instead_of_relaunching` | hardening |
-| | worker outliving its parent | P3 | `test_supervisor.LaunchRecoveryTests.test_worker_outliving_its_wrapper_holds` | offline |
-| | two supervisors on one checkout | P3 | `test_supervisor.LaunchRecoveryTests.test_two_supervisors_never_launch_twice` | offline |
-| Checkout safety | pre-existing dirty tree | P4 | `test_supervisor.CheckoutTests.test_dirty_tree_blocks_the_first_launch` | offline |
-| | unrelated active run | P4 | `test_supervisor.CheckoutTests.test_unrelated_active_run_blocks_launch` | offline |
-| | paused job with changes | P4 | `test_supervisor.CheckoutTests.test_held_job_keeps_the_checkout` | offline |
-| | max-workers above one | P2 | `test_supervisor.CheckoutTests.test_parallel_workers_are_refused` | offline |
-| | current-run pointer change | P4 | `test_supervisor.CheckoutTests.test_current_run_pointer_change_holds` | offline |
-| | no destructive reset or cleanup | P4 | `test_supervisor.CheckoutTests.test_dirty_tree_blocks_the_first_launch` (files untouched) | offline |
-| Authority | different owner and worker homes | P1 | `test_authority.VerificationViewTests.test_worker_home_without_a_view_refuses_gated_commands` | offline |
-| | unavailable verification view | P1 | `test_authority.VerificationViewTests.test_worker_home_without_a_view_refuses_gated_commands` | offline |
-| | fabricated approval in state | P1 | `test_authority.VerificationViewTests.test_fabricated_state_approval_is_ignored_through_the_view` | offline |
-| | real approval and rejection visible | P1 | `test_authority.VerificationViewTests.test_real_decisions_are_visible_through_the_view` | offline |
-| | worker cannot read owner material or mutate control records | P4/P5 | `test_supervisor.AuthorityTests.test_worker_gets_a_scratch_home_and_a_view`, `test_harness.GuardTests.test_supervisor_paths_and_commands_are_owner_only` | offline |
-| Metering | valid result | P4 | `test_supervisor.LifecycleTests.test_job_runs_to_done_with_metered_usage` | offline |
-| | malformed, truncated, missing result | P4 | `test_supervisor.MeteringTests.test_missing_usage_holds_and_keeps_the_reservation`, `test_supervisor.MeteringTests.test_malformed_result_holds` | offline |
-| | non-finite or negative cost | P1 | `test_orchestration.MetricsAndBudgetTests.test_nonfinite_or_negative_usage_is_refused` | hardening |
-| | duplicate digest, crash after ingestion | P4 | `test_supervisor.MeteringTests.test_metering_is_idempotent_after_a_crash` | offline |
-| | over-budget exit 3 | P4 | `test_supervisor.MeteringTests.test_over_budget_ingestion_still_counts` | offline |
-| | complete run, then a final budget checkpoint | P4 | `test_supervisor.MeteringTests.test_final_budget_checkpoint_keeps_a_complete_run_from_done` | offline |
-| Retry and leases | recoverable known-cost crash | P4 | `test_supervisor.LifecycleTests.test_known_cost_crash_is_retried_and_finishes` | offline |
-| | unknown-cost hold | P4 | `test_supervisor.MeteringTests.test_missing_usage_holds_and_keeps_the_reservation` | offline |
-| | repeated failure; required task exhausted while the run is active | P4 | `test_supervisor.LifecycleTests.test_repeated_failure_holds_until_the_human_reopens` | offline |
-| | no double-recorded failure | P3/P4 | `test_supervisor.LaunchRecoveryTests.test_exit_receipt_is_reconciled_once` | offline |
-| | no lease release while the old writer lives | P3 | `test_supervisor.LaunchRecoveryTests.test_live_writer_keeps_its_claims` | offline |
-| Human interaction | R2 release pause, approve, resume | P4 | `test_supervisor.HumanTests.test_r2_work_pauses_at_release_and_resumes_after_approval` | offline |
-| | R3/R4 action pause | P4 | `test_supervisor.HumanTests.test_r3_action_holds_for_the_human` | offline |
-| | rejection stays blocked | P4 | `test_supervisor.HumanTests.test_rejection_stays_held` | offline |
-| | exhausted task needs a legitimate reopen | P4 | `test_supervisor.LifecycleTests.test_repeated_failure_holds_until_the_human_reopens` | offline |
-| | cancel stops only owned processes, keeps changes | P3/P4 | `test_supervisor.HumanTests.test_cancel_stops_the_owned_worker_and_keeps_changes` | offline |
-| Evidence | passing command, failing acceptance | P4 | `test_supervisor.EvidenceTests.test_failing_verdict_is_not_done` | offline |
-| | stale HEAD | P4 | `test_supervisor.EvidenceTests.test_commit_after_verification_is_not_done` | offline |
-| | tracked or untracked change after verification | P4 | `test_supervisor.EvidenceTests.test_change_after_verification_holds` | offline |
-| | missing rollback rehearsal | P4 | `test_supervisor.EvidenceTests.test_missing_rollback_rehearsal_is_not_done` | offline |
-| | missing learning or report artifact | P4 | `test_supervisor.EvidenceTests.test_missing_delivery_report_is_not_done` | offline |
-| | zero exit with an incomplete run | P4 | `test_supervisor.EvidenceTests.test_zero_exit_with_an_incomplete_run_retries` | offline |
-| Packaging | direct helper and installed alias | P5 | `test_supervisor.PackagingTests.test_installed_alias_and_direct_helper` | offline |
-| | missing helper | P5 | `test_supervisor.PackagingTests.test_missing_helper_is_reported` | offline |
-| | plugin export | P5 | `test_supervisor.PackagingTests.test_plugin_ships_the_supervisor` | offline |
-| | reinstall preserves supervisor state | P5 | `test_supervisor.PackagingTests.test_reinstall_and_uninstall_keep_supervisor_state` | hardening |
-| | uninstall and purge semantics | P5 | `test_supervisor.PackagingTests.test_reinstall_and_uninstall_keep_supervisor_state` | hardening |
-| | Python 3.10, Windows paths with spaces | P5 | `test_supervisor.PackagingTests.test_paths_with_spaces`; 3.10 through the CI matrix | hardening |
-| Operations | once, until-idle, forever | P4 | `test_supervisor.OperationsTests.test_once_until_idle_and_forever` | offline |
-| | bounded backoff | P4 | `test_supervisor.OperationsTests.test_retry_backoff_is_bounded` | hardening |
-| | host restart with a detached worker | P3 | `test_supervisor.LaunchRecoveryTests.test_fresh_supervisor_reconciles_a_detached_worker` | offline |
-| | graceful shutdown | P4 | `test_supervisor.OperationsTests.test_once_until_idle_and_forever` (interrupt) | hardening |
-| | polling pagination, auth failure, rate limit | P6 | `test_supervisor.GithubPollTests.test_pagination_auth_and_rate_limits` | hardening |
-| | status without secrets | P4 | `test_supervisor.OperationsTests.test_status_shows_no_secrets` | offline |
-| | retention | P6 | `test_supervisor.OperationsTests.test_prune_keeps_unfinished_and_unmetered_work` | hardening |
+| Area | Case | Test | Milestone |
+|---|---|---|---|
+| Event integrity | duplicate event | `test_supervisor.IntakeTests.test_duplicate_event_is_harmless` | offline |
+| | conflicting payload | `test_supervisor.IntakeTests.test_conflicting_payload_is_reported` | offline |
+| | concurrent enqueue | `test_supervisor.IntakeTests.test_concurrent_enqueue_accepts_one_job` | offline |
+| | cross-repository issue number | `test_supervisor.GithubPollTests.test_issue_numbers_are_namespaced_by_repository` | offline |
+| | traversal, absolute, reserved names | `test_supervisor.IntakeTests.test_unsafe_ids_are_refused` | hardening |
+| | oversized and malformed event | `test_supervisor.IntakeTests.test_malformed_and_oversized_events_are_quarantined` | hardening |
+| Store durability | torn write | `test_supervisor.StoreTests.test_torn_record_blocks_launches` | hardening |
+| | crash before/after inbox handoff | `test_supervisor.IntakeTests.test_crash_between_job_record_and_inbox_removal` | offline |
+| | lock contention, dead holder | `test_supervisor.StoreTests.test_lock_contention_is_blocked` | hardening |
+| | schema mismatch | `test_supervisor.StoreTests.test_schema_mismatch_refuses_launches` | hardening |
+| | log-write failure | `test_supervisor.StoreTests.test_log_failure_keeps_the_transition` | hardening |
+| | disk full | `test_supervisor.StoreTests.test_disk_full_stops_launches` | hardening |
+| | record moved aside keeps spend | `test_supervisor.ReviewFindingTests.test_moving_a_record_aside_keeps_its_spend` | hardening |
+| Launch recovery | crash before spawn | `test_supervisor.LaunchRecoveryTests.test_crash_before_spawn_abandons_the_attempt` | offline |
+| | after spawn, before parent save | `test_supervisor.LaunchRecoveryTests.test_crash_after_spawn_adopts_the_wrapper` | offline |
+| | late wrapper after abandonment | `test_supervisor.LaunchRecoveryTests.test_late_wrapper_cannot_claim_an_abandoned_attempt` | offline |
+| | after exit receipt | `test_supervisor.LaunchRecoveryTests.test_exit_receipt_is_reconciled_once` | offline |
+| | stale PID, lost wrapper | `test_supervisor.LaunchRecoveryTests.test_dead_wrapper_without_receipt_is_a_lost_attempt` | offline |
+| | PID reuse (unreadable identity, mismatched identity) | `test_supervisor.LaunchRecoveryTests.test_reused_pid_holds_instead_of_relaunching`, `..._a_reused_pid_with_another_identity_is_a_lost_attempt` | hardening |
+| | worker outliving its wrapper | `test_supervisor.LaunchRecoveryTests.test_worker_outliving_its_wrapper_holds` | offline |
+| | two supervisors on one checkout | `test_supervisor.LaunchRecoveryTests.test_two_supervisors_never_launch_twice` (threads), `StoreTests.test_lock_contention_is_blocked` (processes) | offline |
+| | interrupted first launch; launch failure | `test_supervisor.ReviewFindingTests.test_an_interrupted_first_launch_resumes`, `..._a_launch_failure_before_the_wrapper_is_a_visible_hold` | offline |
+| Checkout safety | dirty tree, no destructive cleanup | `test_supervisor.CheckoutTests.test_dirty_tree_blocks_the_first_launch` | offline |
+| | hidden or unreadable tree state | `test_supervisor.ReviewFindingTests.test_hidden_changes_and_unreadable_trees_are_not_clean` | offline |
+| | unrelated active run | `test_supervisor.CheckoutTests.test_unrelated_active_run_blocks_launch` | offline |
+| | paused or held job keeps the checkout | `test_supervisor.CheckoutTests.test_held_job_keeps_the_checkout`, `ReviewFindingTests.test_cancelling_an_ownership_hold_keeps_the_checkout_until_the_writer_ends` | offline |
+| | max-workers above one | `test_supervisor.CheckoutTests.test_parallel_workers_are_refused` | offline |
+| | current-run pointer change | `test_supervisor.CheckoutTests.test_current_run_pointer_change_holds` | offline |
+| Authority | different homes, missing view | `test_authority.VerificationViewTests.test_worker_home_without_a_view_refuses_gated_commands` | offline |
+| | planted home, forged view | `test_authority.VerificationViewTests.test_a_binding_planted_in_the_worker_home_is_ignored`, `..._replays_gated_steps_a_forged_view_allowed`, `..._finds_a_stage_exit_without_a_signed_approval` | offline |
+| | fabricated state approval | `test_authority.VerificationViewTests.test_fabricated_state_approval_is_ignored_through_the_view`, `test_supervisor.TamperTests` | offline |
+| | real approval and rejection visible | `test_authority.VerificationViewTests.test_real_decisions_are_visible_through_the_view` | offline |
+| | worker environment; owner copy | `test_supervisor.AuthorityTests.test_worker_gets_a_scratch_home_and_a_view`, `IsolationProbeTests.test_owner_work_runs_from_the_owner_copy`, `test_harness.GuardTests.test_supervisor_paths_and_commands_are_owner_only` | offline |
+| | worker cannot read owner material or write the view | `test_supervisor.IsolationProbeTests.test_the_boundary_must_hide_the_store_and_protect_the_view` (the probe's logic with a stand-in boundary); a real boundary is not testable offline on one OS user | pilot |
+| Metering | valid result | `test_supervisor.LifecycleTests.test_job_runs_to_done_with_metered_usage` | offline |
+| | malformed, truncated, missing result | `test_supervisor.MeteringTests.test_missing_usage_holds_and_keeps_the_reservation`, `..._malformed_result_holds` | offline |
+| | non-finite or negative cost | `test_orchestration.MetricsAndBudgetTests.test_nonfinite_or_negative_usage_is_refused` | hardening |
+| | duplicate digest, crash after ingestion | `test_supervisor.MeteringTests.test_metering_is_idempotent_after_a_crash` | offline |
+| | over-budget exit 3 | `test_supervisor.MeteringTests.test_over_budget_ingestion_still_counts` | offline |
+| | complete run, then a final budget checkpoint | `test_supervisor.MeteringTests.test_final_budget_checkpoint_keeps_a_complete_run_from_done` | offline |
+| Retry and leases | known-cost crash retried | `test_supervisor.LifecycleTests.test_known_cost_crash_is_retried_and_finishes` | offline |
+| | repeated failure, exhausted task, reopen | `test_supervisor.LifecycleTests.test_repeated_failure_holds_until_the_human_reopens` | offline |
+| | no double-recorded failure | `test_supervisor.LaunchRecoveryTests.test_exit_receipt_is_reconciled_once` | offline |
+| | no lease release while the old writer lives | `test_supervisor.LaunchRecoveryTests.test_live_writer_keeps_its_claims`, `..._worker_outliving_its_wrapper_holds` | offline |
+| Human interaction | R2 release pause, approve, resume | `test_supervisor.HumanTests.test_r2_work_pauses_at_release_and_resumes_after_approval` | offline |
+| | R3/R4 action pause | `test_supervisor.HumanTests.test_r3_action_holds_for_the_human` | offline |
+| | rejection stays blocked | `test_supervisor.HumanTests.test_rejection_stays_held` | offline |
+| | cancel stops only owned processes, keeps changes | `test_supervisor.HumanTests.test_cancel_stops_the_owned_worker_and_keeps_changes` | offline |
+| | holds with a way out; requeue | `test_supervisor.ReviewFindingTests.test_config_and_budget_holds_have_a_way_out`, `..._a_cancelled_source_can_be_requeued_by_the_owner` | offline |
+| Evidence | passing command, failing verdict | `test_supervisor.EvidenceTests.test_failing_verdict_is_not_done` | offline |
+| | stale HEAD (runtime gate and supervisor comparison) | `test_supervisor.EvidenceTests.test_commit_after_verification_is_not_done`, `ReviewFindingTests.test_the_supervisor_compares_head_with_the_verified_commit` | offline |
+| | change after verification | `test_supervisor.EvidenceTests.test_change_after_verification_holds` | offline |
+| | missing rollback rehearsal | `test_supervisor.EvidenceTests.test_missing_rollback_rehearsal_is_not_done` | offline |
+| | missing report; forged completion | `test_supervisor.EvidenceTests.test_missing_delivery_report_is_not_done`, `ReviewFindingTests.test_forged_completion_is_not_done` | offline |
+| | zero exit with an incomplete run | `test_supervisor.EvidenceTests.test_zero_exit_with_an_incomplete_run_retries` | offline |
+| Packaging | direct helper and installed alias | `test_supervisor.PackagingTests.test_installed_alias_and_direct_helper` | offline |
+| | missing helper | `test_supervisor.PackagingTests.test_missing_helper_is_reported` | offline |
+| | plugin export | `test_supervisor.PackagingTests.test_plugin_ships_the_supervisor` | offline |
+| | reinstall and uninstall keep supervisor state | `test_supervisor.PackagingTests.test_reinstall_and_uninstall_keep_supervisor_state` | hardening |
+| | Windows paths with spaces | `test_supervisor.PackagingTests.test_paths_with_spaces` | hardening |
+| | Python 3.10, macOS, Linux | the CI matrix (not run: the branch is not pushed) | hardening |
+| Operations | once, until-idle, forever | `test_supervisor.OperationsTests.test_once_until_idle_and_forever` | offline |
+| | graceful shutdown with a running attempt | `test_supervisor.ReviewFindingTests.test_an_interrupt_leaves_a_running_attempt_with_its_wrapper` | hardening |
+| | bounded backoff | `test_supervisor.OperationsTests.test_retry_backoff_is_bounded` | hardening |
+| | host restart with a detached worker | `test_supervisor.LaunchRecoveryTests.test_fresh_supervisor_reconciles_a_detached_worker` | offline |
+| | polling pagination, auth failure, rate limit, failed acceptance | `test_supervisor.GithubPollTests.test_pagination_auth_and_rate_limits` | hardening |
+| | status without secrets; worker bounds shown | `test_supervisor.OperationsTests.test_status_shows_no_secrets`, `ReviewFindingTests.test_the_digest_says_how_the_worker_is_bounded` | offline |
+| | retention | `test_supervisor.OperationsTests.test_prune_keeps_unfinished_and_unmetered_work` | hardening |
+| | host examples run the owner copy | `test_supervisor.OperationsTests.test_host_examples_use_absolute_paths_and_register_nothing` | hardening |
 
-## Decisions
+## Pilot setup (prepared, not run)
 
-- One phase-group branch (this worktree's) with one commit per phase or phase group; no merge,
-  push, release, paid run, or host registration without the owner's authorization.
-- The runtime is read through its module (state, verified view, transcript parsing) and changed
-  only through the installed CLI (`init-run`, `usage`, `fail`, `audit verify`, `export-view`),
-  with explicit `--project` and `--run`.
-- Paid launches (the Claude adapter) require a verified isolation boundary
-  (`verify-isolation` with a harmless sentinel). The command adapter runs an owner-supplied argv
-  (scripted workers, tests) and is shown as unisolated in the digest.
+The pilot needs the owner's explicit authorization for model spend and a configured host.
+
+| Item | Value |
+|---|---|
+| Project | one scratch project with a clean, committed tree and a fixture issue (`AC-` lines) |
+| Isolation | a restricted local account (`runas` or WSL user) or a container: owner home unreadable, view mounted read-only, worker home writable; `verify-isolation` must pass |
+| CLI | the installed Claude Code version recorded with `claude --version` before the run (2.1.310 on this host) |
+| Model | the owner's choice (`configure --model`), recorded in the job |
+| Budgets | `--budget usd=5`, `--attempt-usd 2`, `--headroom 1.25`, aggregate allowance 10 USD |
+| Limits | `--timeout 1800`; `--turn-limit timeout-only` (this CLI does not advertise `--max-turns`) |
+| Run | `<owner copy> serve --until-idle --max-seconds 3600` |
+| Stop conditions | any hold, any exit other than 0, the aggregate allowance spent |
+| Owner controls | `status`, `pause --all`, `cancel --job`, the runtime's `approve`/`reject` for checkpoints |
+
+## Remaining limits
+
+- The CLI's gates inside a worker are defense in depth; forgery is found by the owner's audit
+  after the attempt. A worker that can write the run folder could forge a consistent set of
+  artifacts and events; independent verification and owner review address that, not the code.
+- Owner controls carry no separate credential; the store must sit behind the isolation boundary.
+- One checkout, one worker; no webhooks; the Claude adapter has not run against a real session.
+- Cost figures are the harness's estimate; the harness's spend limit can overshoot.
+- Not run here: macOS, Linux, Python 3.10, the paid pilot, a registered host task.
 
 ## Next step
 
-P2-P4: `scripts/agentic_supervisor.py` (store, intake, attempt lifecycle, orchestration) with the fake worker and `tests/test_supervisor.py`.
+The owner's decision: review and merge the branch into local `main` (and push to run the CI
+matrix), then authorize the pilot above if desired.

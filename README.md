@@ -58,6 +58,11 @@ promise.
   verification, and a preserved dissent record, in a one-way phase order.
 - **Progressive context:** short router files, numbered stage contracts, one home per fact, and
   task-sized 2K–8K-token packs.
+- **Durable supervisor (offline-verified):** `supervise` turns triggers (manual, labelled GitHub
+  issues, dropped files) into runs with one bounded worker per checkout, records each attempt and
+  its budget reservation before the worker starts, meters the frozen transcript exactly once,
+  audits the ledger, and holds for the human instead of deciding. Paid workers need a verified
+  isolation boundary; no paid pilot has run yet ([operator guide](docs/supervisor-operator-guide.md)).
 - **Evals:** six deterministic team scenarios (greenfield, plan-given, rejection and recovery,
   self-approval, Fusion, brownfield fix) run against installed CLIs in the test suite and CI.
 - **External-skill routing with always-on floors:** `adminwright` (admin consoles),
@@ -209,7 +214,7 @@ runner drives the six team scenarios against installed CLIs.
 - [Harness security and threat model](protocols/harness-security.md)
 - [Runtime CLI reference](docs/cli.md)
 - [Autonomy, Fusion, and progressive context](docs/operating-modes.md)
-- [Supervisor design: the unattended execution service, not yet built](docs/supervisor-design.md)
+- [Supervisor operator guide](docs/supervisor-operator-guide.md) (implemented, offline-verified; [design](docs/supervisor-design.md), [progress](docs/supervisor-progress.md))
 - [Running the team on local LLMs](docs/local-llms.md)
 - [Shared protocols](protocols/)
 - [Third-party inspiration and licenses](THIRD_PARTY_NOTICES.md)

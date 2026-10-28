@@ -59,6 +59,18 @@ transcript, signs the figures into the decision ledger, refuses the same transcr
 needs the owner token, so an agent cannot "meter" itself. A harness that writes no such
 transcript stays unmetered; its agents' reports are then all the ceiling sees.
 
+## Supervised runs (owner side)
+
+The supervisor adds two owner-held limits on top of the run's ceiling: each worker attempt
+reserves a fixed USD amount before it starts, against the run's remaining allowance (its ceiling
+minus the larger of reported and metered usage, minus open reservations) and against an aggregate
+allowance across all jobs that only the owner replenishes and that never resets on restart. After
+the attempt its frozen transcript is metered once and replaces the reservation; an attempt whose
+cost is unknown keeps its reservation counted and holds the job until the owner meters a
+transcript or charges the reservation. The Claude adapter passes the harness a `--max-budget-usd`
+below the reservation (reservation ÷ headroom), because that limit is an estimate that can
+overshoot; nothing here is an exact billing cap.
+
 ## What agents do (instruction)
 
 - Report usage on every completion, from the harness's own usage or cost report:

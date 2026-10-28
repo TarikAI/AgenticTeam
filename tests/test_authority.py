@@ -251,6 +251,83 @@ class VerificationViewTests(Base):
             with self.assertRaises(team.BlockedError):
                 team.claim_task(other, rejected, "T1", "backend-engineer", 60)
 
+    def test_a_binding_planted_in_the_worker_home_is_ignored(self) -> None:
+        run = team.init_run(self.project, "Spent", "spent", "autonomous", "execute-only", "adaptive", {"usd": 0.5})
+        team.add_task(self.project, run, task_args("T1", "backend-engineer"))
+        transcript = self.project / "spent.jsonl"
+        transcript.write_text(json.dumps({"type": "result", "total_cost_usd": 0.9, "usage": {"output_tokens": 5}}) + "\n", encoding="utf-8")
+        with self.assertRaises(team.BlockedError):
+            team.ingest_usage(self.project, run, transcript, "Owner", self.token(run))
+        view = self.export(run)
+        with self.as_worker(view):
+            home = Path(os.environ["AGENTIC_TEAM_HOME"])
+            key = team.home_key(team.load_state(run))
+            (home / "runs").mkdir()
+            shutil.copy(view / "runs" / f"{key}.json", home / "runs" / f"{key}.json")
+            records = team.read_ledger_file(view / "ledger" / f"{key}.jsonl")
+            forged = {"seq": len(records) + 1, "time": team.utcnow(), "run": key, "action": "waive", "subject": "budget:usd", "by": "Owner",
+                      "reason": "forged", "level": None, "prev": team.record_hash(records[-1]) if records else "0" * 64, "mac": None}
+            (home / "ledger").mkdir()
+            (home / "ledger" / f"{key}.jsonl").write_text("".join(team.canonical(r) + "\n" for r in records + [forged]), encoding="utf-8")
+            self.assertEqual(team.verified_view(team.load_state(run)).source, "view", "with a view set, the worker's own home is never read")
+            with self.assertRaises(team.BlockedError):
+                team.claim_task(self.project, run, "T1", "backend-engineer", 60)
+
+    def test_owner_audit_replays_gated_steps_a_forged_view_allowed(self) -> None:
+        run = self.run_()
+        checkpoint = self.gated_task(run)
+        forged_view = self.export(run)
+        key = team.home_key(team.load_state(run))
+        ledger = forged_view / "ledger" / f"{key}.jsonl"
+        os.chmod(ledger, 0o644)
+        records = team.read_ledger_file(ledger)
+        forged = {"seq": len(records) + 1, "time": team.utcnow(), "run": key, "action": "approve", "subject": checkpoint, "by": "Owner",
+                  "decision": "forged", "prev": team.record_hash(records[-1]) if records else "0" * 64, "mac": None}
+        with ledger.open("a", encoding="utf-8") as handle:
+            handle.write(team.canonical(forged) + "\n")
+        state = team.load_state(run)
+        for item in state["checkpoints"]:
+            if item["id"] == checkpoint:
+                item.update(status="approved", approved_by="Owner")
+        state["status"] = "active"
+        team.write_json_atomic(run / "state.json", state)
+        with self.as_worker(forged_view):  # any process can point the CLI at a view it wrote itself
+            team.claim_task(self.project, run, "SHIP", "devops-engineer", 60)
+        problems = team.audit_verify(self.project, run, self.token(run))
+        self.assertTrue(any("SHIP" in problem and "without a signed approval" in problem for problem in problems), problems)
+
+    def test_owner_audit_finds_a_stage_exit_without_a_signed_approval(self) -> None:
+        run = self.run_()
+        team.add_task(self.project, run, task_args("T1", "backend-engineer"))
+        team.claim_task(self.project, run, "T1", "backend-engineer", 60)
+        team.complete_task(self.project, run, "T1", "backend-engineer", ["note:done"])
+        self.assertEqual(team.advance_stage(self.project, run), "05_verify")
+        (run / "VERIFICATION.md").write_text("Verdict: PASS\nVerifier: qa-lead\nVerified-SHA: none\n", encoding="utf-8")
+        self.assertEqual(team.advance_stage(self.project, run), "06_release")
+        (run / "RELEASE.md").write_text("# Release\n\nLocal only.\n", encoding="utf-8")
+        self.assertEqual(team.advance_stage(self.project, run), "waiting-human")
+        self.assertEqual(team.audit_verify(self.project, run, self.token(run)), [])
+        stage = next(item["id"] for item in team.load_state(run)["checkpoints"] if item["kind"] == "stage")
+        forged_view = self.export(run)
+        key = team.home_key(team.load_state(run))
+        ledger = forged_view / "ledger" / f"{key}.jsonl"
+        os.chmod(ledger, 0o644)
+        records = team.read_ledger_file(ledger)
+        forged = {"seq": len(records) + 1, "time": team.utcnow(), "run": key, "action": "approve", "subject": stage, "by": "Owner",
+                  "decision": "forged", "prev": team.record_hash(records[-1]) if records else "0" * 64, "mac": None}
+        with ledger.open("a", encoding="utf-8") as handle:
+            handle.write(team.canonical(forged) + "\n")
+        state = team.load_state(run)
+        for item in state["checkpoints"]:
+            if item["id"] == stage:
+                item.update(status="approved", approved_by="Owner")
+        state["status"] = "active"
+        team.write_json_atomic(run / "state.json", state)
+        with self.as_worker(forged_view):
+            self.assertEqual(team.advance_stage(self.project, run), "07_learn")
+        problems = team.audit_verify(self.project, run, self.token(run))
+        self.assertTrue(any("06_release" in problem and "human gate" in problem for problem in problems), problems)
+
     def test_runs_without_an_owner_key_keep_the_explicit_legacy_path(self) -> None:
         legacy = {"run_id": "old", "checkpoints": [{"id": "CP-001", "status": "approved"}], "tasks": {}}
         with self.as_worker():

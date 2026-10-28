@@ -18,6 +18,9 @@ Step forms (JSON objects):
     {"task": {"id": "T1", "status": "completed"}}    assert one task's fields
     {"exec_py": "print(1)", "task": "T1", "agent": "backend-engineer", "exit": 0}
                                                      run python through `exec` for a claimed task
+    {"python": "code", "exit": 0}                    run setup code with this interpreter in the project
+                                                     (for example `git init`), outside the CLI
+    SOURCE_ROOT expands to this checkout's root with forward slashes (valid in JSON and on Windows).
 Exit codes: 0 all scenarios pass, 1 otherwise.
 """
 
@@ -55,7 +58,7 @@ def run_scenario(spec: dict) -> list[str]:
                    "--harness", spec.get("harness", "generic"), "--preset", spec.get("preset", "full-company")]
         subprocess.run(install, check=True, capture_output=True, env=env)
         cli = [sys.executable, str(project / ".agentic-team" / "bin" / "agentic_team.py")]
-        context = {"PROJECT": str(project), "PYTHON": sys.executable}
+        context = {"PROJECT": str(project), "PYTHON": sys.executable, "SOURCE_ROOT": ROOT.as_posix()}
 
         def state() -> dict:
             current = (project / ".agentic-team" / "CURRENT.md").read_text(encoding="utf-8")
@@ -69,6 +72,13 @@ def run_scenario(spec: dict) -> list[str]:
 
         for number, step in enumerate(spec["steps"], start=1):
             label = step.get("note") or next(iter(step))
+            if "python" in step:
+                result = subprocess.run([sys.executable, "-c", expand(step["python"], context)], cwd=project, capture_output=True,
+                                        text=True, env=env, stdin=subprocess.DEVNULL, timeout=120)
+                if result.returncode != step.get("exit", 0):
+                    raise ScenarioFailure(f"step {number} ({label}): setup code exited {result.returncode}: {result.stderr.strip()[:300]}")
+                log.append(f"{number:>2}. python setup -> {result.returncode}")
+                continue
             if "write" in step:
                 target = Path(expand(step["write"], context))
                 target.parent.mkdir(parents=True, exist_ok=True)

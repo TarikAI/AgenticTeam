@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 from helpers import ROOT, fresh_project, run_cli, team
 from test_regressions import task_args
@@ -129,6 +130,22 @@ class GuardTests(unittest.TestCase):
         self.assertIsNotNone(guard(self.payload("Bash", command=f"type {team.agentic_home()}\\runs\\x.json")))
         self.assertIsNone(guard(self.payload("Read", file_path=".agentic-team/CURRENT.md")))
         self.assertIsNone(guard(self.payload("Bash", command="python .agentic-team/bin/agentic_team.py status")))
+
+    def test_supervisor_paths_and_commands_are_owner_only(self) -> None:
+        self.assertIsNotNone(guard(self.payload("Write", file_path=".agentic-team/supervisor/inbox/x.json", content="{}")))
+        self.assertIsNotNone(guard(self.payload("Bash", command="echo {} > .agentic-team/supervisor/inbox/x.json")))
+        self.assertIsNotNone(guard(self.payload("Bash", command="python .agentic-team/bin/agentic_team.py supervise enqueue --title t")))
+        self.assertIsNotNone(guard(self.payload("Bash", command="python .agentic-team/bin/agentic_team.py export-view --to v")))
+        self.assertIsNone(guard(self.payload("Read", file_path=".agentic-team/supervisor/STATUS.md")), "the digest is readable")
+        store = Path(tempfile.mkdtemp(prefix="owner-store-"))
+        view = Path(tempfile.mkdtemp(prefix="view-"))
+        with mock.patch.dict(os.environ, {"AGENTIC_TEAM_PROTECT": str(store), "AGENTIC_TEAM_VIEW": str(view)}):
+            self.assertIsNotNone(guard(self.payload("Read", file_path=str(store / "control.json"))))
+            self.assertIsNotNone(guard(self.payload("Bash", command=f"type {store}\\jobs\\x.json")))
+            self.assertIsNotNone(guard(self.payload("Edit", file_path=str(view / "ledger" / "x.jsonl"), old_string="a", new_string="b")))
+        shutil.rmtree(store, ignore_errors=True)
+        shutil.rmtree(view, ignore_errors=True)
+        self.assertIn("Edit(/.agentic-team/supervisor/**)", team.CLAUDE_DENY_RULES)
 
     def test_run_state_is_cli_only(self) -> None:
         self.assertIsNotNone(guard(self.payload("Write", file_path=".agentic-team/runs/guard/state.json", content="{}")))

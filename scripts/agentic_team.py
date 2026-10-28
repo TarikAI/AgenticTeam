@@ -444,10 +444,11 @@ SCRIPT_REFS = (
     ("scripts/findings_to_tasks.py", ".agentic-team/bin/agentic_team.py findings-to-tasks"),
     ("scripts/design_to_admin.py", ".agentic-team/bin/agentic_team.py design-to-admin"),
     ("scripts/local_llm_check.py", ".agentic-team/bin/agentic_team.py llm-check"),
+    ("scripts/agentic_supervisor.py", ".agentic-team/bin/agentic_team.py supervise"),
     ("scripts/agentic_team.py", ".agentic-team/bin/agentic_team.py"),
 )
 SCRIPT_REF = re.compile(r"(?<![\w./-])(" + "|".join(re.escape(old) for old, _ in SCRIPT_REFS) + r")")
-HELPER_SCRIPTS = ("preflight_skills.py", "findings_to_tasks.py", "design_to_admin.py", "local_llm_check.py")
+HELPER_SCRIPTS = ("preflight_skills.py", "findings_to_tasks.py", "design_to_admin.py", "local_llm_check.py", "agentic_supervisor.py")
 
 
 def resolve_script_refs(text: str) -> str:
@@ -597,6 +598,7 @@ CLAUDE_DENY_RULES = [
     "Edit(/.agentic-team/runs/**/state.json)",
     "Edit(/.agentic-team/runs/**/events.jsonl)",
     "Edit(/.agentic-team/runs/**/_evidence/**)",
+    "Edit(/.agentic-team/supervisor/**)",
 ]
 GUARD_MATCHER = "Bash|PowerShell|Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|WebFetch"
 
@@ -1389,7 +1391,7 @@ def remove_empty_parents(path: Path, stop: Path) -> None:
 
 
 def uninstall_team(target: Path, purge: bool = False) -> list[str]:
-    """Remove what install wrote; keep project-owned knowledge/ and runs/ unless --purge."""
+    """Remove what install wrote; keep project-owned knowledge/, runs/, and supervisor/ unless --purge."""
     bus = target / ".agentic-team"
     record_path = bus / "install-manifest.json"
     if not record_path.is_file():
@@ -1413,7 +1415,7 @@ def uninstall_team(target: Path, purge: bool = False) -> list[str]:
     with contextlib.suppress(OSError):
         skill_root.rmdir()
         remove_empty_parents(skill_root, target)
-    keep = set() if purge else {"knowledge", "runs"}
+    keep = set() if purge else {"knowledge", "runs", "supervisor"}
     for child in list(bus.iterdir()):
         if child.name in keep:
             continue
@@ -2947,7 +2949,9 @@ class VerifiedView:
         self.state_digest = state.get("owner_token_sha256")
         binding, ledger, self.source = binding_path(self.run_id), ledger_path(self.run_id), "home"
         view = verification_view_dir()
-        if self.run_id and not binding.is_file() and view is not None:
+        if self.run_id and view is not None:
+            # A worker (AGENTIC_TEAM_VIEW set) reads only the owner's export. Its own home must be
+            # writable, so a binding and ledger planted there would otherwise outrank the view.
             binding, ledger, self.source = view / "runs" / f"{self.run_id}.json", view / "ledger" / f"{self.run_id}.jsonl", "view"
         self.bound = load_json(binding).get("owner_token_sha256") if binding.is_file() else None
         # Every v3 run carries the owner-key digest. Without its binding (a worker started with its
@@ -3083,6 +3087,62 @@ def audit_verify(project: Path, run_dir: Path, token: str) -> list[str]:
         if task["status"] == "cancelled" and task["id"] not in view.cancelled:
             problems.append(f"state claims task {task['id']} cancelled, but the ledger has no signed cancellation")
     problems.extend(verify_events(run_dir, state))
+    if view.bound is not None:
+        problems.extend(decision_problems(project, run_dir, state, view))
+    return problems
+
+
+def decision_problems(project: Path, run_dir: Path, state: dict[str, Any], view: VerifiedView) -> list[str]:
+    """Owner-side replay: every human-gated step the run actually took has a signed decision.
+
+    A worker's CLI can be pointed at a forged view (any process can set an environment variable),
+    so gates inside the worker are defense in depth. This replay reads the owner's home ledger
+    with its MACs checked above, and finds a stage exit through a human gate, a claim of a task
+    that needed a risk approval, or a waiver in state that no signed record backs.
+    """
+    problems: list[str] = []
+    try:
+        policy = load_policy(project)
+    except TeamError as exc:
+        return [f"the policy cannot be read to replay decisions: {exc}"]
+    profile = policy.get("profiles", {}).get(state.get("autonomy", ""), {})
+    always = set(policy.get("always_human_risk", ["R3", "R4"]))
+    for waiver in state.get("waivers", []):
+        if waiver.get("requirement") not in view.waivers:
+            problems.append(f"state lists the waiver {waiver.get('requirement')}, but the ledger has no signed waiver")
+    stage_checkpoints: dict[str, list[str]] = {}
+    for item in state["checkpoints"]:
+        if item.get("kind") == "stage":
+            stage_checkpoints.setdefault(item.get("stage", ""), []).append(item["id"])
+    events = read_events(run_dir)
+    by_conditions = {event.get("stage") for event in events if event["type"] == "release-conditions-met"}
+    for event in events:
+        if event["type"] != "stage-advanced" or not event.get("previous"):
+            continue
+        stage = event["previous"]
+        gate = gate_value(profile, stage) if profile else "human"
+        signed = any(checkpoint in view.approved for checkpoint in stage_checkpoints.get(stage, []))
+        if gate == "human" and not signed:
+            problems.append(f"the run left {stage} through a human gate without a signed approval of its stage checkpoint")
+        elif gate == "executable" and not signed and (stage_checkpoints.get(stage) or stage not in by_conditions):
+            problems.append(f"the run left {stage} without a signed approval and without the executable release conditions on record")
+    claimed = {event.get("task") for event in events if event["type"] == "task-claimed"}
+    for task_id in sorted(item for item in claimed if item in state["tasks"]):
+        task = state["tasks"][task_id]
+        waiver = view.waiver(f"risk:{task_id}")
+        if waiver:
+            level = waiver.get("level") or task["risk"]
+        else:
+            try:
+                floor, _ = derive_risk(policy, task.get("action", "build"), task.get("target", "local"), task.get("title", ""),
+                                       task.get("objective", ""), task.get("owned_paths", []))
+            except TeamError:
+                floor = task["risk"]
+            level = task["risk"] if RISK_ORDER.get(task["risk"], 0) >= RISK_ORDER.get(floor, 0) else floor
+        if level in set(profile.get("pause_at", [])) | always:
+            approved = any(item.get("kind") == "risk" and item.get("task") == task_id and item["id"] in view.approved for item in state["checkpoints"])
+            if not approved:
+                problems.append(f"task {task_id} ({level}) was claimed without a signed approval of its risk checkpoint")
     return problems
 
 
@@ -4475,6 +4535,13 @@ def normalize_hook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return {**payload, **normalized}
     return payload
 PROTECTED_RUN_FILE = re.compile(r"\.agentic-team[/\\]runs[/\\].*?(state\.json|events\.jsonl|[/\\]_evidence[/\\])", re.IGNORECASE)
+SUPERVISOR_PATH = re.compile(r"\.agentic-team[/\\]supervisor([/\\]|$|\b)", re.IGNORECASE)
+SHELL_WRITE_TO_SUPERVISOR = re.compile(
+    r"(>|\btee\b|set-content|out-file|add-content|\bsed\s+-i|\bmv\b|\bcp\b|\brm\b|remove-item|new-item|\bmkdir\b|\btouch\b)[^|;&\n]*"
+    r"\.agentic-team[/\\]supervisor\b",
+    re.IGNORECASE,
+)
+OWNER_SIDE_COMMAND = re.compile(r"agentic_team\.py[\"']?\s+(supervise|export-view)\b|agentic_supervisor\.py", re.IGNORECASE)
 SHELL_WRITE_TO_RUN_FILE = re.compile(
     r"(>|\btee\b|set-content|out-file|add-content|\bsed\s+-i|\bmv\b|\bcp\b|\brm\b|remove-item)[^|;&\n]*"
     r"\.agentic-team[/\\]runs[/\\][^\s'\"]*(state\.json|events\.jsonl|_evidence)",
@@ -4492,10 +4559,17 @@ def collect_strings(value: Any) -> list[str]:
     return []
 
 
+def protected_paths() -> set[str]:
+    """Owner paths a supervised worker must never touch (AGENTIC_TEAM_PROTECT, set by the supervisor)."""
+    raw = os.environ.get("AGENTIC_TEAM_PROTECT", "")
+    return {item.replace("\\", "/").lower().rstrip("/") for item in raw.split(os.pathsep) if item.strip()}
+
+
 def references_owner_home(text: str) -> bool:
     """True when text points into AGENTIC_TEAM_HOME (the owner's material), not the project bus."""
     lowered = text.replace("\\", "/").lower()
     homes = {str(agentic_home()).replace("\\", "/").lower(), (str(Path.home()).replace("\\", "/") + "/.agentic-team").lower()}
+    homes |= protected_paths()
     if any(home in lowered for home in homes):
         return True
     if "owner-tokens" in lowered or re.search(r"\.agentic-team/(ledger|runs/[^/\s]+\.json\b)", lowered) and "~" in lowered:
@@ -4522,6 +4596,11 @@ def guard_decision(payload: dict[str, Any], scope: str | None = None, agent: str
     writes = tool in WRITE_TOOLS
     if writes and any(PROTECTED_RUN_FILE.search(text) for text in strings):
         return "AgenticTeam guard: run state, events, and evidence are written only by .agentic-team/bin/agentic_team.py."
+    if writes and any(SUPERVISOR_PATH.search(text) for text in strings):
+        return "AgenticTeam guard: .agentic-team/supervisor/ (intake and status) is written only by the owner's supervisor."
+    view = os.environ.get("AGENTIC_TEAM_VIEW")
+    if writes and view and any(view.replace("\\", "/").lower().rstrip("/") in text.replace("\\", "/").lower() for text in strings):
+        return "AgenticTeam guard: the verification view is the owner's export of signed decisions; agents never write it."
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
     if isinstance(command, list):
         command = " ".join(str(part) for part in command)
@@ -4529,6 +4608,11 @@ def guard_decision(payload: dict[str, Any], scope: str | None = None, agent: str
         command = str(command or "")
         if SHELL_WRITE_TO_RUN_FILE.search(command):
             return "AgenticTeam guard: do not modify run state files from the shell; use the state CLI."
+        if SHELL_WRITE_TO_SUPERVISOR.search(command):
+            return "AgenticTeam guard: .agentic-team/supervisor/ is written only by the owner's supervisor."
+        if OWNER_SIDE_COMMAND.search(command):
+            return ("AgenticTeam guard: supervise and export-view are owner-side commands (they queue work, meter usage, and "
+                    "export the decision view); run them in the owner's own terminal, never from an agent.")
     start = Path(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd())
     project = find_project_root(start)
     if writes and scope == "review" and project is not None:
@@ -4719,6 +4803,7 @@ HELPER_COMMANDS = {
     "findings-to-tasks": ("findings_to_tasks", "Turn review findings into a verdict and runnable remediation tasks"),
     "design-to-admin": ("design_to_admin", "Draft an adminwright manifest from a design-architect handoff"),
     "llm-check": ("local_llm_check", "Report reachable local LLM endpoints"),
+    "supervise": ("agentic_supervisor", "Owner side: turn triggers into runs with one bounded worker per checkout (enqueue, serve, status, resume, cancel)"),
 }
 
 
@@ -4726,6 +4811,9 @@ def run_helper(module_name: str, argv: list[str]) -> int:
     helper_dir = Path(__file__).resolve().parent
     if str(helper_dir) not in sys.path:
         sys.path.insert(0, str(helper_dir))
+    if not (helper_dir / f"{module_name}.py").is_file():
+        print(f"error: the helper {module_name}.py is missing from {helper_dir}; reinstall AgenticTeam to restore it", file=sys.stderr)
+        return EXIT_ERROR
     module = __import__(module_name)
     result = module.main(argv)
     return int(result or 0)
