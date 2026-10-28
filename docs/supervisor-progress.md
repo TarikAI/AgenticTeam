@@ -15,7 +15,7 @@ group, merged into local `main` only when the owner authorizes it). Baseline: `m
 | Phase | State | Commit | Notes |
 |---|---|---|---|
 | P0 Contract and baseline | implemented | see `git log` | This file; baseline checks green before any code change. |
-| P1 Runtime prerequisites | planned | | |
+| P1 Runtime prerequisites | offline-verified | see `git log` | Verification view (`export-view`, `AGENTIC_TEAM_VIEW`), fail-closed missing authority for v3 runs, budget admission on `claim`/`exec`, finite usage; G21, G22. 207 tests OK, 7/7 scenarios. |
 | P2 Storage and intake | planned | | |
 | P3 Attempt lifecycle | planned | | |
 | P4 Orchestration and accounting | planned | | |
@@ -255,4 +255,4 @@ pilot is called operational. Test ids are `module.Class.method` under `tests/`.
 
 ## Next step
 
-P1: the verification view and budget admission in `scripts/agentic_team.py`, with their tests.
+P2-P4: `scripts/agentic_supervisor.py` (store, intake, attempt lifecycle, orchestration) with the fake worker and `tests/test_supervisor.py`.

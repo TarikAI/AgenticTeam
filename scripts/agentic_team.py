@@ -12,6 +12,7 @@ import getpass
 import hashlib
 import hmac
 import json
+import math
 import os
 import secrets
 from pathlib import Path
@@ -1734,8 +1735,8 @@ def init_run(
     if autonomy not in policy["profiles"]:
         raise TeamError(f"Unknown autonomy profile '{autonomy}'")
     run_budgets = {key: float(value) for key, value in (budgets or {}).items()}
-    if any(key not in {"tokens", "usd"} or value <= 0 for key, value in run_budgets.items()):
-        raise TeamError("--budget takes tokens=N and/or usd=N above zero")
+    if any(key not in {"tokens", "usd"} or not math.isfinite(value) or value <= 0 for key, value in run_budgets.items()):
+        raise TeamError("--budget takes tokens=N and/or usd=N, finite and above zero")
     ceilings = policy.get("budgets", {})
     if policy["profiles"][autonomy].get("require_budget_ceiling") and not any(
         ceilings.get(key) or run_budgets.get(key) for key in ("tokens", "usd")
@@ -2191,6 +2192,7 @@ def claim_task(project: Path, run_dir: Path, task_id: str, agent: str, lease_min
             raise TeamError(f"Task {task_id} belongs to stage {task['stage']}; the run is in {state['stage']}")
         if task["status"] != "ready":
             raise TeamError(f"Task {task_id} is {task['status']}, not ready")
+        budget_admission(project, state, f"claim {task_id}")
         builders = {builder for verified_id in task.get("verifies", []) for builder in task_builders(state["tasks"].get(verified_id, {}))}
         if agent in builders:
             raise TeamError(f"{agent} built work that {task_id} verifies; verification must be independent")
@@ -2368,9 +2370,12 @@ def parse_usage(values: list[str]) -> dict[str, float]:
             if not separator or key.strip() not in {"tokens", "usd"}:
                 raise TeamError(f"--usage takes tokens=N and/or usd=N, got '{part}'")
             try:
-                usage[key.strip()] = usage.get(key.strip(), 0.0) + float(amount)
+                number = float(amount)
             except ValueError as exc:
                 raise TeamError(f"--usage value is not a number: '{part}'") from exc
+            if not math.isfinite(number) or number < 0:
+                raise TeamError(f"--usage value must be a finite number of at least zero: '{part}'")
+            usage[key.strip()] = usage.get(key.strip(), 0.0) + number
     return usage
 
 
@@ -2431,16 +2436,23 @@ def transcript_usage(path: Path) -> dict[str, float]:
         raise TeamError(f"{path} holds no harness `result` message (expected Claude Code --output-format json or stream-json output)")
     last = results[-1]  # a session's result totals are cumulative; the last one is the whole session
 
+    def finite(value: Any, what: str) -> float:
+        number = float(value)
+        if not math.isfinite(number) or number < 0:
+            raise TeamError(f"{path}: the result message's {what} is not a finite amount of at least zero ({value!r})")
+        return number
+
     def token_sum(block: Any) -> float:
         if not isinstance(block, dict):
             return 0.0
-        return float(sum(value for key, value in block.items() if "token" in key.lower() and isinstance(value, (int, float))))
+        return float(sum(finite(value, key) for key, value in block.items()
+                         if "token" in key.lower() and isinstance(value, (int, float)) and not isinstance(value, bool)))
 
     per_model = last.get("modelUsage") or {}
     tokens = sum(token_sum(block) for block in per_model.values()) if isinstance(per_model, dict) else 0.0
     tokens = tokens or token_sum(last.get("usage"))
     cost = last.get("total_cost_usd")
-    usd = float(cost) if isinstance(cost, (int, float)) else 0.0
+    usd = finite(cost, "total_cost_usd") if isinstance(cost, (int, float)) and not isinstance(cost, bool) else 0.0
     if not tokens and not usd:
         raise TeamError(f"{path}: the result message carries no token or cost figures")
     return {"tokens": tokens, "usd": usd}
@@ -2508,7 +2520,8 @@ def complete_task(
             # Completion runs every declared check that has no passing record at this HEAD (all of
             # them with --run-checks), so "the checks pass" is always a record, never a claim.
             if run_checks or not check_is_current(check_record(task, check), head):
-                record = exec_command(project, run_dir, task_id, agent, [check], shell=True)
+                # Completing already-claimed work is recording, not new work: no budget admission.
+                record = exec_command(project, run_dir, task_id, agent, [check], shell=True, admit=False)
                 evidence = list(evidence) + [f"cmd:{record['id']}"]
     if not evidence:
         raise TeamError("Completion requires at least one --evidence value (file:, cmd:, commit:, url:, or note:)")
@@ -2556,7 +2569,7 @@ def complete_task(
 
 
 def exec_command(
-    project: Path, run_dir: Path, task_id: str, agent: str, command: list[str], shell: bool = False
+    project: Path, run_dir: Path, task_id: str, agent: str, command: list[str], shell: bool = False, admit: bool = True
 ) -> dict[str, Any]:
     """Run a command for a claimed task and record exit code, duration, HEAD, and output.
 
@@ -2572,6 +2585,8 @@ def exec_command(
         task = state["tasks"].get(task_id)
         if not task or task["status"] != "claimed" or task.get("claimed_by") != agent:
             raise TeamError(f"Task {task_id} is not claimed by {agent}")
+        if admit:
+            budget_admission(project, state, f"exec for {task_id}")
         level, rule = command_risk(policy, text)
         if rule is not None:
             verified = verified_view(state)
@@ -2715,6 +2730,26 @@ def budget_limit(budgets: dict[str, Any], state: dict[str, Any], metric: str) ->
     return min(values) if values else None
 
 
+def budget_admission(project: Path, state: dict[str, Any], action: str) -> None:
+    """New work starts only while token and USD allowance remains.
+
+    Metering records spend after it happened, so a session can cross a ceiling; from then on
+    `claim` and `exec` refuse until the human waives `budget:<metric>`. Status, metering, fail,
+    recover-leases, completion of claimed work, and every human decision keep working.
+    """
+    budgets = load_policy(project).get("budgets", {})
+    verified = verified_view(state)
+    for metric in ("tokens", "usd"):
+        limit = budget_limit(budgets, state, metric)
+        used = usage_total(state, metric)
+        if limit and used >= float(limit) and not verified.waiver(f"budget:{metric}"):
+            raise BlockedError(
+                f"Budget '{metric}' is spent ({used:g} of {float(limit):g}), so {action} would start more work. "
+                f"Status, usage metering, fail, and recover-leases still work; only the human raises the ceiling "
+                f"with `waive --requirement budget:{metric}`."
+            )
+
+
 def budget_check(project: Path, state: dict[str, Any], metric: str, used: float) -> None:
     """Checkpoint at the warn threshold, stop at the limit (unless the human waived it)."""
     budgets = load_policy(project).get("budgets", {})
@@ -2849,8 +2884,22 @@ def canonical(record: dict[str, Any]) -> str:
     return json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def verification_view_dir() -> Path | None:
+    """A worker's read-only copy of its run's binding and ledger (never a token).
+
+    The owner side exports it (`export-view`) and starts the worker with AGENTIC_TEAM_VIEW
+    pointing at it, so a worker with its own, empty AGENTIC_TEAM_HOME still sees the human's
+    real decisions instead of trusting an editable state.json.
+    """
+    value = os.environ.get("AGENTIC_TEAM_VIEW")
+    return Path(value).expanduser() if value else None
+
+
 def read_ledger(run_id: str) -> list[dict[str, Any]]:
-    path = ledger_path(run_id)
+    return read_ledger_file(ledger_path(run_id))
+
+
+def read_ledger_file(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         return []
     records = []
@@ -2896,10 +2945,21 @@ class VerifiedView:
     def __init__(self, state: dict[str, Any]) -> None:
         self.run_id = home_key(state) if state.get("run_id") else ""
         self.state_digest = state.get("owner_token_sha256")
-        binding = binding_path(self.run_id)
+        binding, ledger, self.source = binding_path(self.run_id), ledger_path(self.run_id), "home"
+        view = verification_view_dir()
+        if self.run_id and not binding.is_file() and view is not None:
+            binding, ledger, self.source = view / "runs" / f"{self.run_id}.json", view / "ledger" / f"{self.run_id}.jsonl", "view"
         self.bound = load_json(binding).get("owner_token_sha256") if binding.is_file() else None
-        self.enforced = self.bound is not None
-        self.records = read_ledger(self.run_id) if self.enforced else []
+        # Every v3 run carries the owner-key digest. Without its binding (a worker started with its
+        # own home and no view) state.json alone would vouch for decisions, so fail closed instead:
+        # nothing counts as approved, and gated commands refuse (assert_intact). A v2 run awaiting
+        # `migrate` has a digest but was never bound; it keeps the explicit legacy path.
+        modern = state.get("version") == VERSION or bool(state.get("run_uid"))
+        self.unreadable = self.bound is None and bool(self.state_digest) and bool(self.run_id) and modern
+        if self.unreadable:
+            self.source = "missing"
+        self.enforced = self.bound is not None or self.unreadable
+        self.records = read_ledger_file(ledger) if self.bound is not None else []
         self.chain_ok = True
         previous = "0" * 64
         for record in self.records:
@@ -2920,6 +2980,13 @@ class VerifiedView:
     def assert_intact(self) -> None:
         if not self.enforced:
             return
+        if self.unreadable:
+            raise TeamError(
+                f"Run {self.run_id} is bound to an owner key, but neither the owner home ({agentic_home()}) nor a "
+                "verification view (AGENTIC_TEAM_VIEW) holds its binding and ledger, so its decisions cannot be "
+                "verified. Gated commands are refused rather than trusting state.json. The owner side exports the "
+                "view (export-view --to <dir>) and starts the worker with AGENTIC_TEAM_VIEW=<dir>."
+            )
         if self.state_digest != self.bound:
             raise TeamError(
                 "Owner key mismatch: state.json no longer carries the owner key bound at init-run. "
@@ -2950,6 +3017,40 @@ class VerifiedView:
 
 def verified_view(state: dict[str, Any]) -> VerifiedView:
     return VerifiedView(state)
+
+
+def export_view(run_dir: Path, destination: Path) -> dict[str, Any]:
+    """Owner side: copy one run's binding and ledger, never a token, into a worker-readable view.
+
+    The layout mirrors the owner home (runs/<key>.json, ledger/<key>.jsonl) and a view.json
+    manifest records both digests, so the owner side can later tell whether the view was edited.
+    The view is only as trustworthy as the worker's inability to write it (an isolation matter).
+    """
+    state = load_state(run_dir)
+    key = home_key(state)
+    binding = binding_path(key)
+    if not binding.is_file():
+        raise TeamError(
+            f"No owner binding for run {state['run_id']} in {agentic_home()}: export the view as the owner, "
+            "with the owner's AGENTIC_TEAM_HOME."
+        )
+    destination = destination.expanduser().resolve()
+    copies = {destination / "runs" / f"{key}.json": binding, destination / "ledger" / f"{key}.jsonl": ledger_path(key)}
+    digests = {}
+    for target, source in copies.items():
+        data = source.read_bytes() if source.is_file() else b""
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(OSError):
+            os.chmod(target, 0o644)  # a previous export marked it read-only
+        temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+        temporary.write_bytes(data)
+        os.replace(temporary, target)
+        with contextlib.suppress(OSError):
+            os.chmod(target, 0o444)
+        digests[target.parent.name] = hashlib.sha256(data).hexdigest()
+    manifest = {"run": state["run_id"], "key": key, "exported_at": utcnow(), "binding_sha256": digests["runs"], "ledger_sha256": digests["ledger"]}
+    write_json_atomic(destination / "view.json", manifest)
+    return manifest
 
 
 def audit_verify(project: Path, run_dir: Path, token: str) -> list[str]:
@@ -4776,6 +4877,10 @@ def build_parser() -> argparse.ArgumentParser:
     complete.add_argument("--run-checks", action="store_true", help="Run the task's --check commands through exec first")
     complete.add_argument("--usage", action="append", default=[], help="Reported cost, e.g. tokens=12000,usd=0.40")
 
+    view = sub.add_parser("export-view", help="Owner side: export a run's binding and ledger (no tokens) as a worker's verification view")
+    add_common_run_args(view)
+    view.add_argument("--to", required=True, help="Directory the worker reads through AGENTIC_TEAM_VIEW")
+
     usage = sub.add_parser("usage", help="Record usage metered from a harness transcript (owner side; it counts against the ceilings)")
     add_common_run_args(usage)
     usage.add_argument("--transcript", required=True,
@@ -5096,6 +5201,9 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "complete":
                 complete_task(project, run_dir, args.task, args.agent, args.evidence, args.run_checks, parse_usage(args.usage))
                 print(f"Completed {args.task}")
+            elif args.command == "export-view":
+                manifest = export_view(run_dir, Path(args.to))
+                print(f"Exported the verification view for {manifest['run']} to {Path(args.to).expanduser().resolve()}")
             elif args.command == "usage":
                 record = ingest_usage(project, run_dir, Path(args.transcript), args.by, args.token, args.task)
                 print(f"{record['id']}: metered {record['tokens']:g} tokens and {record['usd']:g} USD from {Path(record['transcript']).name}")

@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import shutil
+import tempfile
 import unittest
+from unittest import mock
 
 from helpers import fresh_project, run_cli, team
 from test_regressions import task_args
@@ -163,6 +167,96 @@ class CheckpointRules(Base):
         team.claim_task(self.project, run, "REVIEW", "code-reviewer", 60)
         team.complete_task(self.project, run, "REVIEW", "code-reviewer", ["review notes"])
         self.assertEqual(team.advance_stage(self.project, run), "03_readiness")
+
+
+class VerificationViewTests(Base):
+    """A worker runs with its own empty AGENTIC_TEAM_HOME; decisions reach it only through the view."""
+
+    def as_worker(self, view: Path | None = None):
+        home = Path(tempfile.mkdtemp(prefix="worker-home-"))
+        self.addCleanup(shutil.rmtree, str(home), True)
+        environment = {key: value for key, value in os.environ.items() if key != "AGENTIC_TEAM_VIEW"}
+        environment["AGENTIC_TEAM_HOME"] = str(home)
+        if view is not None:
+            environment["AGENTIC_TEAM_VIEW"] = str(view)
+        return mock.patch.dict(os.environ, environment, clear=True)
+
+    def export(self, run: Path) -> Path:
+        view = Path(tempfile.mkdtemp(prefix="view-"))
+        self.addCleanup(shutil.rmtree, str(view), True)
+        team.export_view(run, view)
+        return view
+
+    def test_worker_home_without_a_view_refuses_gated_commands(self) -> None:
+        run = self.run_()
+        team.add_task(self.project, run, task_args("T1", "backend-engineer"))
+        with self.as_worker():
+            view = team.verified_view(team.load_state(run))
+            self.assertTrue(view.unreadable and view.enforced)
+            with self.assertRaises(team.TeamError) as raised:
+                team.claim_task(self.project, run, "T1", "backend-engineer", 60)
+            self.assertIn("AGENTIC_TEAM_VIEW", str(raised.exception))
+            with self.assertRaises(team.TeamError):
+                team.advance_stage(self.project, run)
+            with self.assertRaises(team.TeamError):
+                team.export_view(run, Path(tempfile.mkdtemp(prefix="nope-")))  # a worker has no binding to export
+            code, _, err = run_cli(self.project, "claim", "--project", str(self.project), "--task", "T1", "--agent", "backend-engineer")
+            self.assertEqual(code, 1)
+            self.assertIn("verification view", err)
+        team.claim_task(self.project, run, "T1", "backend-engineer", 60)  # the owner's home still works
+
+    def test_fabricated_state_approval_is_ignored_through_the_view(self) -> None:
+        run = self.run_()
+        checkpoint = self.gated_task(run)
+        view = self.export(run)
+        state = team.load_state(run)
+        for item in state["checkpoints"]:
+            if item["id"] == checkpoint:
+                item.update(status="approved", approved_by="Owner")
+        state["status"] = "active"
+        team.write_json_atomic(run / "state.json", state)
+        with self.as_worker(view):
+            self.assertEqual(team.verified_view(team.load_state(run)).source, "view")
+            with self.assertRaises(team.GateError):
+                team.claim_task(self.project, run, "SHIP", "devops-engineer", 60)
+        # A record appended to the view carries no owner MAC, and the export manifest no longer matches.
+        key = team.home_key(team.load_state(run))
+        ledger = view / "ledger" / f"{key}.jsonl"
+        os.chmod(ledger, 0o644)
+        records = team.read_ledger_file(ledger)
+        forged = {"seq": len(records) + 1, "time": team.utcnow(), "run": key, "action": "approve", "subject": checkpoint,
+                  "by": "Owner", "prev": team.record_hash(records[-1]) if records else "0" * 64, "mac": None}
+        with ledger.open("a", encoding="utf-8") as handle:
+            handle.write(team.canonical(forged) + "\n")
+        manifest = json.loads((view / "view.json").read_text(encoding="utf-8"))
+        self.assertNotEqual(manifest["ledger_sha256"], team.file_sha256(ledger), "the owner side can tell the view was edited")
+
+    def test_real_decisions_are_visible_through_the_view(self) -> None:
+        run = self.run_()
+        checkpoint = self.gated_task(run)
+        team.approve_checkpoint(self.project, run, checkpoint, "Owner", "ship it", self.token(run))
+        view = self.export(run)
+        with self.as_worker(view):
+            team.claim_task(self.project, run, "SHIP", "devops-engineer", 60)
+        other = fresh_project()
+        rejected = team.init_run(other, "Reject", "rej", "autonomous", "execute-only", "adaptive")
+        decision = team.create_checkpoint(other, rejected, "Vendor?", "A", "R2", "decision", details=DETAILS)
+        token = team.owner_token_file(team.load_state(rejected)).read_text(encoding="utf-8").strip()
+        team.reject_checkpoint(other, rejected, decision, "Owner", "no", token)
+        team.add_task(other, rejected, task_args("T1", "backend-engineer"))
+        view = self.export(rejected)
+        with self.as_worker(view):
+            state = team.load_state(rejected)
+            self.assertEqual(team.verified_view(state).checkpoint_status(next(item for item in state["checkpoints"] if item["id"] == decision)), "rejected")
+            with self.assertRaises(team.BlockedError):
+                team.claim_task(other, rejected, "T1", "backend-engineer", 60)
+
+    def test_runs_without_an_owner_key_keep_the_explicit_legacy_path(self) -> None:
+        legacy = {"run_id": "old", "checkpoints": [{"id": "CP-001", "status": "approved"}], "tasks": {}}
+        with self.as_worker():
+            view = team.verified_view(legacy)
+            self.assertFalse(view.enforced or view.unreadable)
+            self.assertEqual(view.checkpoint_status(legacy["checkpoints"][0]), "approved")
 
 
 class RiskModelTests(Base):

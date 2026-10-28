@@ -58,6 +58,10 @@ A denied call is a decision, not an obstacle: do not retry it or route around it
 - Claude Code's sandbox runs on macOS, Linux, and WSL2, not on native Windows. Enable it there.
 - On native Windows use WSL2, a dev container, or a separate OS account that cannot read the
   owner's home folder.
+- A supervised worker runs with its own empty `AGENTIC_TEAM_HOME` and reads decisions through
+  the exported `AGENTIC_TEAM_VIEW`. Removing the owner's variable does not isolate files from the
+  same OS user: the view is trustworthy only where the worker cannot write it, and the owner side
+  re-checks with `audit verify` after every attempt.
 - Never grant agents access to `~/.agentic-team` (or `AGENTIC_TEAM_HOME`): no allow rule, no
   mount into a container, no additional directory. Keep the owner token file outside every
   folder an agent can read.

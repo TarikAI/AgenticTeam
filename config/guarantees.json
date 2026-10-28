@@ -197,6 +197,24 @@
       ],
       "test": "test_unattended.UnattendedReleaseTests",
       "bypass": "The checks and the rollback command are what the task authors declared; work declared as a benign action (G04's bypass) looks low-risk; the human's stage-exit:06_release:<check> waivers cover the exit contract; actions taken without a task are invisible, as everywhere."
+    },
+    {
+      "id": "G21",
+      "statement": "A worker started with its own AGENTIC_TEAM_HOME sees human decisions only through the verification view the owner side exports (binding and ledger, no token); a v3 run with neither the home binding nor a view counts no decision in state.json and refuses gated commands.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_authority.VerificationViewTests",
+      "bypass": "The view is only as trustworthy as the worker's inability to write it; on the same OS user without isolation a worker could edit it, which the owner's audit verify (unsigned records) and the export digest detect afterwards."
+    },
+    {
+      "id": "G22",
+      "statement": "Once a token or USD ceiling is spent, claim and exec refuse new work until the human waives budget:<metric>, while status, metering, fail, recover-leases and human decisions keep working; usage figures that are not finite or are negative are refused.",
+      "enforced_by": [
+        "cli"
+      ],
+      "test": "test_orchestration.MetricsAndBudgetTests.test_spent_budget_stops_new_work_but_not_recovery",
+      "bypass": "Spend inside a running harness session is metered only after the session ends; the ceiling stops the next command, not the session."
     }
   ]
 }
