@@ -209,6 +209,7 @@ runner drives the six team scenarios against installed CLIs.
 - [Harness security and threat model](protocols/harness-security.md)
 - [Runtime CLI reference](docs/cli.md)
 - [Autonomy, Fusion, and progressive context](docs/operating-modes.md)
+- [Supervisor design: the unattended execution service, not yet built](docs/supervisor-design.md)
 - [Running the team on local LLMs](docs/local-llms.md)
 - [Shared protocols](protocols/)
 - [Third-party inspiration and licenses](THIRD_PARTY_NOTICES.md)
