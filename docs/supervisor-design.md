@@ -70,8 +70,9 @@ whose id already exists in the inbox or in `jobs/` is skipped, so a poller can r
 
 ## 4. Commands
 
-All take `--project` (an installed project) and are exposed as `agentic_team.py supervise ...`
-once the helper is registered like `findings-to-tasks`.
+All take `--project` (an installed project). Once the helper is registered the way
+`findings-to-tasks` is, the bus CLI exposes them under a `supervise` subcommand; until then no
+such command exists.
 
 | Command | Does |
 |---|---|
