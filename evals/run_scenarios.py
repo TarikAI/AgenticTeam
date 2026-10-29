@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -43,9 +44,10 @@ class ScenarioFailure(AssertionError):
 
 
 def expand(value: str, context: dict[str, str]) -> str:
-    for key, replacement in context.items():
-        value = value.replace(key, replacement)
-    return value
+    # One pass, longest token first: an expanded path is never scanned again, so the RUN in
+    # a Windows short name such as RUNNER~1 stays put.
+    tokens = "|".join(re.escape(key) for key in sorted(context, key=len, reverse=True))
+    return re.sub(tokens, lambda match: context[match.group(0)], value) if context else value
 
 
 def run_scenario(spec: dict) -> list[str]:

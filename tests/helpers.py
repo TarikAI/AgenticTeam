@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from unittest import mock
 
 _HOME = tempfile.mkdtemp(prefix="agentic-home-")
 os.environ["AGENTIC_TEAM_HOME"] = _HOME
@@ -69,7 +70,9 @@ def compile_snapshot(harness: str) -> dict[str, str]:
     """Compile the fixed golden roster for one harness; return {relative path: content}."""
     target = Path(tempfile.mkdtemp(prefix="agentic-golden-"))
     try:
-        record = team.install_team(ROOT, target, harness, "full-company", [], GOLDEN_ROSTER)
+        # hook_python() probes the host (python on Windows, python3 on POSIX); pin it so the golden is portable.
+        with mock.patch.object(team, "hook_python", return_value="python"):
+            record = team.install_team(ROOT, target, harness, "full-company", [], GOLDEN_ROSTER)
         snapshot: dict[str, str] = {}
         for relative in record["generated_files"]:
             path = target / relative
