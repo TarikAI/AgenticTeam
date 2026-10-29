@@ -1413,6 +1413,55 @@ class OrphanReservationTests(SupervisorBase):
         self.assertEqual(self.sup.tick()["exit_code"], sup.EXIT_OK)
 
 
+class IsolationBindingTests(SupervisorBase):
+    """S5: the isolation proof covers the whole effective boundary; any change invalidates it, for frozen jobs too."""
+
+    def stub(self) -> list[str]:
+        script = scratch("boundary-") / "boundary.py"
+        script.write_text("import subprocess, sys\nargs = sys.argv[1:]\nargs[3] = args[3] + '.hidden'\nargs[5] = args[5] + '-not-there'\n"
+                          "raise SystemExit(subprocess.call(args))\n", encoding="utf-8")
+        return [sys.executable, str(script)]
+
+    def verified(self) -> dict:
+        self.sup.configure(isolation={"prefix": self.prefix, "python": sys.executable})
+        self.assertTrue(self.sup.verify_isolation()["verified"])
+        return self.sup.store.config()
+
+    def test_any_boundary_change_invalidates_the_proof(self) -> None:
+        self.prefix = self.stub()
+        changes = {"view_dir": str(scratch("view-")), "worker_home": str(scratch("worker-home-")), "env_passthrough": ["SOME_TOKEN"],
+                   "executable": [sys.executable, "-c", "pass"], "isolation": {"python": "python3-elsewhere"}}
+        for key, value in changes.items():
+            with self.subTest(change=key):
+                self.verified()
+                config = self.sup.configure(**{key: value})
+                self.assertFalse(config["isolation"]["verified"], f"changing {key} kept the old proof")
+                self.assertTrue(any("isolation" in item for item in self.sup.isolation_problems(config)))
+        config = self.verified()
+        self.assertEqual(self.sup.isolation_problems(config), [])
+        with mock.patch.dict(os.environ, {"AGENTIC_TEAM_HOME": str(scratch("moved-home-"))}):
+            self.assertTrue(self.sup.isolation_problems(config), "another owner home is another boundary")
+        with mock.patch.object(sup.sys, "executable", str(Path(sys.executable).with_name("other-python.exe"))):
+            self.assertTrue(self.sup.isolation_problems(config), "another interpreter is another boundary")
+
+    def test_a_frozen_job_does_not_launch_on_a_stale_proof(self) -> None:
+        self.prefix = self.stub()
+        self.sup.pause(None, "freeze first")
+        self.sup.configure(adapter="claude", executable=[sys.executable, "-c", "print('--help')"])
+        self.verified()
+        self.enqueue("paid")
+        self.sup.tick()
+        self.assertEqual(self.sup.isolation_problems(self.job("paid")["config"]), [])
+        self.sup.configure(view_dir=str(scratch("new-view-")))
+        self.assertTrue(self.sup.isolation_problems(self.job("paid")["config"]), "the frozen job kept a proof the store no longer holds")
+        self.sup.resume(None)
+        self.sup.tick()
+        job = self.job("paid")
+        self.assertEqual((job["status"], job["hold"]["kind"]), ("needs-human", "config"))
+        self.assertIn("isolation", job["hold"]["reason"])
+        self.assertIsNone(job["run_id"])
+
+
 class OwnerCommandTests(SupervisorBase):
     """A5 (supervisor half): generated owner actions run the owner copy by absolute path with explicit context."""
 

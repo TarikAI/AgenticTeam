@@ -93,7 +93,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "command": [],
     "allowed_tools": list(DEFAULT_TOOLS),
     "extra_allowed_tools": [],
-    "isolation": {"prefix": [], "python": "python", "verified": False, "verified_at": None, "prefix_sha256": None},
+    "isolation": {"prefix": [], "python": "python", "verified": False, "verified_at": None, "prefix_sha256": None, "boundary_sha256": None},
     "env_passthrough": [],
     "view_dir": None,
     "worker_home": None,
@@ -958,8 +958,9 @@ class Supervisor:
                     config[key] = {**config[key], **value}
                 else:
                     config[key] = value
-            if "isolation" in changes and changes["isolation"] and "prefix" in changes["isolation"]:
-                config["isolation"].update(verified=False, verified_at=None, prefix_sha256=None)
+            if config["isolation"].get("boundary_sha256") != self.boundary_digest(config):
+                # Any change to what the proof covered (prefix, interpreters, paths, passthrough, owner home) voids it.
+                config["isolation"].update(verified=False, verified_at=None, prefix_sha256=None, boundary_sha256=None)
             problems = config_problems(config)
             if problems:
                 raise UsageProblem("invalid supervisor configuration:\n- " + "\n- ".join(problems))
@@ -1214,7 +1215,7 @@ class Supervisor:
 
     def launch(self, job: dict[str, Any], control: dict[str, Any], blockers: list[str]) -> None:
         cfg = job["config"]
-        problems = launch_problems(cfg)
+        problems = self.launch_problems(cfg)
         if problems:
             self.hold_saved(job, "config", "; ".join(problems))
             return
@@ -1314,10 +1315,47 @@ class Supervisor:
     def view_dir(self, cfg: dict[str, Any]) -> Path:
         return Path(cfg["view_dir"]).expanduser().resolve() if cfg.get("view_dir") else self.store.root / "view"
 
+    def worker_home_path(self, cfg: dict[str, Any]) -> Path:
+        return Path(cfg["worker_home"]).expanduser().resolve() if cfg.get("worker_home") else self.store.root / "worker-home"
+
     def worker_home(self, cfg: dict[str, Any]) -> Path:
-        path = Path(cfg["worker_home"]).expanduser().resolve() if cfg.get("worker_home") else self.store.root / "worker-home"
+        path = self.worker_home_path(cfg)
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    def boundary_digest(self, cfg: dict[str, Any]) -> str:
+        """What an isolation proof covers: every path, interpreter, and setting that decides what a worker can reach.
+
+        The owner store and home, the view and worker home, the boundary prefix and the Python inside it, the
+        worker executable, the variables passed through the credential filter, and the interpreter that runs
+        the wrapper. A proof made under one of these says nothing about another.
+        """
+        isolation = cfg.get("isolation") or {}
+        covered = {
+            "prefix": list(isolation.get("prefix") or []), "python": isolation.get("python"), "executable": list(cfg.get("executable") or []),
+            "env_passthrough": sorted(cfg.get("env_passthrough") or []), "store": canonical_path(self.store.root),
+            "home": canonical_path(team.agentic_home()), "view": canonical_path(self.view_dir(cfg)),
+            "worker_home": canonical_path(self.worker_home_path(cfg)), "interpreter": canonical_path(sys.executable),
+        }
+        return sha256_bytes(canonical(covered).encode("utf-8"))
+
+    def isolation_problems(self, cfg: dict[str, Any]) -> list[str]:
+        """Why a (possibly frozen) configuration has no current isolation proof; empty when it has one."""
+        isolation = cfg.get("isolation") or {}
+        current = self.boundary_digest(cfg)
+        if not isolation.get("verified") or isolation.get("boundary_sha256") != current:
+            return ["paid workers need a verified isolation boundary for exactly this configuration: configure --isolation-prefix (a restricted "
+                    "account or container that cannot read the owner's home), then `supervise verify-isolation`; the proof covers the owner "
+                    "store and home, the view, the worker home, the prefix and its Python, the executable, the environment passthrough, and the "
+                    "interpreter, and any change to them needs a new proof; removing an environment variable is not isolation"]
+        stored = self.store.config().get("isolation") or {}
+        if not stored.get("verified") or stored.get("boundary_sha256") != current:
+            return ["the isolation proof this job froze is no longer the store's current proof (the boundary configuration changed since); "
+                    "verify the current configuration, then resume the job with --refresh-config"]
+        return []
+
+    def launch_problems(self, cfg: dict[str, Any]) -> list[str]:
+        return launch_problems(cfg, self.isolation_problems(cfg) if cfg.get("adapter") == "claude" else [])
 
     def write_brief(self, job: dict[str, Any]) -> None:
         run_dir = self.run_dir(job)
@@ -2033,7 +2071,7 @@ class Supervisor:
             if kind == "unknown-usage" and attempt:
                 self.settle_usage(job, attempt, control, usage_transcript, charge_reservation)
             elif kind == "config" and not refresh_config:
-                problems = launch_problems(copy.deepcopy(job["config"]))
+                problems = self.launch_problems(copy.deepcopy(job["config"]))
                 if problems:
                     raise SupervisorError("the job's frozen configuration still cannot launch: " + "; ".join(problems)
                                           + " (resume with --refresh-config to take the current configuration)")
@@ -2240,8 +2278,9 @@ class Supervisor:
                      "target = os.path.join(sys.argv[3], '.isolation-probe')\ntry:\n    open(target, 'w').close()\nexcept OSError:\n"
                      "    print('AGENTIC-VIEW-READONLY')\nelse:\n    os.remove(target)\n    print('AGENTIC-VIEW-WRITABLE')\n")
             argv = [*config["isolation"]["prefix"], config["isolation"]["python"], "-c", probe, str(sentinel), marker, str(view_dir)]
+            env = worker_environment(config, view_dir, self.worker_home(config), self.store.root, "isolation-probe")
             try:
-                result = subprocess.run(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL)
+                result = subprocess.run(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL, env=env)
                 output = result.stdout + result.stderr
             except (OSError, subprocess.SubprocessError) as exc:
                 output = f"probe failed to run: {exc}"
@@ -2251,7 +2290,8 @@ class Supervisor:
             verified = ("AGENTIC-ISOLATION-DENIED" in output and "AGENTIC-ISOLATION-READ" not in output
                         and "AGENTIC-VIEW-READONLY" in output and "AGENTIC-VIEW-WRITABLE" not in output)
             config["isolation"].update(verified=verified, verified_at=now_iso() if verified else None,
-                                       prefix_sha256=sha256_bytes(canonical(config["isolation"]["prefix"]).encode("utf-8")) if verified else None)
+                                       prefix_sha256=sha256_bytes(canonical(config["isolation"]["prefix"]).encode("utf-8")) if verified else None,
+                                       boundary_sha256=self.boundary_digest(config) if verified else None)
             write_json(self.store.config_path, config)
             self.store.log("isolation-verified" if verified else "isolation-refused", prefix=config["isolation"]["prefix"])
             return {"verified": verified, "prefix": config["isolation"]["prefix"],
@@ -2369,8 +2409,12 @@ def config_problems(config: dict[str, Any]) -> list[str]:
     return problems
 
 
-def launch_problems(cfg: dict[str, Any]) -> list[str]:
-    """What keeps a job from starting a (possibly paid) worker; checked at every launch."""
+def launch_problems(cfg: dict[str, Any], isolation: list[str] | None = None) -> list[str]:
+    """What keeps a job from starting a (possibly paid) worker; checked at every launch.
+
+    `isolation` is the supervisor's verdict on the boundary proof (Supervisor.isolation_problems), which
+    needs the store and owner context; without it only the prefix digest is compared.
+    """
     problems = config_problems({**DEFAULT_CONFIG, **cfg})
     if not cfg["run_budget"].get("usd"):
         problems.append("no run budget: `supervise configure --budget usd=N` (every run needs an explicit USD ceiling)")
@@ -2379,13 +2423,12 @@ def launch_problems(cfg: dict[str, Any]) -> list[str]:
     if cfg["adapter"] == "command" and not cfg["command"]:
         problems.append("the command adapter needs a worker command (`--worker-command-json`)")
     if cfg["adapter"] == "claude":
-        isolation = cfg["isolation"]
-        prefix_digest = sha256_bytes(canonical(isolation["prefix"]).encode("utf-8"))
-        if not isolation.get("verified") or isolation.get("prefix_sha256") != prefix_digest:
-            problems.append(
-                "paid workers need a verified isolation boundary: configure --isolation-prefix (a restricted account or container "
-                "that cannot read the owner's home), then `supervise verify-isolation`; removing an environment variable is not isolation"
-            )
+        if isolation is None:
+            prefix_digest = sha256_bytes(canonical(cfg["isolation"]["prefix"]).encode("utf-8"))
+            if not cfg["isolation"].get("verified") or cfg["isolation"].get("prefix_sha256") != prefix_digest:
+                isolation = ["paid workers need a verified isolation boundary: configure --isolation-prefix, then `supervise verify-isolation`"]
+        if isolation:
+            problems.extend(isolation)
         else:
             help_text = claude_help(cfg)
             if help_text is None:
