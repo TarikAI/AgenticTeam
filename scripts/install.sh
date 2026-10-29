@@ -55,13 +55,14 @@ fi
 
 [ -n "$TARGET" ] || { echo "Provide --target <project path>, or use --list." >&2; exit 2; }
 
+# ${PROFILE_ARGS[@]+...}: bash before 4.4 (macOS ships 3.2) calls an empty array unbound under set -u.
 if [ -n "$AGENTS" ]; then
   set --
   old_ifs=$IFS
   IFS=','
   for agent in $AGENTS; do set -- "$@" --only-agent "$agent"; done
   IFS=$old_ifs
-  $PY_BIN "$CLI" --source "$ROOT" install "$TARGET" --harness "$HARNESS" "${PROFILE_ARGS[@]}" "$@"
+  $PY_BIN "$CLI" --source "$ROOT" install "$TARGET" --harness "$HARNESS" ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} "$@"
 else
-  $PY_BIN "$CLI" --source "$ROOT" install "$TARGET" --harness "$HARNESS" --preset "$PRESET" "${PROFILE_ARGS[@]}"
+  $PY_BIN "$CLI" --source "$ROOT" install "$TARGET" --harness "$HARNESS" --preset "$PRESET" ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"}
 fi
