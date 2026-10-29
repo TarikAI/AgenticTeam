@@ -2590,12 +2590,16 @@ def usage_total(state: dict[str, Any], metric: str) -> float:
     return max(float(state.get("usage", {}).get(metric, 0.0)), float(state.get("usage_metered", {}).get(metric, 0.0)))
 
 
-def transcript_usage(path: Path) -> dict[str, float]:
+def transcript_usage(path: Path, require_usd: bool = False) -> dict[str, float]:
     """Tokens and USD as the harness itself reported them.
 
     Reads the last `result` message of Claude Code's `--output-format stream-json` (one JSON
     object per line) or `json` output: `total_cost_usd`, and tokens from the per-model
     `modelUsage` block (which covers subagents too), falling back to `usage`.
+
+    With `require_usd` (a caller that settles USD, such as the supervisor), the cost must be a
+    JSON number: a missing, null, string, or boolean `total_cost_usd` is unknown, never zero.
+    A reported numeric 0 is a genuine zero.
     """
     text = path.read_text(encoding="utf-8", errors="replace")
     results: list[dict[str, Any]] = []
@@ -2636,8 +2640,11 @@ def transcript_usage(path: Path) -> dict[str, float]:
     tokens = sum(token_sum(block) for block in per_model.values()) if isinstance(per_model, dict) else 0.0
     tokens = tokens or token_sum(last.get("usage"))
     cost = last.get("total_cost_usd")
-    usd = finite(cost, "total_cost_usd") if isinstance(cost, (int, float)) and not isinstance(cost, bool) else 0.0
-    if not tokens and not usd:
+    numeric = isinstance(cost, (int, float)) and not isinstance(cost, bool)
+    if require_usd and not numeric:
+        raise TeamError(f"{path}: the result message reports no numeric total_cost_usd ({cost!r}), so its USD cost is unknown")
+    usd = finite(cost, "total_cost_usd") if numeric else 0.0
+    if not tokens and not usd and not require_usd:
         raise TeamError(f"{path}: the result message carries no token or cost figures")
     return {"tokens": tokens, "usd": usd}
 

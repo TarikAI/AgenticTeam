@@ -20,6 +20,7 @@ import copy
 import datetime as dt
 import errno
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -92,7 +93,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "command": [],
     "allowed_tools": list(DEFAULT_TOOLS),
     "extra_allowed_tools": [],
-    "isolation": {"prefix": [], "python": "python", "verified": False, "verified_at": None, "prefix_sha256": None},
+    "isolation": {"prefix": [], "python": "python", "verified": False, "verified_at": None, "prefix_sha256": None, "boundary_sha256": None},
     "env_passthrough": [],
     "view_dir": None,
     "worker_home": None,
@@ -106,6 +107,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
 JOB_CONFIG_EXCLUDE = {"schema", "github", "poll_seconds"}
 OWNER_COPY_FILES = ("agentic_team.py", "agentic_supervisor.py")
 PLACEHOLDERS = {"python": "p", "project": "p", "run": "r", "run_dir": "d", "brief": "b", "attempt": "a", "job": "j"}
+FAILURE_RECORD_TRIES = 3  # ticks that retry a `fail` the runtime refused before the job holds for the owner
+USAGE_TOLERANCE = 1e-5
 
 
 class SupervisorError(Exception):
@@ -228,6 +231,23 @@ def create_exclusive(path: Path, data: dict[str, Any]) -> bool:
         handle.flush()
         os.fsync(handle.fileno())
     return True
+
+
+def canonical_path(path: Path | str) -> str:
+    """One spelling per directory: resolved (symlinks and junctions followed) and case-folded where the OS folds case."""
+    return os.path.normcase(str(Path(path).expanduser().resolve()))
+
+
+def same_directory(recorded: str | None, path: Path) -> bool:
+    """Whether a recorded path names this directory, under any alias the OS can tell apart from another directory."""
+    if not recorded:
+        return False
+    if canonical_path(recorded) == canonical_path(path):
+        return True
+    try:
+        return os.path.samefile(recorded, path)
+    except OSError:
+        return False
 
 
 def touch(path: Path) -> None:
@@ -626,6 +646,11 @@ def issue_event_id(host: str, repo: str, number: int) -> str:
     return f"gh-{stem}-{int(number)}-{suffix}"
 
 
+def poll_key(host: str, repo: str, label: str) -> str:
+    """The canonical identity of one polled source (host and repository names are case-insensitive; labels are kept as given)."""
+    return f"{str(host).strip().lower().rstrip('/')}/{str(repo).strip().lower()}#{label}"
+
+
 def neutralize(text: str) -> str:
     """Untrusted text cannot fill the runtime's template markers or plant a TODO that blocks a stage exit."""
     return re.sub(r"\bTODO\b", "to-do", text.replace("{{", "{ {").replace("}}", "} }"))
@@ -692,23 +717,66 @@ class Store:
         self.digest_path, self.log_path, self.lock_path = self.root / "digest.json", self.root / "log.jsonl", self.root / ".lock"
         self.lock_info, self.bin = self.root / ".lock.info", self.root / "bin"
         self.poll_path = self.root / "poll-github.json"
+        self.binding_path = self.public / "binding.json"
+        self.meta: dict[str, Any] = {}
         self._held = 0
         self.log_failures = 0
         self.lock_timeout = 30.0
 
-    def ensure(self) -> None:
+    def ensure(self, check_binding: bool = True) -> None:
+        """Create the store if needed, prove it belongs to this checkout, and that the checkout is bound to it."""
+        meta = read_optional(self.meta_path)
+        if meta is not None and meta.get("schema") != SCHEMA:
+            raise Blocked(f"{self.meta_path} has schema {meta.get('schema')!r}; this supervisor reads schema {SCHEMA}. Upgrade the supervisor or move the store aside.")
+        if meta is not None and not same_directory(meta.get("project"), self.project):
+            raise Blocked(f"the owner store {self.root} belongs to project {meta.get('project')}, not {self.project}; each checkout has its own "
+                          "store (omit --store for the default one, or choose an unused directory)")
         for folder in (self.inbox, self.quarantine, self.jobs_dir, self.sources, self.attempts):
             folder.mkdir(parents=True, exist_ok=True)
-        meta = read_optional(self.meta_path)
         if meta is None:
-            write_json(self.meta_path, {"schema": SCHEMA, "project": str(self.project), "created_at": now_iso()})
-        elif meta.get("schema") != SCHEMA:
-            raise Blocked(f"{self.meta_path} has schema {meta.get('schema')!r}; this supervisor reads schema {SCHEMA}. Upgrade the supervisor or move the store aside.")
+            meta = {"schema": SCHEMA, "project": str(self.project), "store_id": secrets.token_hex(16), "created_at": now_iso()}
+            write_json(self.meta_path, meta)
+        elif not meta.get("store_id"):
+            meta["store_id"] = secrets.token_hex(16)  # a store from before checkout binding: give it an identity once
+            write_json(self.meta_path, meta)
+        self.meta = meta
+        if check_binding:
+            self.check_binding()
         if read_optional(self.control_path) is None:
             write_json(self.control_path, {"schema": SCHEMA, "paused": False, "pause_reason": None, "checkout": {"job": None, "since": None},
                                            "allowance": {"usd_total": 0.0, "usd_spent": 0.0, "reservations": {}, "charges": {}}, "history": []})
         if not all((self.bin / name).is_file() for name in OWNER_COPY_FILES):
             self.install_owner_copy()
+
+    def binding(self) -> dict[str, Any] | None:
+        """The checkout's record of the one owner store allowed to run workers in it (None when there is none yet)."""
+        try:
+            return read_json(self.binding_path, "checkout binding")
+        except FileNotFoundError:
+            return None
+        except SupervisorError as exc:
+            raise Blocked(f"{exc}; `supervise bind --reason ...` from the owner store that should own this checkout rewrites it") from exc
+
+    def check_binding(self) -> None:
+        """One canonical checkout, one store: a second store (another --store, owner home, or path alias) launches nothing.
+
+        The binding lives in the checkout itself, so every spelling of the checkout's path reaches the same
+        record; the first store to run claims it with an exclusive create, and moving it is `supervise bind`.
+        """
+        binding = self.binding()
+        if binding is None:
+            record = {"schema": SCHEMA, "project": str(self.project), "store": str(self.root), "store_id": self.meta["store_id"],
+                      "bound_at": now_iso(), "history": []}
+            if create_exclusive(self.binding_path, record):
+                return
+            binding = self.binding() or {}
+        if binding.get("store_id") == self.meta["store_id"]:
+            return
+        raise Blocked(
+            f"this checkout ({self.project}) is bound to the owner store {binding.get('store')}, not {self.root}; one checkout has one "
+            "store, so this one starts no worker here. Use that store (--store), or, once it is idle, move the binding on purpose with "
+            "`supervise bind --reason \"...\"` run against the new store"
+        )
 
     def install_owner_copy(self) -> Path:
         """Copy the runtime and the supervisor into the owner store, outside the checkout a worker can write.
@@ -724,9 +792,10 @@ class Store:
             temporary.write_bytes(data)
             os.replace(temporary, self.bin / name)
             digests[name] = sha256_bytes(data)
-        meta = read_optional(self.meta_path) or {"schema": SCHEMA, "project": str(self.project), "created_at": now_iso()}
+        meta = read_optional(self.meta_path) or {"schema": SCHEMA, "project": str(self.project), "store_id": secrets.token_hex(16), "created_at": now_iso()}
         meta["owner_copy"] = {"source": str(HERE), "sha256": digests, "time": now_iso()}
         write_json(self.meta_path, meta)
+        self.meta = meta
         return self.bin / "agentic_supervisor.py"
 
     @contextlib.contextmanager
@@ -895,8 +964,9 @@ class Supervisor:
                     config[key] = {**config[key], **value}
                 else:
                     config[key] = value
-            if "isolation" in changes and changes["isolation"] and "prefix" in changes["isolation"]:
-                config["isolation"].update(verified=False, verified_at=None, prefix_sha256=None)
+            if config["isolation"].get("boundary_sha256") != self.boundary_digest(config):
+                # Any change to what the proof covered (prefix, interpreters, paths, passthrough, owner home) voids it.
+                config["isolation"].update(verified=False, verified_at=None, prefix_sha256=None, boundary_sha256=None)
             problems = config_problems(config)
             if problems:
                 raise UsageProblem("invalid supervisor configuration:\n- " + "\n- ".join(problems))
@@ -932,11 +1002,19 @@ class Supervisor:
             if index:
                 if index["digest"] != digest:
                     raise ConflictError(f"source {event['source_key']} was accepted as job {index['job']} with a different payload; the job is not replaced")
+                if self.repair_requeue(index):
+                    return ("requeued" if requeue else "duplicate"), index["job"]
                 previous = read_optional_quiet(self.store.job_path(index["job"])) or {}
                 if not requeue or previous.get("status") not in {"cancelled", "failed"}:
                     return "duplicate", index["job"]
                 number = len(index.get("history", [])) + 2
                 event = {**event, "id": safe_id(f"{event['id'][:70]}-r{number}")}
+                if previous.get("status") == "failed" and not previous.get("failure_acknowledged"):
+                    self.acknowledge_failure(previous, f"the owner requeued its source as job {event['id']}")
+                    self.store.save_job(previous)
+                # The index names the new job only once everything needed to recreate its event exists (the previous
+                # job's record and the new id), so an interruption after any write leaves a requeue that the next
+                # enqueue or tick completes (repair_requeue), never a reference to nothing.
                 write_json(index_path, {**index, "job": event["id"], "history": index.get("history", []) + [index["job"]], "time": now_iso()})
                 write_json(self.store.inbox / f"{event['id']}.json", event)
                 self.store.log("requeued", job=event["id"], previous=previous.get("id"), source=event["source_key"])
@@ -956,6 +1034,32 @@ class Supervisor:
             write_json(path, event)
             self.store.log("enqueued", job=event["id"], source=event["source_key"])
             return "queued", event["id"]
+
+    def repair_requeue(self, index: dict[str, Any]) -> bool:
+        """Recreate the waiting event of a requeue interrupted after its index write; True when one was recreated."""
+        target, history = index.get("job"), index.get("history") or []
+        if not history or not target or self.store.job_path(target).exists() or (self.store.inbox / f"{target}.json").exists():
+            return False
+        previous = read_optional_quiet(self.store.job_path(history[-1]))
+        if not previous or not isinstance(previous.get("event"), dict):
+            raise SupervisorError(f"source {index.get('source_key')} names requeued job {target}, which has no record or waiting event, and the "
+                                  f"previous job {history[-1]} that would recreate it is unreadable; restore that record")
+        write_json(self.store.inbox / f"{target}.json", {**previous["event"], "id": target})
+        self.store.log("requeue-repaired", job=target, previous=history[-1])
+        return True
+
+    def repair_requeues(self) -> list[str]:
+        """At every tick: complete any requeue an interruption left between its index and its event."""
+        problems = []
+        for path in sorted(self.store.sources.glob("*.json")) if self.store.sources.is_dir() else []:
+            index = read_optional_quiet(path)
+            if not index or not index.get("history"):
+                continue
+            try:
+                self.repair_requeue(index)
+            except SupervisorError as exc:
+                problems.append(str(exc))
+        return problems
 
     def quarantine(self, path: Path, reason: str) -> None:
         target = self.store.quarantine / f"{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(4)}.json"
@@ -1031,7 +1135,7 @@ class Supervisor:
                 if job["status"] in ACTIVE or unsettled(job):
                     self.reconcile(job, control)
             self.store.save_control(control)
-            blockers: list[str] = list(problems)
+            blockers: list[str] = list(problems) + self.orphan_blockers(control) + self.repair_requeues()
             try:
                 self.intake(config)
             except SupervisorError as exc:
@@ -1048,12 +1152,25 @@ class Supervisor:
             return digest
 
     def repair(self, control: dict[str, Any], jobs: list[dict[str, Any]]) -> None:
-        """Make control.json agree with the job records after a crash between their two writes."""
+        """Make control.json agree with the job records after a crash between their two writes.
+
+        Only a readable record can release what control.json holds for it. A reservation or the checkout
+        held by a job whose record is missing, moved, or torn stays held as an orphan-recovery hold: the
+        attempt may have spent money, and its worker may still be writing, until the owner shows otherwise.
+        """
+        known = {job["id"] for job in jobs}
         wanted: dict[str, float] = {}
         for job in jobs:
             for attempt in job.get("attempts", []):
                 if attempt.get("usage", {}).get("state") in {"pending", "unknown"} and attempt.get("status") != "abandoned":
                     wanted[f"{job['id']}/{attempt['id']}"] = float(attempt.get("reserved_usd") or 0.0)
+        earlier = control.get("orphans") or {}
+        orphans: dict[str, dict[str, Any]] = {}
+        for key, amount in (control["allowance"].get("reservations") or {}).items():
+            job_id = key.split("/", 1)[0]
+            if job_id not in known:
+                wanted[key] = float(amount)
+                orphans.setdefault(job_id, {"reservations": {}, "checkout": False})["reservations"][key] = float(amount)
         control["allowance"]["reservations"] = wanted
         charges = dict(control["allowance"].get("charges") or {})
         for job in jobs:
@@ -1065,8 +1182,47 @@ class Supervisor:
         for job in jobs:
             job["charged_usd"] = charged(job)
         holders = [job["id"] for job in jobs if job.get("holds_checkout")]
-        if control["checkout"].get("job") not in holders:
+        held_by = control["checkout"].get("job")
+        if held_by and held_by not in known:
+            orphans.setdefault(held_by, {"reservations": {}, "checkout": False})["checkout"] = True
+        elif held_by not in holders:
             control["checkout"] = {"job": holders[0] if holders else None, "since": now_iso() if holders else None}
+        for job_id, entry in orphans.items():
+            with contextlib.suppress(EventError):
+                entry["record"] = "unreadable" if self.store.job_path(job_id).exists() else "missing"
+            entry["since"] = (earlier.get(job_id) or {}).get("since") or now_iso()
+            entry["attempts"] = self.attempt_receipts(job_id)
+            if job_id not in earlier:
+                self.store.log("orphan-hold", job=job_id, record=entry.get("record"), reservations=sorted(entry["reservations"]))
+        control["orphans"] = orphans
+
+    def attempt_receipts(self, job_id: str) -> list[dict[str, Any]]:
+        """What the attempt folders of a job say, without its record: which attempts ended, which were claimed by whom."""
+        found = []
+        with contextlib.suppress(EventError, OSError):
+            folder = self.store.attempts / safe_id(job_id)
+            for path in sorted(folder.iterdir()) if folder.is_dir() else []:
+                claim = read_optional_quiet(path / "claim")
+                found.append({"id": path.name, "exit": (path / "exit.json").is_file(),
+                              "claimed_by": (claim or {}).get("by") or ("unreadable" if (path / "claim").exists() else None)})
+        return found
+
+    def orphan_blockers(self, control: dict[str, Any]) -> list[str]:
+        lines = []
+        for job_id, entry in sorted((control.get("orphans") or {}).items()):
+            held = [f"{key} {amount:g} USD" for key, amount in sorted(entry.get("reservations", {}).items())]
+            if entry.get("checkout"):
+                held.insert(0, "the checkout")
+            live = [item["id"] for item in entry.get("attempts", []) if item.get("claimed_by") == "wrapper" and not item.get("exit")]
+            recover = self.owner_command("supervisor", "recover-orphan", "--job", job_id, "--disposition", "...")
+            lines.append(
+                f"orphan-recovery hold: the record of job {job_id} is {entry.get('record', 'missing')}, but control.json still holds "
+                f"{', '.join(held)}; nothing launches until it is accounted for"
+                + (f" (attempt(s) {', '.join(live)} have no exit receipt and may still be running)" if live else "")
+                + f". Restore {self.store.job_path(job_id) if EVENT_ID.match(job_id) else job_id} and serve again, or charge its reservations "
+                f"and settle the checkout with `{recover}`"
+            )
+        return lines
 
     def schedule(self, control: dict[str, Any], jobs: list[dict[str, Any]], blockers: list[str]) -> None:
         by_id = {job["id"]: job for job in jobs}
@@ -1085,7 +1241,7 @@ class Supervisor:
             if holder["status"] in TERMINAL:
                 blockers.append(
                     f"the checkout is reserved by {holder['status']} job {holder['id']}, which left uncommitted changes; inspect them, then "
-                    f"`supervise release --job {holder['id']} --disposition \"...\"`"
+                    f"`{self.owner_command('supervisor', 'release', '--job', holder['id'], '--disposition', '...')}`"
                 )
                 return
             if any(job["status"] == "queued" for job in jobs):
@@ -1099,7 +1255,7 @@ class Supervisor:
 
     def launch(self, job: dict[str, Any], control: dict[str, Any], blockers: list[str]) -> None:
         cfg = job["config"]
-        problems = launch_problems(cfg)
+        problems = self.launch_problems(cfg)
         if problems:
             self.hold_saved(job, "config", "; ".join(problems))
             return
@@ -1199,10 +1355,47 @@ class Supervisor:
     def view_dir(self, cfg: dict[str, Any]) -> Path:
         return Path(cfg["view_dir"]).expanduser().resolve() if cfg.get("view_dir") else self.store.root / "view"
 
+    def worker_home_path(self, cfg: dict[str, Any]) -> Path:
+        return Path(cfg["worker_home"]).expanduser().resolve() if cfg.get("worker_home") else self.store.root / "worker-home"
+
     def worker_home(self, cfg: dict[str, Any]) -> Path:
-        path = Path(cfg["worker_home"]).expanduser().resolve() if cfg.get("worker_home") else self.store.root / "worker-home"
+        path = self.worker_home_path(cfg)
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    def boundary_digest(self, cfg: dict[str, Any]) -> str:
+        """What an isolation proof covers: every path, interpreter, and setting that decides what a worker can reach.
+
+        The owner store and home, the view and worker home, the boundary prefix and the Python inside it, the
+        worker executable, the variables passed through the credential filter, and the interpreter that runs
+        the wrapper. A proof made under one of these says nothing about another.
+        """
+        isolation = cfg.get("isolation") or {}
+        covered = {
+            "prefix": list(isolation.get("prefix") or []), "python": isolation.get("python"), "executable": list(cfg.get("executable") or []),
+            "env_passthrough": sorted(cfg.get("env_passthrough") or []), "store": canonical_path(self.store.root),
+            "home": canonical_path(team.agentic_home()), "view": canonical_path(self.view_dir(cfg)),
+            "worker_home": canonical_path(self.worker_home_path(cfg)), "interpreter": canonical_path(sys.executable),
+        }
+        return sha256_bytes(canonical(covered).encode("utf-8"))
+
+    def isolation_problems(self, cfg: dict[str, Any]) -> list[str]:
+        """Why a (possibly frozen) configuration has no current isolation proof; empty when it has one."""
+        isolation = cfg.get("isolation") or {}
+        current = self.boundary_digest(cfg)
+        if not isolation.get("verified") or isolation.get("boundary_sha256") != current:
+            return ["paid workers need a verified isolation boundary for exactly this configuration: configure --isolation-prefix (a restricted "
+                    "account or container that cannot read the owner's home), then `supervise verify-isolation`; the proof covers the owner "
+                    "store and home, the view, the worker home, the prefix and its Python, the executable, the environment passthrough, and the "
+                    "interpreter, and any change to them needs a new proof; removing an environment variable is not isolation"]
+        stored = self.store.config().get("isolation") or {}
+        if not stored.get("verified") or stored.get("boundary_sha256") != current:
+            return ["the isolation proof this job froze is no longer the store's current proof (the boundary configuration changed since); "
+                    "verify the current configuration, then resume the job with --refresh-config"]
+        return []
+
+    def launch_problems(self, cfg: dict[str, Any]) -> list[str]:
+        return launch_problems(cfg, self.isolation_problems(cfg) if cfg.get("adapter") == "claude" else [])
 
     def write_brief(self, job: dict[str, Any]) -> None:
         run_dir = self.run_dir(job)
@@ -1351,10 +1544,8 @@ class Supervisor:
         if attempt.get("usage", {}).get("state") == "pending":
             self.meter(job, attempt, control)
             self.store.save_job(job)
-        if not attempt.get("failures_reconciled"):
-            attempt["failures_recorded"] = self.record_failures(job, attempt)
-            attempt["failures_reconciled"] = True
-            self.store.save_job(job)
+        if not self.reconcile_failures(job, attempt):
+            return  # still reconciling (retried next tick) or held for the owner; nothing relaunches meanwhile
         if (receipt or {}).get("reason") == "spawn-failed" and not job.get("cancel_requested"):
             stderr = (self.store.attempt_dir(job["id"], attempt["id"]) / "stderr.txt").read_text(encoding="utf-8", errors="replace")[-300:]
             self.hold(job, "adapter", f"the worker command could not start: {stderr.strip()}")
@@ -1377,17 +1568,31 @@ class Supervisor:
         self.apply_metering(job, attempt, transcript, digest, control)
 
     def apply_metering(self, job: dict[str, Any], attempt: dict[str, Any], transcript: Path, digest: str, control: dict[str, Any]) -> None:
+        """Settle an attempt's cost from the owner ledger's signed usage record, never from the run state's projection.
+
+        Every adapter here is bounded in USD, so the transcript must report a numeric USD figure
+        (a reported 0 counts; a missing, null, string, negative, or non-finite one is unknown). The
+        state's usage record is accepted only when a signed owner-ledger usage record with the same
+        id, digest, and amounts exists and the state's metered totals equal the signed cumulative sum;
+        a crash after ingestion therefore replays without metering twice, and a forged or edited
+        projection keeps the reservation and holds.
+        """
         state = self.run_state(job)
         if state is None:
             attempt["usage"] = {"state": "unknown", "reason": "the run state is unreadable", "sha256": digest}
             return
+        try:
+            figures = team.transcript_usage(transcript, require_usd=True)
+        except (team.TeamError, ValueError, OSError) as exc:
+            attempt["usage"] = {"state": "unknown", "reason": str(exc)[:300], "sha256": digest}
+            return
         record = next((item for item in state.get("usage_sources", []) if item.get("sha256") == digest), None)
         note = ""
         if record is None:
-            try:
-                team.transcript_usage(transcript)
-            except (team.TeamError, ValueError, OSError) as exc:
-                attempt["usage"] = {"state": "unknown", "reason": str(exc)[:300], "sha256": digest}
+            signed, _ = self.signed_usage(state)
+            if any(item.get("sha256") == digest for item in signed.values()):
+                attempt["usage"] = {"state": "unknown", "sha256": digest,
+                                    "reason": "the owner ledger holds a signed usage record for this transcript, but the run state lost it"}
                 return
             code, out, err = self.cli("usage", "--run", job["run_id"], "--transcript", str(transcript), "--by", job["config"]["owner_name"],
                                       "--token-file", str(self.token_file(state)))
@@ -1397,6 +1602,11 @@ class Supervisor:
                 attempt["usage"] = {"state": "unknown", "reason": f"usage metering failed: {(err or out).strip()[:300]}", "sha256": digest}
                 return
             note = "the run crossed its ceiling" if code == 3 else ""
+        mismatch = self.usage_mismatch(state, record, figures)
+        if mismatch:
+            attempt["usage"] = {"state": "unknown", "reason": mismatch, "sha256": digest}
+            self.store.log("usage-unverified", job=job["id"], attempt=attempt["id"], reason=mismatch[:300])
+            return
         usd = float(record.get("usd") or 0.0)
         control["allowance"]["reservations"].pop(f"{job['id']}/{attempt['id']}", None)
         control["allowance"].setdefault("charges", {})[f"{job['id']}/{attempt['id']}"] = usd
@@ -1405,14 +1615,62 @@ class Supervisor:
         attempt["usage"] = {"state": "metered", "sha256": digest, "source": record.get("id"), "usd": usd, "tokens": float(record.get("tokens") or 0.0), "note": note}
         self.store.log("usage-metered", job=job["id"], attempt=attempt["id"], usd=usd, source=record.get("id"))
 
-    def record_failures(self, job: dict[str, Any], attempt: dict[str, Any]) -> list[str]:
-        """Tasks the ended attempt still held get one `fail` each; a replay finds nothing claimed and records nothing."""
+    def signed_usage(self, state: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], list[str]]:
+        """Usage records of the owner ledger whose chain and MAC verify with the owner token, by subject (usage source id)."""
+        try:
+            token = self.token_file(state).read_text(encoding="utf-8").strip()
+            records = team.read_ledger(team.home_key(state))
+        except (OSError, team.TeamError) as exc:
+            return {}, [f"the owner ledger cannot be verified: {str(exc)[:200]}"]
+        found: dict[str, dict[str, Any]] = {}
+        problems: list[str] = []
+        previous = "0" * 64
+        for record in records:
+            body = {key: value for key, value in record.items() if key != "mac"}
+            expected = hmac.new(token.encode("utf-8"), team.canonical(body).encode("utf-8"), hashlib.sha256).hexdigest()
+            if record.get("prev") != previous or not record.get("mac") or not hmac.compare_digest(str(record.get("mac")), expected):
+                problems.append(f"ledger record {record.get('seq')} is not signed by the owner or breaks the chain")
+            elif record.get("action") == "usage":
+                found[str(record.get("subject"))] = record
+            previous = team.record_hash(record)
+        return found, problems
+
+    def usage_mismatch(self, state: dict[str, Any], record: dict[str, Any], figures: dict[str, float]) -> str | None:
+        """Why the run state's usage record cannot be trusted as owner metering (None when it matches the signed ledger)."""
+        signed, _ = self.signed_usage(state)
+        entry = signed.get(str(record.get("id")))
+        if entry is None:
+            return f"usage record {record.get('id')} for this transcript has no signed owner-ledger usage record (an edited or forged projection)"
+        if entry.get("sha256") != record.get("sha256"):
+            return f"usage record {record.get('id')} names transcript {str(record.get('sha256'))[:12]}, but the signed ledger record names {str(entry.get('sha256'))[:12]}"
+        for key in ("usd", "tokens"):
+            values = [entry.get(key), record.get(key), figures.get(key)]
+            if not all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values) or \
+                    max(values) - min(values) > USAGE_TOLERANCE:
+                return f"usage record {record.get('id')} says {key} {record.get(key)!r}, the signed ledger says {entry.get(key)!r}, the transcript says {figures.get(key)!r}"
+        metered = state.get("usage_metered") or {}
+        for key in ("usd", "tokens"):
+            total = sum(float(item.get(key) or 0.0) for item in signed.values())
+            stated = metered.get(key)
+            if not isinstance(stated, (int, float)) or isinstance(stated, bool) or abs(float(stated) - total) > USAGE_TOLERANCE * max(1, len(signed)):
+                return f"the run's metered {key} total {stated!r} differs from the signed ledger's cumulative {round(total, 6)!r}"
+        return None
+
+    def record_failures(self, job: dict[str, Any], attempt: dict[str, Any]) -> bool:
+        """Tasks the ended attempt still held get one `fail` each; True once no claim of the ended attempt is unaccounted for.
+
+        Each recorded task is saved on the attempt as it is recorded, and a replay finds a recorded task no
+        longer claimed, so an interruption or a refused `fail` never records a failure twice. Reconciliation
+        is complete only when the run state, read again, shows no claimed task left.
+        """
         if attempt.get("status") == "abandoned":
-            return []
+            return True
         state = self.run_state(job)
         if state is None:
-            return []
+            attempt["failure_errors"] = ["the run state is unreadable, so the attempt's claims cannot be accounted for"]
+            return False
         recorded = list(attempt.get("failures_recorded") or [])
+        errors = []
         for task in state["tasks"].values():
             if task.get("status") != "claimed" or not task.get("claimed_by"):
                 continue
@@ -1421,9 +1679,36 @@ class Supervisor:
                                       "--signature", FAIL_SIGNATURE)
             if code == 0:
                 recorded.append(task["id"])
+                attempt["failures_recorded"] = recorded
+                self.store.save_job(job)
             else:
+                errors.append(f"{task['id']}: {(err or out).strip()[:200] or f'fail exited {code}'}")
                 self.store.log("fail-not-recorded", job=job["id"], task=task["id"], error=(err or out).strip()[:300])
-        return recorded
+        attempt["failures_recorded"] = recorded
+        after = self.run_state(job)
+        left = [task["id"] for task in (after or {}).get("tasks", {}).values() if task.get("status") == "claimed" and task.get("claimed_by")]
+        if after is None or left:
+            attempt["failure_errors"] = errors or [f"task(s) {', '.join(left)} are still claimed" if left else "the run state is unreadable"]
+            return False
+        attempt.pop("failure_errors", None)
+        return True
+
+    def reconcile_failures(self, job: dict[str, Any], attempt: dict[str, Any]) -> bool:
+        """Record the ended attempt's failures; hold for the owner after FAILURE_RECORD_TRIES refusals. True when complete."""
+        if attempt.get("failures_reconciled"):
+            return True
+        done = self.record_failures(job, attempt)
+        if done:
+            attempt["failures_reconciled"] = True
+            self.store.save_job(job)
+            return True
+        attempt["failure_tries"] = int(attempt.get("failure_tries", 0)) + 1
+        if attempt["failure_tries"] >= FAILURE_RECORD_TRIES:
+            self.hold(job, "failure-record", f"the failure of the task(s) attempt {attempt['id']} held could not be recorded after "
+                                             f"{attempt['failure_tries']} tries ({'; '.join(attempt.get('failure_errors') or [])}); nothing relaunches "
+                                             "until every claim is accounted for")
+        self.store.save_job(job)
+        return False
 
     def audit(self, job: dict[str, Any], attempt: dict[str, Any] | None) -> list[str]:
         state = self.run_state(job)
@@ -1633,7 +1918,192 @@ class Supervisor:
         if previous != to:
             self.store.log(f"job-{to}", job=job["id"], reason=reason[:300], attempt=attempt)
 
+    # -- owner commands ------------------------------------------------------------------------
+
+    def owner_argv(self, which: str, *args: str, run: str | None = None, by: str | None = None, token_file: str | None = None) -> list[str]:
+        """An owner command through the owner copy, by absolute path, with explicit project and run or store context.
+
+        Never the checkout's .agentic-team/bin/, which a worker can edit, and never dependent on the current
+        directory or CURRENT.md: the command does the same thing from any directory, in any shell.
+        """
+        if which == "runtime":
+            argv = [sys.executable, str(self.store.bin / "agentic_team.py"), *args, "--project", str(self.project)]
+            if run:
+                argv += ["--run", run]
+            if by:
+                argv += ["--by", by, "--token-file", token_file or "<owner token file>"]
+            return argv
+        return [sys.executable, str(self.store.bin / "agentic_supervisor.py"), *args, "--project", str(self.project), "--store", str(self.store.root)]
+
+    def owner_command(self, which: str, *args: str, shell: str | None = None, **context: Any) -> str:
+        return render_command(self.owner_argv(which, *args, **context), shell or NATIVE_SHELL)
+
+    def next_steps(self, job: dict[str, Any], state: dict[str, Any] | None) -> tuple[str, list[list[str]]]:
+        """The owner's next step for a job: prose with {0}, {1}... for the exact commands, and the commands as argv lists."""
+        hold = job.get("hold") or {}
+        run = job.get("run_id")
+        owner = str((job.get("config") or {}).get("owner_name") or "supervisor")
+        token = str(self.token_file(state)) if state else "<owner token file>"
+        resume = self.owner_argv("supervisor", "resume", "--job", job["id"])
+
+        def human(*args: str) -> list[str]:
+            return self.owner_argv("runtime", *args, run=run, by=owner, token_file=token)
+
+        if job["status"] == "retrying":
+            return "none: the supervisor relaunches it" + (" after the backoff" if job.get("next_attempt_after") else ""), []
+        if job["status"] == "failed" and not job.get("failure_acknowledged"):
+            return ("the job failed; inspect its run and attempt records, then acknowledge the failure with {0} (or run its source again "
+                    "with enqueue --requeue)", [self.owner_argv("supervisor", "acknowledge", "--job", job["id"], "--reason", "...")])
+        if job["status"] != "needs-human":
+            return "-", []
+        kind = hold.get("kind")
+        if kind == "checkpoint":
+            view = team.verified_view(state) if state else None
+            pending = [item["id"] for item in (state or {}).get("checkpoints", []) if view and view.checkpoint_status(item) == "pending"]
+            if pending:
+                return "{0} (or reject instead of approve); then {1}", [human("approve", "--checkpoint", pending[0], "--decision", "..."), resume]
+            rejected = [item["id"] for item in (state or {}).get("checkpoints", []) if view and view.checkpoint_status(item) == "rejected"]
+            return "after correcting the work, {0}; then {1}", [human("resolve", "--checkpoint", rejected[0] if rejected else "<id>", "--resolution", "..."), resume]
+        if kind == "unknown-usage":
+            return "{0}  or  {1}", [resume + ["--usage-transcript", "<file>"], resume + ["--charge-reservation"]]
+        if kind == "ownership":
+            return "confirm the attempt's processes stopped, then {0}", [resume + ["--confirm-stopped"]]
+        if kind == "failed-task":
+            failed = [task["id"] for task in (state or {}).get("tasks", {}).values() if task.get("status") == "failed"]
+            return "{0}; then {1}", [human("reopen", "--task", failed[0] if failed else "<id>", "--reason", "new approach", "--extend-retries", "1"), resume]
+        if kind == "budget":
+            return "{0} (or configure a larger budget for new jobs); then {1}", [human("waive", "--requirement", "budget:usd", "--reason", "..."), resume]
+        if kind == "tamper":
+            return "{0}; investigate what changed, then {1}", [human("audit", "verify"), resume]
+        if kind == "evidence":
+            return "inspect the run folder and its event log: the run's own records do not support completion; then {0} (or cancel the job)", [resume]
+        if kind == "source":
+            return "inspect `git status` and `git log` (the supervisor never resets or cleans); restore the verified tree, then {0}", [resume]
+        if kind == "pointer":
+            return "{0}; then {1}", [self.owner_argv("runtime", "switch-run", run=run), resume]
+        if kind in {"config", "adapter"}:
+            return "fix the configuration or the worker's login (supervise configure ...), then {0}", [resume + ["--refresh-config"]]
+        if kind == "failure-record":
+            return "make the runtime accept the ended attempt's `fail` records (the hold says which failed and why), then {0}", [resume]
+        return "{0}", [resume]
+
     # -- owner controls ------------------------------------------------------------------------
+
+    def acknowledge_failure(self, job: dict[str, Any], reason: str) -> None:
+        job["failure_acknowledged"] = {"time": now_iso(), "reason": reason}
+        job.setdefault("transitions", []).append({"from": job["status"], "to": job["status"], "reason": f"failure acknowledged: {reason}",
+                                                  "by": "owner", "time": now_iso()})
+        self.store.log("failure-acknowledged", job=job["id"], reason=reason[:300])
+
+    def acknowledge(self, job_id: str, reason: str) -> str:
+        """The owner has seen a failed job: it stays failed in the history, and stops keeping the exit code at 2."""
+        with self.store.lock():
+            self.store.ensure()
+            job = self.store.job(job_id)
+            if job["status"] != "failed":
+                raise SupervisorError(f"job {job_id} is {job['status']}; only a failed job's failure is acknowledged")
+            if job.get("failure_acknowledged"):
+                return f"job {job_id}'s failure was already acknowledged ({job['failure_acknowledged']['reason']})"
+            self.acknowledge_failure(job, reason)
+            self.store.save_job(job)
+            return f"job {job_id} stays failed; its failure is acknowledged"
+
+    def recover_orphan(self, job_id: str, disposition: str, confirm_stopped: bool = False) -> str:
+        """Settle what control.json holds for a job whose record is gone: charge its reservations, settle the checkout.
+
+        Uncertain spend is never refunded: every reservation the orphan held is charged in full. An attempt
+        without an exit receipt must be provably stopped (or confirmed by the owner) first; restoring the
+        record instead lets the supervisor meter the attempt normally.
+        """
+        with self.store.lock():
+            self.store.ensure()
+            control = self.store.control()
+            entry = (control.get("orphans") or {}).get(job_id)
+            if entry is None:
+                raise SupervisorError(f"job {job_id} has no orphan-recovery hold")
+            readable = None
+            with contextlib.suppress(SupervisorError, FileNotFoundError):
+                readable = self.store.job(job_id)
+            if readable is not None:
+                raise UsageProblem(f"the record of job {job_id} is readable again; serve reconciles it, no recovery is needed")
+            folder = self.store.attempts / safe_id(job_id)
+            for path in sorted(folder.iterdir()) if folder.is_dir() else []:
+                if (path / "exit.json").is_file():
+                    continue
+                claim = read_optional_quiet(path / "claim")
+                if claim is None and not (path / "claim").exists():
+                    if create_exclusive(path / "claim", {"by": "supervisor", "reason": "orphan recovery: no wrapper claimed the attempt", "time": now_iso()}):
+                        continue
+                    claim = read_optional_quiet(path / "claim") or {"by": "unreadable"}
+                if (claim or {}).get("by") == "supervisor":
+                    continue
+                for name in ("start.json", "worker.json"):
+                    record = read_optional_quiet(path / name) or {}
+                    if record and ownership(record.get("pid"), record.get("identity")) == "alive":
+                        raise SupervisorError(f"pid {record.get('pid')} of attempt {path.name} ({name}) is still running and provably the attempt's; "
+                                              f"ask its wrapper to stop it (create {path / 'cancel'}), wait for {path / 'exit.json'}, then recover")
+                if not confirm_stopped:
+                    raise SupervisorError(f"attempt {path.name} of job {job_id} has no exit receipt and its processes cannot be shown to have "
+                                          "stopped; check them, then recover with --confirm-stopped")
+            allowance = control["allowance"]
+            charged_now = 0.0
+            for key in [key for key in allowance["reservations"] if key.split("/", 1)[0] == job_id]:
+                amount = float(allowance["reservations"].pop(key))
+                allowance.setdefault("charges", {})[key] = max(float(allowance["charges"].get(key, 0.0)), amount)
+                charged_now += amount
+            allowance["usd_spent"] = round(sum(allowance["charges"].values()), 6)
+            released = control["checkout"].get("job") == job_id
+            if released:
+                control["checkout"] = {"job": None, "since": None}
+            control["orphans"].pop(job_id, None)
+            control["history"].append({"time": now_iso(), "action": "orphan-recovered", "job": job_id, "charged_usd": charged_now,
+                                       "checkout_released": released, "disposition": disposition})
+            self.store.save_control(control)
+            self.store.log("orphan-recovered", job=job_id, charged=charged_now, disposition=disposition)
+            return (f"orphan job {job_id}: charged {charged_now:g} USD of reservations as spent"
+                    + ("; the checkout is released (its changes are yours to deal with)" if released else ""))
+
+    def take_over_checkout(self, reason: str, old_store_missing: bool = False) -> str:
+        """Bind the checkout to this store on purpose (the explicit migration); refused while the bound store has work."""
+        with self.store.lock():
+            self.store.ensure(check_binding=False)
+            binding = None
+            with contextlib.suppress(Blocked):
+                binding = self.store.binding()
+            if binding is None and self.store.binding_path.exists() and not old_store_missing:
+                raise SupervisorError(f"{self.store.binding_path} is unreadable; if no other store runs workers here, pass --old-store-missing")
+            if binding and binding.get("store_id") == self.store.meta["store_id"]:
+                return f"checkout {self.project} is already bound to {self.store.root}"
+            if binding:
+                old_root = Path(str(binding.get("store") or ""))
+                old_meta = read_optional_quiet(old_root / "store.json") if binding.get("store") else None
+                if old_meta is None or old_meta.get("store_id") != binding.get("store_id"):
+                    if not old_store_missing:
+                        raise SupervisorError(f"the bound store {old_root} cannot be read; if it is really gone, pass --old-store-missing (whatever it "
+                                              "reserved or held is then no longer counted for this checkout)")
+                elif same_directory(old_meta.get("project"), self.project):
+                    old = Store(self.project, old_root)
+                    with old.lock():
+                        control = old.control()
+                        jobs, problems = old.jobs()
+                        busy = [f"job {job['id']} is {job['status']}" for job in jobs if job["status"] not in TERMINAL]
+                        if control["checkout"].get("job"):
+                            busy.append(f"job {control['checkout']['job']} holds the checkout")
+                        if control["allowance"].get("reservations"):
+                            busy.append(f"{len(control['allowance']['reservations'])} reservation(s) are open")
+                        busy.extend(f"orphan job {job_id}" for job_id in control.get("orphans") or {})
+                        busy.extend(problems)
+                        if busy:
+                            raise SupervisorError(f"the bound store {old_root} is still in use ({'; '.join(busy[:6])}); finish, cancel, settle, or "
+                                                  "release that work from it first")
+            history = list((binding or {}).get("history") or [])
+            if binding:
+                history.append({"store": binding.get("store"), "store_id": binding.get("store_id"), "until": now_iso()})
+            record = {"schema": SCHEMA, "project": str(self.project), "store": str(self.store.root), "store_id": self.store.meta["store_id"],
+                      "bound_at": now_iso(), "reason": reason, "history": history}
+            write_json(self.store.binding_path, record)
+            self.store.log("checkout-bound", previous=(binding or {}).get("store"), reason=reason)
+            return f"checkout {self.project} is now bound to the owner store {self.store.root}"
 
     def pause(self, job_id: str | None, reason: str) -> str:
         with self.store.lock():
@@ -1692,7 +2162,7 @@ class Supervisor:
             if kind == "unknown-usage" and attempt:
                 self.settle_usage(job, attempt, control, usage_transcript, charge_reservation)
             elif kind == "config" and not refresh_config:
-                problems = launch_problems(copy.deepcopy(job["config"]))
+                problems = self.launch_problems(copy.deepcopy(job["config"]))
                 if problems:
                     raise SupervisorError("the job's frozen configuration still cannot launch: " + "; ".join(problems)
                                           + " (resume with --refresh-config to take the current configuration)")
@@ -1710,9 +2180,16 @@ class Supervisor:
                     attempt.update(status="ended", ended_at=now_iso(), exit_code=(receipt or {}).get("exit_code"), end_reason=(receipt or {}).get("reason", "owner-confirmed-stopped"))
                 if attempt.get("usage", {}).get("state") == "pending":
                     self.meter(job, attempt, control)
-                if not attempt.get("failures_reconciled"):
-                    attempt["failures_recorded"] = self.record_failures(job, attempt)
-                    attempt["failures_reconciled"] = True
+                if not self.reconcile_failures(job, attempt):
+                    self.store.save_control(control)
+                    raise SupervisorError(f"the claims of attempt {attempt['id']} could not all be recorded as failures: "
+                                          + "; ".join(attempt.get("failure_errors") or []))
+            elif kind == "failure-record" and attempt:
+                attempt["failure_tries"] = 0
+                if not self.reconcile_failures(job, attempt):
+                    self.store.save_job(job)
+                    raise SupervisorError(f"the claims of attempt {attempt['id']} still cannot be recorded as failures: "
+                                          + "; ".join(attempt.get("failure_errors") or []) + "; fix the runtime state, then resume again")
             job["transitions"].append({"from": "needs-human", "to": "needs-human", "reason": f"owner resume requested ({kind})", "by": "owner", "time": now_iso()})
             if int(job.get("worker_retries", 0)) >= int(job["config"]["retries"]) + int(job.get("owner_grants", 0)):
                 job["owner_grants"] = int(job.get("owner_grants", 0)) + 1
@@ -1813,6 +2290,8 @@ class Supervisor:
 
     def describe(self, job: dict[str, Any], control: dict[str, Any]) -> dict[str, Any]:
         state = self.run_state(job)
+        template, steps = self.next_steps(job, state)
+        rendered = {shell: [render_command(argv, shell) for argv in steps] for shell in SHELLS}
         attempt = job["attempts"][-1] if job["attempts"] else None
         reserved = sum(amount for key, amount in control["allowance"]["reservations"].items() if key.startswith(f"{job['id']}/"))
         remaining = None
@@ -1827,7 +2306,8 @@ class Supervisor:
             "hold": job.get("hold"), "note": job.get("note"), "next_attempt_after": job.get("next_attempt_after") if job["status"] == "retrying" else None,
             "worker": worker_label(job["config"]),
             "questions": [item.get("question") for item in (state or {}).get("checkpoints", []) if item.get("status") == "pending"],
-            "next_action": next_action(job, state),
+            "failure_acknowledged": job.get("failure_acknowledged"),
+            "next_action": template.format(*rendered[NATIVE_SHELL]), "next_commands": rendered,
         }
 
     def write_digest(self, blockers: list[str]) -> dict[str, Any]:
@@ -1844,14 +2324,15 @@ class Supervisor:
         retry_due = any(job["status"] == "retrying" and not job.get("paused") for job in jobs) and not blockers
         launchable = any(job["status"] == "queued" and not job.get("paused") for job in jobs) and not blockers
         held = any(job["status"] == "needs-human" for job in jobs)
-        code = EXIT_BLOCKED if blockers else EXIT_HUMAN if held else EXIT_OK
+        failed = unresolved_failures(jobs)
+        code = EXIT_BLOCKED if blockers else EXIT_HUMAN if held or failed else EXIT_OK
         digest = {
             "schema": SCHEMA, "time": now_iso(), "project": str(self.project), "store": str(self.store.root), "counts": counts,
             "checkout": control["checkout"], "paused": control.get("paused", False),
             "allowance": {"usd_total": allowance["usd_total"], "usd_spent": allowance["usd_spent"], "usd_reserved": open_reserved,
                           "usd_remaining": round(aggregate_remaining(control), 6)},
             "blockers": blockers, "jobs": rows, "exit_code": code, "idle": not busy and not retry_due and not launchable,
-            "log_failures": self.store.log_failures,
+            "failed_unacknowledged": failed, "orphans": sorted(control.get("orphans") or {}), "log_failures": self.store.log_failures,
         }
         write_json(self.store.digest_path, digest)
         with contextlib.suppress(OSError, SupervisorError):
@@ -1869,6 +2350,7 @@ class Supervisor:
         blockers += [problem for problem in problems if problem not in blockers]
         rows = [self.describe(job, control) for job in jobs]
         held = any(job["status"] == "needs-human" for job in jobs)
+        failed = unresolved_failures(jobs)
         allowance = control["allowance"]
         return {
             "schema": SCHEMA, "time": now_iso(), "project": str(self.project), "store": str(self.store.root),
@@ -1876,8 +2358,8 @@ class Supervisor:
             "paused": control.get("paused", False),
             "allowance": {"usd_total": allowance["usd_total"], "usd_spent": allowance["usd_spent"], "usd_reserved": round(sum(allowance["reservations"].values()), 6),
                           "usd_remaining": round(aggregate_remaining(control), 6)},
-            "blockers": blockers, "jobs": rows, "exit_code": EXIT_BLOCKED if blockers else EXIT_HUMAN if held else EXIT_OK,
-            "last_tick": stored.get("time"),
+            "blockers": blockers, "jobs": rows, "exit_code": EXIT_BLOCKED if blockers else EXIT_HUMAN if held or failed else EXIT_OK,
+            "failed_unacknowledged": failed, "orphans": sorted(control.get("orphans") or {}), "last_tick": stored.get("time"),
         }
 
     # -- adapters, isolation, triggers, retention ------------------------------------------------
@@ -1897,8 +2379,9 @@ class Supervisor:
                      "target = os.path.join(sys.argv[3], '.isolation-probe')\ntry:\n    open(target, 'w').close()\nexcept OSError:\n"
                      "    print('AGENTIC-VIEW-READONLY')\nelse:\n    os.remove(target)\n    print('AGENTIC-VIEW-WRITABLE')\n")
             argv = [*config["isolation"]["prefix"], config["isolation"]["python"], "-c", probe, str(sentinel), marker, str(view_dir)]
+            env = worker_environment(config, view_dir, self.worker_home(config), self.store.root, "isolation-probe")
             try:
-                result = subprocess.run(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL)
+                result = subprocess.run(argv, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL, env=env)
                 output = result.stdout + result.stderr
             except (OSError, subprocess.SubprocessError) as exc:
                 output = f"probe failed to run: {exc}"
@@ -1908,7 +2391,8 @@ class Supervisor:
             verified = ("AGENTIC-ISOLATION-DENIED" in output and "AGENTIC-ISOLATION-READ" not in output
                         and "AGENTIC-VIEW-READONLY" in output and "AGENTIC-VIEW-WRITABLE" not in output)
             config["isolation"].update(verified=verified, verified_at=now_iso() if verified else None,
-                                       prefix_sha256=sha256_bytes(canonical(config["isolation"]["prefix"]).encode("utf-8")) if verified else None)
+                                       prefix_sha256=sha256_bytes(canonical(config["isolation"]["prefix"]).encode("utf-8")) if verified else None,
+                                       boundary_sha256=self.boundary_digest(config) if verified else None)
             write_json(self.store.config_path, config)
             self.store.log("isolation-verified" if verified else "isolation-refused", prefix=config["isolation"]["prefix"])
             return {"verified": verified, "prefix": config["isolation"]["prefix"],
@@ -1923,7 +2407,11 @@ class Supervisor:
         if not re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", gh["repo"]):
             raise UsageProblem(f"invalid repository {gh['repo']!r}")
         state = read_optional_quiet(self.store.poll_path) or {}
-        since = state.get("since") if state.get("repo") == gh["repo"] and state.get("label") == gh["label"] else None
+        # One watermark per source: a cursor from another host, repository, or label (or a file from before
+        # cursors were keyed, which named no host) is never sent; polling from scratch is safe, intake is idempotent.
+        cursors = state.get("cursors") if isinstance(state.get("cursors"), dict) else {}
+        key = poll_key(gh["host"], gh["repo"], gh["label"])
+        since = (cursors.get(key) or {}).get("since")
         endpoint = f"repos/{gh['repo']}/issues?state=open&labels={quote(gh['label'])}&per_page=100" + (f"&since={quote(since)}" if since else "")
         argv = ["gh", "api", "--hostname", gh["host"], "--paginate", endpoint]
         runner = fetch or run_gh
@@ -1948,7 +2436,8 @@ class Supervisor:
                 continue  # any other failure propagates: the watermark stays where it was
             report["accepted" if outcome == "queued" else "duplicates"].append(job_id)
         if newest:
-            write_json(self.store.poll_path, {"schema": SCHEMA, "repo": gh["repo"], "label": gh["label"], "since": newest, "time": now_iso()})
+            cursors[key] = {"host": gh["host"], "repo": gh["repo"], "label": gh["label"], "since": max(newest, since or newest), "time": now_iso()}
+            write_json(self.store.poll_path, {"schema": SCHEMA, "cursors": cursors})
         self.store.log("polled-github", repo=gh["repo"], accepted=len(report["accepted"]), duplicates=len(report["duplicates"]), conflicts=len(report["conflicts"]))
         return report
 
@@ -2026,8 +2515,12 @@ def config_problems(config: dict[str, Any]) -> list[str]:
     return problems
 
 
-def launch_problems(cfg: dict[str, Any]) -> list[str]:
-    """What keeps a job from starting a (possibly paid) worker; checked at every launch."""
+def launch_problems(cfg: dict[str, Any], isolation: list[str] | None = None) -> list[str]:
+    """What keeps a job from starting a (possibly paid) worker; checked at every launch.
+
+    `isolation` is the supervisor's verdict on the boundary proof (Supervisor.isolation_problems), which
+    needs the store and owner context; without it only the prefix digest is compared.
+    """
     problems = config_problems({**DEFAULT_CONFIG, **cfg})
     if not cfg["run_budget"].get("usd"):
         problems.append("no run budget: `supervise configure --budget usd=N` (every run needs an explicit USD ceiling)")
@@ -2036,13 +2529,12 @@ def launch_problems(cfg: dict[str, Any]) -> list[str]:
     if cfg["adapter"] == "command" and not cfg["command"]:
         problems.append("the command adapter needs a worker command (`--worker-command-json`)")
     if cfg["adapter"] == "claude":
-        isolation = cfg["isolation"]
-        prefix_digest = sha256_bytes(canonical(isolation["prefix"]).encode("utf-8"))
-        if not isolation.get("verified") or isolation.get("prefix_sha256") != prefix_digest:
-            problems.append(
-                "paid workers need a verified isolation boundary: configure --isolation-prefix (a restricted account or container "
-                "that cannot read the owner's home), then `supervise verify-isolation`; removing an environment variable is not isolation"
-            )
+        if isolation is None:
+            prefix_digest = sha256_bytes(canonical(cfg["isolation"]["prefix"]).encode("utf-8"))
+            if not cfg["isolation"].get("verified") or cfg["isolation"].get("prefix_sha256") != prefix_digest:
+                isolation = ["paid workers need a verified isolation boundary: configure --isolation-prefix, then `supervise verify-isolation`"]
+        if isolation:
+            problems.extend(isolation)
         else:
             help_text = claude_help(cfg)
             if help_text is None:
@@ -2114,6 +2606,11 @@ def unsettled(job: dict[str, Any]) -> bool:
     return job["status"] == "needs-human" and last is not None and last.get("status") not in {"ended", "abandoned"}
 
 
+def unresolved_failures(jobs: list[dict[str, Any]]) -> list[str]:
+    """Failed jobs the owner has not acknowledged: each keeps the exit code at 2 (a job needs you) until then."""
+    return [job["id"] for job in jobs if job.get("status") == "failed" and not job.get("failure_acknowledged")]
+
+
 def charged(job: dict[str, Any]) -> float:
     """What a job has spent: the metered or owner-charged figure of every attempt (derived, never accumulated)."""
     return round(sum(float(attempt["usage"].get("usd") or 0.0) for attempt in job.get("attempts", [])
@@ -2152,44 +2649,29 @@ def run_gh(argv: list[str]) -> tuple[int, str, str]:
     return result.returncode, result.stdout, result.stderr
 
 
-SUPERVISE = ".agentic-team/bin/agentic_team.py supervise"
+SHELLS = ("bash", "powershell")
+NATIVE_SHELL = "powershell" if os.name == "nt" else "bash"
 
 
-def next_action(job: dict[str, Any], state: dict[str, Any] | None) -> str:
-    """The exact next owner command for a held job ('-' when none is needed)."""
-    hold = job.get("hold") or {}
-    resume = f"{SUPERVISE} resume --job {job['id']}"
-    run = job.get("run_id")
-    human = f".agentic-team/bin/agentic_team.py {{}} --run {run} --by <you> --token-file <owner token file>"
-    if job["status"] == "retrying":
-        return "none: the supervisor relaunches it" + (" after the backoff" if job.get("next_attempt_after") else "")
-    if job["status"] != "needs-human":
-        return "-"
-    kind = hold.get("kind")
-    if kind == "checkpoint":
-        pending = [item["id"] for item in (state or {}).get("checkpoints", []) if item.get("status") == "pending"]
-        if pending:
-            return human.format(f"approve --checkpoint {pending[0]} --decision \"...\"") + f" (or reject); then {resume}"
-        return human.format("resolve --checkpoint <id> --resolution \"...\"") + f" after correcting the work; then {resume}"
-    if kind == "unknown-usage":
-        return f"{resume} --usage-transcript <file>  or  {resume} --charge-reservation"
-    if kind == "ownership":
-        return f"confirm the attempt's processes stopped, then {resume} --confirm-stopped"
-    if kind == "failed-task":
-        return human.format("reopen --task <id> --reason \"new approach\" --extend-retries 1") + f"; then {resume}"
-    if kind == "budget":
-        return human.format("waive --requirement budget:usd --reason \"...\"") + f" (or {SUPERVISE} configure a larger budget for new jobs); then {resume}"
-    if kind == "tamper":
-        return human.format("audit verify") + f"; investigate what changed, then {resume}"
-    if kind == "evidence":
-        return f"inspect the run folder and its event log: the run's own records do not support completion; then {resume} (or cancel the job)"
-    if kind == "source":
-        return f"inspect `git status` and `git log` (the supervisor never resets or cleans); restore the verified tree, then {resume}"
-    if kind == "pointer":
-        return f".agentic-team/bin/agentic_team.py switch-run --run {run}; then {resume}"
-    if kind in {"config", "adapter"}:
-        return f"fix the configuration or the worker's login ({SUPERVISE} configure ...), then {resume} --refresh-config"
-    return resume
+POWERSHELL_BARE = re.compile(r"^(?:[A-Za-z0-9_][A-Za-z0-9_\-./:\\=]*|--?[A-Za-z0-9][A-Za-z0-9_\-]*)$")
+
+
+def powershell_quote(text: str) -> str:
+    """A PowerShell single-quoted literal (no expansion) unless the word is plainly safe bare; typographic quotes count as quotes."""
+    value = str(text)
+    if POWERSHELL_BARE.match(value):
+        return value
+    for mark in ("'", "\u2018", "\u2019", "\u201a", "\u201b"):
+        value = value.replace(mark, mark * 2)
+    return f"'{value}'"
+
+
+def render_command(argv: list[str], shell: str, home: str | None = None) -> str:
+    """One owner command for a shell, with the owner home explicit: every argument quoted, paths with spaces included."""
+    home = str(team.agentic_home().resolve()) if home is None else home
+    if shell == "powershell":
+        return f"$env:AGENTIC_TEAM_HOME = {powershell_quote(home)}; & " + " ".join(powershell_quote(part) for part in argv)
+    return f"AGENTIC_TEAM_HOME={shlex.quote(home)} " + " ".join(shlex.quote(part) for part in argv)
 
 
 def render_digest(digest: dict[str, Any]) -> str:
@@ -2214,11 +2696,14 @@ def render_digest(digest: dict[str, Any]) -> str:
         lines.append(f"| `{row['job']}` | {row['kind']} | {row['status']}{' (paused)' if row['paused'] else ''} | {row['run'] or '-'} | "
                      f"{row['stage'] or '-'} / {row['run_status'] or '-'} | {row['attempts']} | {float(row['usd_known']):.4f} | {row['usd_reserved']:.4f} | "
                      f"{row.get('worker', '-')} | {note} |")
-    held = [row for row in digest["jobs"] if row["status"] == "needs-human"]
+    held = [row for row in digest["jobs"] if row["status"] == "needs-human" or (row["status"] == "failed" and not row.get("failure_acknowledged"))]
     if held:
         lines += ["", "## Needs the human", ""]
         for row in held:
-            lines.append(f"- `{row['job']}` ({(row.get('hold') or {}).get('kind')}): {(row.get('hold') or {}).get('reason', '')[:300]}")
+            if row["status"] == "failed":
+                lines.append(f"- `{row['job']}` (failed, not acknowledged): {str(row.get('note') or '')[:300]}")
+            else:
+                lines.append(f"- `{row['job']}` ({(row.get('hold') or {}).get('kind')}): {(row.get('hold') or {}).get('reason', '')[:300]}")
             for question in row["questions"]:
                 lines.append(f"  - Question: {question}")
             lines.append(f"  - Next: `{row['next_action']}`")
@@ -2230,14 +2715,14 @@ def render_text(digest: dict[str, Any]) -> str:
     return text + f"\nOwner store: {digest['store']}\n"
 
 
-def host_example(project: Path, platform: str, minutes: int) -> str:
+def host_example(project: Path, platform: str, minutes: int, store_root: Path | None = None) -> str:
     """A scheduled `serve --once` with absolute paths; generating it registers nothing."""
     python = sys.executable
-    store = Store(project)
+    store = Store(project, store_root)
     store.ensure()
     cli = store.bin / "agentic_supervisor.py"
     home = team.agentic_home()
-    args = ["serve", "--once", "--project", str(project.resolve())]
+    args = ["serve", "--once", "--project", str(project.resolve()), "--store", str(store.root)]
     if platform == "windows":
         command = subprocess.list2cmdline([python, str(cli), *args])
         return (
@@ -2301,8 +2786,8 @@ def parse_budget(value: str | None) -> dict[str, float] | None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = Parser(prog="agentic_team.py supervise", description=__doc__.splitlines()[0])
-    sub = parser.add_subparsers(dest="op", required=True, metavar="{enqueue,configure,serve,status,pause,resume,cancel,release,allowance,"
-                                "verify-isolation,owner-copy,poll-github,host-example,prune}")
+    sub = parser.add_subparsers(dest="op", required=True, metavar="{enqueue,configure,serve,status,pause,resume,cancel,release,acknowledge,"
+                                "allowance,verify-isolation,owner-copy,poll-github,host-example,prune,recover-orphan,bind}")
 
     def common(command: argparse.ArgumentParser) -> argparse.ArgumentParser:
         command.add_argument("--project", default=".", help="Installed project root")
@@ -2385,6 +2870,19 @@ def build_parser() -> argparse.ArgumentParser:
     release.add_argument("--job", required=True)
     release.add_argument("--disposition", required=True)
 
+    acknowledge = common(sub.add_parser("acknowledge", help="Acknowledge a failed job: it stays failed, and stops keeping the exit code at 2"))
+    acknowledge.add_argument("--job", required=True)
+    acknowledge.add_argument("--reason", required=True)
+
+    orphan = common(sub.add_parser("recover-orphan", help="Charge the reservations and settle the checkout of a job whose record is gone"))
+    orphan.add_argument("--job", required=True)
+    orphan.add_argument("--disposition", required=True, help="What the owner did about the job's work and changes")
+    orphan.add_argument("--confirm-stopped", action="store_true", help="The owner checked that its attempts' processes stopped")
+
+    bind = common(sub.add_parser("bind", help="Bind the checkout to this owner store (explicit migration from the store it is bound to)"))
+    bind.add_argument("--reason", required=True)
+    bind.add_argument("--old-store-missing", action="store_true", help="The previously bound store is gone; accept losing its records")
+
     allowance = common(sub.add_parser("allowance", help="Replenish the aggregate USD allowance (it never resets on its own)"))
     allowance.add_argument("--add-usd", type=float, required=True)
     allowance.add_argument("--reason", default="")
@@ -2448,15 +2946,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.op == "host-example":
             if not (Path(args.project) / ".agentic-team" / "team.json").is_file():
                 raise SupervisorError(f"AgenticTeam is not installed in {Path(args.project).resolve()}")
-            print(host_example(Path(args.project), args.platform, args.minutes), end="")
+            print(host_example(Path(args.project), args.platform, args.minutes, Path(args.store) if args.store else None), end="")
             return EXIT_OK
         supervisor = Supervisor(Path(args.project), Path(args.store) if args.store else None)
         if args.op in CREDENTIAL_OPS and running_inside(supervisor.project):
             supervisor.store.ensure()
             raise Blocked(
                 f"`{args.op}` acts with the owner's token and credentials, and this copy of the supervisor runs from inside the checkout "
-                f"({HERE}), which a worker can edit. Run the owner copy instead: "
-                f"{subprocess.list2cmdline([sys.executable, str(supervisor.store.bin / 'agentic_supervisor.py'), args.op, '--project', str(supervisor.project)])} ..."
+                f"({HERE}), which a worker can edit. Run the owner copy instead: {supervisor.owner_command('supervisor', args.op)} ..."
             )
         if args.op == "owner-copy":
             supervisor.store.ensure()
@@ -2498,6 +2995,15 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_OK
         if args.op == "release":
             print(supervisor.release(args.job, args.disposition))
+            return EXIT_OK
+        if args.op == "acknowledge":
+            print(supervisor.acknowledge(args.job, args.reason))
+            return EXIT_OK
+        if args.op == "recover-orphan":
+            print(supervisor.recover_orphan(args.job, args.disposition, args.confirm_stopped))
+            return EXIT_OK
+        if args.op == "bind":
+            print(supervisor.take_over_checkout(args.reason, args.old_store_missing))
             return EXIT_OK
         if args.op == "allowance":
             allowance = supervisor.add_allowance(args.add_usd, args.reason)

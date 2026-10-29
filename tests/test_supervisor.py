@@ -1148,5 +1148,544 @@ class IsolationProbeTests(SupervisorBase):
         self.assertNotEqual(Path(spy.call_args.args[0][1]), bin_cli, "never the checkout's bin/, which a worker can edit")
 
 
+class CheckoutBindingTests(SupervisorBase):
+    """S1: one canonical checkout is bound to one owner store, whatever --store, owner home, or path alias is used."""
+
+    def other(self, root: Path | None = None, project: Path | None = None) -> "sup.Supervisor":
+        other = sup.Supervisor(project or self.project, root or scratch("other-store-") / "store")
+        self.addCleanup(self.stop_workers, other.store.attempts)
+        return other
+
+    def test_two_stores_never_launch_two_writers_in_one_checkout(self) -> None:
+        self.mode("hang")
+        self.enqueue()
+        other = self.other()
+        refused: list[str] = []
+        try:
+            other.configure(**fast_config())
+            other.add_allowance(20.0, "a second owner store")
+            other.enqueue({"id": "other-1", "kind": "manual", "title": "Other", "acceptance": ["AC-1: x"]})
+        except sup.Blocked as exc:
+            refused.append(str(exc))
+        arrived: list[int] = []
+        guard, both = threading.Lock(), threading.Event()
+        real = sup.dirty_paths
+
+        def synchronized(project: Path):  # both supervisors pass their startup checks before either initializes a run
+            result = real(project)
+            with guard:
+                first = threading.get_ident() not in arrived
+                if first:
+                    arrived.append(threading.get_ident())
+                if len(arrived) >= 2:
+                    both.set()
+            if first:
+                both.wait(10)
+            return result
+
+        def tick(supervisor: "sup.Supervisor") -> None:
+            try:
+                supervisor.tick()
+            except sup.Blocked as exc:
+                refused.append(str(exc))
+
+        with mock.patch.object(sup, "dirty_paths", synchronized):
+            threads = [threading.Thread(target=tick, args=(item,)) for item in (self.sup, other)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(120)
+        intents = list(self.sup.store.attempts.glob("*/*/intent.json")) + list(other.store.attempts.glob("*/*/intent.json"))
+        self.assertEqual(len(intents), 1, "two owner stores launched two writers in one checkout")
+        self.assertTrue(refused and all("bound to" in item for item in refused), refused)
+        self.assertEqual(self.job()["status"] in sup.ACTIVE, True)
+
+    def test_other_homes_aliases_and_reused_stores_are_refused(self) -> None:
+        with mock.patch.dict(os.environ, {"AGENTIC_TEAM_HOME": str(scratch("other-home-"))}):
+            with self.assertRaises(sup.Blocked) as raised:
+                sup.Supervisor(self.project).configure(**fast_config())
+            self.assertIn("bound to", str(raised.exception))
+        alias = scratch("alias-") / "checkout"
+        if os.name == "nt":
+            made = subprocess.run(["cmd", "/c", "mklink", "/J", str(alias), str(self.project)], capture_output=True, text=True)
+            if made.returncode != 0:
+                self.skipTest(f"no junction: {made.stderr}")
+        else:
+            os.symlink(self.project, alias, target_is_directory=True)
+        self.assertEqual(sup.Supervisor(alias).store.root, self.sup.store.root, "an alias reaches the same default store")
+        with self.assertRaises(sup.Blocked):
+            self.other(project=alias).configure(**fast_config())
+        second = git_project()
+        with self.assertRaises(sup.Blocked) as raised:
+            sup.Supervisor(second, self.sup.store.root).configure(**fast_config())
+        self.assertIn("belongs to", str(raised.exception))
+        self.assertTrue(self.sup.status() is not None, "the bound store keeps working")
+
+    def test_explicit_takeover_moves_the_binding_only_when_the_old_store_is_idle(self) -> None:
+        self.mode("hang")
+        self.enqueue()
+        self.sup.tick()
+        self.assertTrue(self.wait_for(lambda: (self.attempt_dir() / "worker.json").exists()))
+        other = self.other()
+        with self.assertRaises(sup.Blocked):
+            other.configure(**fast_config())
+        with self.assertRaises(sup.SupervisorError) as raised:
+            other.take_over_checkout("move to a new owner store")
+        self.assertIn("still", str(raised.exception))
+        self.sup.cancel("fix-1", "moving stores")
+        self.assertTrue(self.wait_for(lambda: (self.attempt_dir() / "exit.json").exists(), 30))
+        self.sup.tick()
+        self.sup.resume("fix-1", charge_reservation=True)
+        if self.sup.store.control()["checkout"]["job"]:
+            self.sup.release("fix-1", "nothing to keep")
+        self.assertIn("bound", other.take_over_checkout("move to a new owner store"))
+        other.configure(**fast_config())
+        with self.assertRaises(sup.Blocked):
+            self.sup.tick()
+        missing = self.other()
+        shutil.rmtree(other.store.root)
+        with self.assertRaises(sup.SupervisorError):
+            missing.take_over_checkout("the old store vanished")
+        self.assertIn("bound", missing.take_over_checkout("the old store was deleted", old_store_missing=True))
+
+
+class VerifiedUsageTests(SupervisorBase):
+    """S2: settlement and deduplication use only owner-ledger usage records, never the editable state projection."""
+
+    def ended(self) -> Path:
+        self.enqueue()
+        self.sup.tick()
+        self.assertTrue(self.wait_for(lambda: (self.attempt_dir() / "exit.json").exists(), 60))
+        return self.attempt_dir() / "stdout.jsonl"
+
+    def edit_state(self, change) -> None:
+        path = self.run_dir() / "state.json"
+        state = json.loads(path.read_text(encoding="utf-8"))
+        change(state)
+        path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+    def test_a_forged_zero_usage_projection_holds(self) -> None:
+        transcript = self.ended()
+        digest = sup.sha256_file(transcript)
+
+        def forge(state: dict) -> None:
+            state.setdefault("usage_sources", []).append({"id": "U-001", "transcript": str(transcript), "sha256": digest, "task": None,
+                                                          "by": "Owner", "time": sup.now_iso(), "tokens": 1.0, "usd": 0.0})
+            state["usage_metered"] = {"tokens": 1.0, "usd": 0.0}
+
+        self.edit_state(forge)
+        self.until_idle()
+        job = self.job()
+        self.assertNotEqual(job["status"], "done", "a projection with no signed usage record settled the attempt at 0 USD")
+        self.assertEqual(job["hold"]["kind"], "unknown-usage")
+        self.assertIn("ledger", job["hold"]["reason"])
+        status = self.sup.status()
+        self.assertEqual((status["allowance"]["usd_reserved"], status["allowance"]["usd_spent"]), (1.0, 0.0))
+
+    def test_a_replay_with_altered_amounts_holds_and_a_genuine_replay_reconciles(self) -> None:
+        self.ended()
+        real = sup.Supervisor.cli
+
+        def crash_after_usage(instance, *args):
+            result = real(instance, *args)
+            if args and args[0] == "usage":
+                raise RuntimeError("supervisor died right after the usage command")
+            return result
+
+        with mock.patch.object(sup.Supervisor, "cli", crash_after_usage):
+            with self.assertRaises(RuntimeError):
+                self.sup.tick()
+
+        def lower(state: dict) -> None:
+            state["usage_sources"][0]["usd"] = 0.0
+            state["usage_metered"]["usd"] = 0.0
+
+        self.edit_state(lower)
+        self.sup.tick()
+        job = self.job()
+        self.assertEqual((job["status"], job["hold"]["kind"]), ("needs-human", "unknown-usage"), "a lowered projection is not settled")
+        self.assertEqual(self.sup.status()["allowance"]["usd_reserved"], 1.0)
+
+        def restore(state: dict) -> None:
+            state["usage_sources"][0]["usd"] = 0.01
+            state["usage_metered"]["usd"] = 0.01
+
+        self.edit_state(restore)
+        self.sup.resume("fix-1", usage_transcript=self.attempt_dir() / "stdout.jsonl")
+        self.until_idle()
+        state = self.run_state()
+        self.assertEqual(len(state["usage_sources"]), 1, "the replay found the signed record instead of metering twice")
+        self.assertEqual((self.job()["status"], self.sup.status()["allowance"]["usd_spent"]), ("done", 0.01))
+
+
+class UnknownUsdTests(SupervisorBase):
+    """S3: a USD-bounded adapter settles USD only from a valid numeric figure; anything else stays unknown."""
+
+    def test_a_result_without_usd_holds_and_keeps_the_reservation(self) -> None:
+        self.mode("success usd=missing")
+        self.enqueue()
+        self.until_idle()
+        job = self.job()
+        self.assertEqual((job["status"], job["hold"]["kind"]), ("needs-human", "unknown-usage"), "tokens alone were settled as 0 USD")
+        self.assertEqual(self.sup.status()["allowance"]["usd_reserved"], 1.0)
+
+    def test_settling_needs_a_valid_usd_figure_and_genuine_zero_counts(self) -> None:
+        self.mode("missing-usage")
+        self.enqueue()
+        self.until_idle()
+        self.assertEqual(self.job()["hold"]["kind"], "unknown-usage")
+        folder = scratch("recovered-")
+        bad = {"missing": {}, "null": {"total_cost_usd": None}, "string": {"total_cost_usd": "0.01"}, "negative": {"total_cost_usd": -1},
+               "nan": {"total_cost_usd": float("nan")}, "infinite": {"total_cost_usd": float("inf")}, "bool": {"total_cost_usd": False}}
+        for name, figures in bad.items():
+            with self.subTest(usd=name):
+                path = folder / f"{name}.jsonl"
+                path.write_text(json.dumps({"type": "result", "usage": {"input_tokens": 100, "output_tokens": 20}, **figures}) + "\n", encoding="utf-8")
+                with self.assertRaises(team.TeamError):
+                    team.transcript_usage(path, require_usd=True)
+                with self.assertRaises(sup.SupervisorError):
+                    self.sup.resume("fix-1", usage_transcript=path)
+                job = self.job()
+                self.assertEqual((job["status"], job["hold"]["kind"]), ("needs-human", "unknown-usage"))
+                self.assertEqual(self.sup.status()["allowance"]["usd_reserved"], 1.0)
+        zero = folder / "zero.jsonl"
+        zero.write_text(json.dumps({"type": "result", "total_cost_usd": 0, "usage": {"input_tokens": 100, "output_tokens": 20}}) + "\n", encoding="utf-8")
+        self.assertEqual(team.transcript_usage(zero, require_usd=True)["usd"], 0.0)
+        self.assertEqual(self.sup.resume("fix-1", usage_transcript=zero), "job fix-1 is done")
+        status = self.sup.status()
+        self.assertEqual((status["allowance"]["usd_reserved"], status["allowance"]["usd_spent"]), (0, 0.0))
+
+
+class OrphanReservationTests(SupervisorBase):
+    """S4: a missing, moved, or torn job record never refunds its reservation or frees the checkout."""
+
+    def check_orphan(self, job_id: str = "fix-1") -> dict:
+        self.mode("success")
+        self.enqueue("next")
+        digest = self.sup.tick()
+        control = self.sup.store.control()
+        self.assertEqual(control["allowance"]["reservations"].get(f"{job_id}/{self.attempt_id}"), 1.0, "the reservation was refunded")
+        self.assertEqual(control["checkout"]["job"], job_id, "the checkout was freed")
+        self.assertEqual(self.job("next")["status"], "queued", "a second writer launched")
+        self.assertEqual(digest["exit_code"], sup.EXIT_BLOCKED)
+        self.assertTrue(any("recover-orphan" in item and job_id in item for item in digest["blockers"]), digest["blockers"])
+        return control
+
+    def test_a_moved_unknown_cost_record_keeps_its_reservation_and_checkout(self) -> None:
+        self.mode("missing-usage")
+        self.enqueue()
+        self.until_idle()
+        self.attempt_id = self.job()["attempts"][-1]["id"]
+        aside = scratch("aside-") / "fix-1.json"
+        shutil.move(str(self.sup.store.job_path("fix-1")), str(aside))
+        self.check_orphan()
+        shutil.move(str(aside), str(self.sup.store.job_path("fix-1")))
+        self.sup.tick()
+        self.assertEqual(self.sup.store.control().get("orphans") or {}, {}, "restoring the record ends the orphan hold")
+        self.assertEqual(self.job()["hold"]["kind"], "unknown-usage")
+
+    def test_a_missing_or_torn_record_of_a_live_worker_holds(self) -> None:
+        self.mode("hang")
+        self.enqueue()
+        self.sup.tick()
+        folder = self.attempt_dir()
+        self.attempt_id = self.job()["attempts"][-1]["id"]
+        transcript = folder / "stdout.jsonl"
+        self.assertTrue(self.wait_for(lambda: transcript.is_file() and "thinking forever" in transcript.read_text(encoding="utf-8")), "the worker hangs")
+        saved = self.sup.store.job_path("fix-1").read_text(encoding="utf-8")
+        self.sup.store.job_path("fix-1").write_text('{"schema": 1, "id": "fi', encoding="utf-8")
+        self.check_orphan()
+        self.sup.store.job_path("fix-1").unlink()
+        self.check_orphan()
+        with self.assertRaises(sup.SupervisorError) as raised:
+            self.sup.recover_orphan("fix-1", "the worker was stopped")
+        self.assertIn("running", str(raised.exception))
+        (folder / "cancel").touch()
+        self.assertTrue(self.wait_for(lambda: (folder / "exit.json").exists(), 30))
+        self.assertIn("charged", self.sup.recover_orphan("fix-1", "record lost; draft discarded"))
+        control = self.sup.store.control()
+        self.assertEqual((control["checkout"]["job"], control["allowance"]["charges"].get(f"fix-1/{self.attempt_id}")), (None, 1.0))
+        self.assertEqual(control["allowance"]["reservations"], {})
+        self.assertTrue(saved)
+        digest = self.sup.tick()
+        self.assertTrue(any("unrelated run sup-fix-1" in item for item in digest["blockers"]), digest["blockers"])
+        team.close_run(self.project, self.project / ".agentic-team" / "runs" / "sup-fix-1", "its job record was lost")
+        self.assertEqual(self.sup.tick()["exit_code"], sup.EXIT_OK)
+
+
+class IsolationBindingTests(SupervisorBase):
+    """S5: the isolation proof covers the whole effective boundary; any change invalidates it, for frozen jobs too."""
+
+    def stub(self) -> list[str]:
+        script = scratch("boundary-") / "boundary.py"
+        script.write_text("import subprocess, sys\nargs = sys.argv[1:]\nargs[3] = args[3] + '.hidden'\nargs[5] = args[5] + '-not-there'\n"
+                          "raise SystemExit(subprocess.call(args))\n", encoding="utf-8")
+        return [sys.executable, str(script)]
+
+    def verified(self) -> dict:
+        self.sup.configure(isolation={"prefix": self.prefix, "python": sys.executable})
+        self.assertTrue(self.sup.verify_isolation()["verified"])
+        return self.sup.store.config()
+
+    def test_any_boundary_change_invalidates_the_proof(self) -> None:
+        self.prefix = self.stub()
+        changes = {"view_dir": str(scratch("view-")), "worker_home": str(scratch("worker-home-")), "env_passthrough": ["SOME_TOKEN"],
+                   "executable": [sys.executable, "-c", "pass"], "isolation": {"python": "python3-elsewhere"}}
+        for key, value in changes.items():
+            with self.subTest(change=key):
+                self.verified()
+                config = self.sup.configure(**{key: value})
+                self.assertFalse(config["isolation"]["verified"], f"changing {key} kept the old proof")
+                self.assertTrue(any("isolation" in item for item in self.sup.isolation_problems(config)))
+        config = self.verified()
+        self.assertEqual(self.sup.isolation_problems(config), [])
+        with mock.patch.dict(os.environ, {"AGENTIC_TEAM_HOME": str(scratch("moved-home-"))}):
+            self.assertTrue(self.sup.isolation_problems(config), "another owner home is another boundary")
+        with mock.patch.object(sup.sys, "executable", str(Path(sys.executable).with_name("other-python.exe"))):
+            self.assertTrue(self.sup.isolation_problems(config), "another interpreter is another boundary")
+
+    def test_a_frozen_job_does_not_launch_on_a_stale_proof(self) -> None:
+        self.prefix = self.stub()
+        self.sup.pause(None, "freeze first")
+        self.sup.configure(adapter="claude", executable=[sys.executable, "-c", "print('--help')"])
+        self.verified()
+        self.enqueue("paid")
+        self.sup.tick()
+        self.assertEqual(self.sup.isolation_problems(self.job("paid")["config"]), [])
+        self.sup.configure(view_dir=str(scratch("new-view-")))
+        self.assertTrue(self.sup.isolation_problems(self.job("paid")["config"]), "the frozen job kept a proof the store no longer holds")
+        self.sup.resume(None)
+        self.sup.tick()
+        job = self.job("paid")
+        self.assertEqual((job["status"], job["hold"]["kind"]), ("needs-human", "config"))
+        self.assertIn("isolation", job["hold"]["reason"])
+        self.assertIsNone(job["run_id"])
+
+
+class DurableRequeueTests(SupervisorBase):
+    """S6: a requeue survives an interruption at every write boundary with exactly one accepted job."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.sup.pause(None, "requeue tests launch nothing")
+
+    def event(self, name: str) -> dict:
+        return {"id": name, "kind": "manual", "title": f"Fix {name}", "brief": "Make feature() return 42.", "acceptance": ["AC-1: feature() returns 42"]}
+
+    def interrupted(self, name: str, boundary: int) -> None:
+        self.sup.enqueue(self.event(name))
+        self.sup.tick()
+        self.sup.cancel(name, "requeue it")
+        real, writes = sup.write_json, []
+
+        def crash_after(path: Path, data) -> None:
+            real(path, data)
+            writes.append(path)
+            if len(writes) == boundary:
+                raise RuntimeError(f"supervisor died after durable write {boundary} ({path.name})")
+
+        with mock.patch.object(sup, "write_json", crash_after):
+            try:
+                self.sup.enqueue(self.event(name), requeue=True)
+            except RuntimeError:
+                pass
+            else:
+                self.skipTest(f"requeue has fewer than {boundary} durable writes")
+
+    def assert_one_requeued(self, name: str, job_id: str) -> None:
+        jobs = [job["id"] for job in self.sup.store.jobs()[0] if job["id"].startswith(name)]
+        self.assertEqual(sorted(jobs), sorted([name, job_id]), "exactly the original and one requeued job")
+        self.assertEqual(self.job(job_id)["status"], "queued")
+
+    def test_retrying_after_each_interruption(self) -> None:
+        for boundary in (1, 2):
+            with self.subTest(boundary=boundary):
+                name = f"retry-{boundary}"
+                self.interrupted(name, boundary)
+                outcome, job_id = self.sup.enqueue(self.event(name), requeue=True)
+                self.assertIn(outcome, {"requeued", "duplicate"})
+                self.assertTrue(self.sup.store.job_path(job_id).is_file() or (self.sup.store.inbox / f"{job_id}.json").is_file(),
+                                f"{outcome} names {job_id}, which is neither a job nor a waiting event")
+                self.sup.tick()
+                self.assert_one_requeued(name, job_id)
+                self.assertEqual(self.sup.enqueue(self.event(name), requeue=True), ("duplicate", job_id))
+
+    def test_a_tick_repairs_a_dangling_index(self) -> None:
+        for boundary in (1, 2):
+            with self.subTest(boundary=boundary):
+                name = f"tick-{boundary}"
+                self.interrupted(name, boundary)
+                self.sup.tick()
+                outcome, job_id = self.sup.enqueue(self.event(name), requeue=True)
+                self.assertEqual(outcome, "duplicate")
+                self.assert_one_requeued(name, job_id)
+
+
+class FailureOutcomeTests(SupervisorBase):
+    """S7: an unresolved terminal failure is a nonzero outcome until the owner acknowledges it."""
+
+    def test_failed_jobs_are_not_a_successful_exit(self) -> None:
+        self.sup.configure(retries=0)
+        self.mode("stop-after-build")
+        self.enqueue()
+        code = self.until_idle()
+        self.assertEqual(self.job()["status"], "failed")
+        self.assertEqual(code, sup.EXIT_HUMAN, "serve --until-idle returned success over a failed job")
+        self.assertEqual(self.sup.status()["exit_code"], sup.EXIT_HUMAN)
+        self.assertEqual(sup.main(["status", "--project", str(self.project)]), sup.EXIT_HUMAN)
+        self.assertIn("acknowledge --job fix-1", self.sup.status()["jobs"][0]["next_action"])
+        self.mode("success")
+        self.enqueue("later")
+        self.assertEqual(self.until_idle(), sup.EXIT_HUMAN, "later success does not hide the earlier failure")
+        (self.project / "stray.txt").write_text("owner work in progress\n", encoding="utf-8")
+        self.enqueue("blocked")
+        self.assertEqual(self.sup.tick()["exit_code"], sup.EXIT_BLOCKED, "a blocker still outranks a failure (3 > 2)")
+        (self.project / "stray.txt").unlink()
+        self.sup.cancel("blocked", "not needed")
+        self.sup.acknowledge("fix-1", "reviewed; the feature was dropped")
+        self.assertEqual(self.sup.tick()["exit_code"], sup.EXIT_OK)
+        self.assertEqual(self.job()["status"], "failed", "acknowledging keeps the history")
+        self.assertEqual(self.job()["failure_acknowledged"]["reason"], "reviewed; the feature was dropped")
+        with self.assertRaises(sup.SupervisorError):
+            self.sup.acknowledge("later", "not a failure")
+
+    def test_a_requeue_acknowledges_the_failure_it_replaces(self) -> None:
+        self.sup.configure(retries=0)
+        self.mode("stop-after-build")
+        self.enqueue()
+        self.assertEqual(self.until_idle(), sup.EXIT_HUMAN)
+        self.sup.pause(None, "no relaunch")
+        event = {"id": "fix-1", "kind": "manual", "title": "Fix fix-1", "brief": "Make feature() return 42.", "acceptance": ["AC-1: feature() returns 42"]}
+        self.assertEqual(self.sup.enqueue(event, requeue=True), ("requeued", "fix-1-r2"))
+        self.assertIn("fix-1-r2", self.job()["failure_acknowledged"]["reason"])
+        self.mode("success")
+        self.sup.resume(None)
+        self.assertEqual(self.until_idle(), sup.EXIT_OK)
+
+
+class FailureReconciliationTests(SupervisorBase):
+    """S8: every task the ended attempt held gets its failure recorded before anything relaunches."""
+
+    def crashed(self) -> None:
+        self.mode("crash-once cost=0.05")
+        self.enqueue()
+        self.sup.tick()
+        self.assertTrue(self.wait_for(lambda: (self.attempt_dir() / "exit.json").exists(), 60))
+
+    def failing(self, times: int | None):
+        real, calls = sup.Supervisor.cli, []
+
+        def cli(instance, *args):
+            if args and args[0] == "fail" and (times is None or len(calls) < times):
+                calls.append(args)
+                return 1, "", "the state lock is busy (simulated)"
+            return real(instance, *args)
+
+        return mock.patch.object(sup.Supervisor, "cli", cli)
+
+    def test_a_transient_fail_error_holds_launch_until_recorded(self) -> None:
+        self.crashed()
+        with self.failing(1):
+            self.sup.tick()
+        job = self.job()
+        self.assertNotEqual(job["status"], "retrying", "reconciliation was marked complete though `fail` was not recorded")
+        self.assertFalse(job["attempts"][-1].get("failures_reconciled"))
+        self.assertEqual(self.run_state()["tasks"]["T1"]["status"], "claimed")
+        self.assertEqual(len(job["attempts"]), 1)
+        self.until_idle()
+        job = self.job()
+        self.assertEqual((job["status"], len(job["attempts"])), ("done", 2))
+        failures = self.run_state()["tasks"]["T1"]["failures"]
+        self.assertEqual([item["signature"] for item in failures], [sup.FAIL_SIGNATURE], "recorded exactly once")
+
+    def test_a_persistent_fail_error_holds_for_the_owner(self) -> None:
+        self.crashed()
+        with self.failing(None):
+            for _ in range(5):
+                self.sup.tick()
+            job = self.job()
+            self.assertEqual((job["status"], job["hold"]["kind"]), ("needs-human", "failure-record"))
+            self.assertEqual(len(job["attempts"]), 1, "no relaunch while a claim is unaccounted for")
+            with self.assertRaises(sup.SupervisorError):
+                self.sup.resume("fix-1")
+        self.assertEqual(self.sup.resume("fix-1"), "job fix-1 is retrying")
+        self.until_idle()
+        self.assertEqual(self.job()["status"], "done")
+        self.assertEqual(len(self.run_state()["tasks"]["T1"]["failures"]), 1)
+
+
+class PollCursorTests(SupervisorBase):
+    """S9: GitHub poll watermarks are namespaced by host, repository, and label."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.sup.pause(None, "polling tests launch nothing")
+        self.calls: list[list[str]] = []
+
+    def poll(self, newest: str) -> str:
+        page = [{"number": len(self.calls) + 1, "title": "Issue", "body": "AC-1: x", "updated_at": newest}]
+
+        def fetch(argv: list[str]) -> tuple[int, str, str]:
+            self.calls.append(argv)
+            return 0, json.dumps(page), ""
+
+        self.sup.poll_github(fetch)
+        return self.calls[-1][-1]
+
+    def test_each_source_has_its_own_watermark(self) -> None:
+        self.sup.configure(github={"host": "github.com", "repo": "acme/app", "label": "agentic"})
+        self.assertNotIn("since=", self.poll("2026-10-28T10:00:00Z"))
+        self.assertIn("since=2026-10-28T10%3A00%3A00Z", self.poll("2026-10-28T11:00:00Z"), "unchanged source: incremental")
+        for change in ({"host": "ghe.example.com"}, {"repo": "acme/other"}, {"label": "agentic-2"}):
+            with self.subTest(change=change):
+                self.sup.configure(github={"host": "github.com", "repo": "acme/app", "label": "agentic", **change})
+                self.assertNotIn("since=", self.poll("2026-10-20T00:00:00Z"), f"{change} reused another source's watermark")
+                self.assertIn("since=2026-10-20T00%3A00%3A00Z", self.poll("2026-10-20T00:00:00Z"))
+        self.sup.configure(github={"host": "GitHub.com", "repo": "Acme/App", "label": "agentic"})
+        self.assertIn("since=2026-10-28T11%3A00%3A00Z", self.poll("2026-10-28T11:00:00Z"), "the original cursor is kept, canonically keyed")
+
+
+class OwnerCommandTests(SupervisorBase):
+    """A5 (supervisor half): generated owner actions run the owner copy by absolute path with explicit context."""
+
+    def test_next_actions_use_the_owner_copy_with_explicit_context(self) -> None:
+        self.mode("r2")
+        self.enqueue()
+        self.until_idle()
+        row = self.sup.status()["jobs"][0]
+        runtime, supervisor = self.sup.store.bin / "agentic_team.py", self.sup.store.bin / "agentic_supervisor.py"
+        self.assertNotIn(".agentic-team/bin/agentic_team.py", row["next_action"], "the checkout's runtime is worker-writable")
+        self.assertIn(str(runtime), row["next_action"])
+        for shell in ("bash", "powershell"):
+            commands = row["next_commands"][shell]
+            self.assertEqual(len(commands), 2)
+            text = " ".join(commands)
+            for needed in (str(runtime), str(supervisor), str(self.project), str(self.sup.store.root), "--run", self.job()["run_id"]):
+                self.assertIn(needed, text)
+            self.assertNotIn(str(self.project / ".agentic-team" / "bin"), text)
+        argv = [part for part in sup.shlex.split(row["next_commands"]["bash"][0]) if not sup.re.match(r"^[A-Z_]+=", part)]
+        self.assertEqual(argv[:3], [sys.executable, str(runtime), "approve"])
+        self.assertEqual(argv[argv.index("--project") + 1], str(self.project))
+
+    @unittest.skipUnless(os.name == "nt" and shutil.which("powershell"), "PowerShell execution is checked on Windows")
+    def test_powershell_commands_run_with_spaces_in_every_path(self) -> None:
+        parent = scratch("space parent ")
+        project = parent / "my project"
+        shutil.copytree(git_project(), project)
+        supervisor = sup.Supervisor(project, parent / "owner store")
+        supervisor.configure(**fast_config())
+        supervisor.add_allowance(5.0, "spaces")
+        (project / ".fake-worker-mode").write_text("r2\n", encoding="utf-8")
+        supervisor.enqueue({"id": "spaced", "kind": "manual", "title": "Spaces", "acceptance": ["AC-1: works"]})
+        supervisor.serve("until-idle", max_seconds=120)
+        self.addCleanup(self.stop_workers, supervisor.store.attempts)
+        commands = supervisor.status()["jobs"][0]["next_commands"]["powershell"]
+        for command in commands:
+            result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", command], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, (command, result.stdout[-400:], result.stderr[-400:]))
+        supervisor.serve("until-idle", max_seconds=120)
+        self.assertEqual(supervisor.store.job("spaced")["status"], "done")
+
+
 if __name__ == "__main__":
     unittest.main()
