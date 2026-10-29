@@ -308,6 +308,12 @@ Linux, macOS, and Windows (3.12, 3.14); the failures were older and outside the 
 
 Both Windows path failures were reproduced locally with a short-name `TEMP` before the fix.
 
+CI run 40824874159 on the fixes (`6feee2e`) passed on Linux and Windows for 3.10, 3.12, and 3.14.
+On macOS the unit tests, the supervisor's included, passed on all three; the later `install.sh`
+step failed, because macOS's bash 3.2 calls the empty `PROFILE_ARGS` array unbound under
+`set -u` (since v3.0.0; earlier steps had always failed first). The installer now uses the
+`${PROFILE_ARGS[@]+...}` form.
+
 Verifying the fixes under load (two full suites in parallel) surfaced one supervisor defect:
 the wrapper runs without a console, so every worker got a **visible console window** of its own,
 inherited by its children; when the window went away, the worker and the CLI command it was
