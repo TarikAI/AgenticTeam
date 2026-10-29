@@ -58,6 +58,10 @@ A denied call is a decision, not an obstacle: do not retry it or route around it
 - Claude Code's sandbox runs on macOS, Linux, and WSL2, not on native Windows. Enable it there.
 - On native Windows use WSL2, a dev container, or a separate OS account that cannot read the
   owner's home folder.
+- A supervised worker runs with its own empty `AGENTIC_TEAM_HOME` and reads decisions through
+  the exported `AGENTIC_TEAM_VIEW`. Removing the owner's variable does not isolate files from the
+  same OS user: the view is trustworthy only where the worker cannot write it, and the owner side
+  re-checks with `audit verify` after every attempt.
 - Never grant agents access to `~/.agentic-team` (or `AGENTIC_TEAM_HOME`): no allow rule, no
   mount into a container, no additional directory. Keep the owner token file outside every
   folder an agent can read.
@@ -65,6 +69,19 @@ A denied call is a decision, not an obstacle: do not retry it or route around it
   `.env`, shell profiles, CI variables an agent job can read, or mounted cloud config
   (`secrets-and-sensitive-data.md`).
 - Keep the harness's own permission prompts on; an autonomy profile never weakens them.
+
+## Supervised workers
+
+A supervisor-launched worker gets an empty `AGENTIC_TEAM_HOME`, the exported verification view,
+and an environment with unrelated credentials removed. The guard also denies agent writes to
+`.agentic-team/supervisor/`, writes to the view, any reference to the owner paths the supervisor
+lists in `AGENTIC_TEAM_PROTECT`, and running `supervise` or `export-view` from an agent. None of
+this is isolation from the same OS user: the paid Claude adapter launches only through an
+isolation prefix that `supervise verify-isolation` has proven with a harmless sentinel (the owner
+store unreadable, the view unwritable). The CLI's gates run inside the worker's process and are
+defense in depth; the owner's `audit verify` after each attempt replays stage exits, risk-gated
+claims, and waivers against the signed home ledger, and the supervisor runs its owner-side work
+from an owner copy outside the checkout, never from the project's `bin/`.
 
 ## Verify
 

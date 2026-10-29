@@ -180,17 +180,66 @@ class MetricsAndBudgetTests(Base):
         team.ingest_usage(self.project, self.run, second, "Owner", self.token())  # 45 of the project's 50 USD: warning
         state = team.load_state(self.run)
         self.assertTrue(any(item["kind"] == "budget" and item["budget"] == "usd" for item in state["checkpoints"]))
+        team.add_task(self.project, self.run, task_args("A", "backend-engineer"))
+        team.claim_task(self.project, self.run, "A", "backend-engineer", 60)  # 45 of 50: allowance remains
         third = self.project / "third.jsonl"
         third.write_text(json.dumps({"type": "result", "total_cost_usd": 10.0, "usage": {"output_tokens": 1}}) + "\n", encoding="utf-8")
         with self.assertRaises(team.BlockedError):
             team.ingest_usage(self.project, self.run, third, "Owner", self.token())
         self.assertEqual(team.load_state(self.run)["usage_metered"]["usd"], 55.0, "spend that happened is recorded")
         # An agent reporting less than the harness metered changes nothing: the larger figure counts.
-        team.add_task(self.project, self.run, task_args("A", "backend-engineer"))
-        team.claim_task(self.project, self.run, "A", "backend-engineer", 60)
         with self.assertRaises(team.BlockedError):
             team.complete_task(self.project, self.run, "A", "backend-engineer", ["note:done"], usage={"usd": 0.01})
         self.assertEqual(team.load_state(self.run)["tasks"]["A"]["status"], "claimed")
+        team.add_task(self.project, self.run, task_args("B", "backend-engineer"))
+        with self.assertRaises(team.BlockedError):
+            team.claim_task(self.project, self.run, "B", "backend-engineer", 60)  # spent: no new work starts
+
+    def test_spent_budget_stops_new_work_but_not_recovery(self) -> None:
+        run = team.init_run(self.project, "Spent", "spent", "autonomous", "execute-only", "adaptive", {"usd": 1})
+        team.add_task(self.project, run, task_args("A", "backend-engineer"))
+        team.add_task(self.project, run, task_args("B", "backend-engineer"))
+        team.claim_task(self.project, run, "A", "backend-engineer", 60)
+        transcript = self.project / "spent.jsonl"
+        transcript.write_text(json.dumps({"type": "result", "total_cost_usd": 1.0, "usage": {"output_tokens": 5}}) + "\n", encoding="utf-8")
+        token = team.owner_token_file(team.load_state(run)).read_text(encoding="utf-8").strip()
+        team.ingest_usage(self.project, run, transcript, "Owner", token)  # exactly at the ceiling: nothing left
+        with self.assertRaises(team.BlockedError) as raised:
+            team.claim_task(self.project, run, "B", "backend-engineer", 60)
+        self.assertIn("waive --requirement budget:usd", str(raised.exception))
+        with self.assertRaises(team.BlockedError):
+            team.exec_command(self.project, run, "A", "backend-engineer", [sys.executable, "-c", "pass"])
+        code, _, err = run_cli(self.project, "claim", "--project", str(self.project), "--run", "spent", "--task", "B",
+                               "--agent", "backend-engineer")
+        self.assertEqual(code, 3, err)
+        # Reporting, recording, and recovery still work; completing claimed work is recording, not new work.
+        self.assertEqual(run_cli(self.project, "status", "--project", str(self.project), "--run", "spent")[0], 0)
+        team.fail_task(self.project, run, "A", "backend-engineer", "out of budget")
+        self.assertEqual(team.recover_leases(self.project, run), 0)
+        team.waive_requirement(self.project, run, "budget:usd", "one more task", "Owner", token)
+        team.claim_task(self.project, run, "B", "backend-engineer", 60)
+        team.complete_task(self.project, run, "B", "backend-engineer", ["note:done"])
+        self.assertEqual(team.load_state(run)["tasks"]["B"]["status"], "completed")
+
+    def test_nonfinite_or_negative_usage_is_refused(self) -> None:
+        for value in ("usd=nan", "usd=inf", "tokens=-1", "usd=-0.5"):
+            with self.subTest(value=value), self.assertRaises(team.TeamError):
+                team.parse_usage([value])
+        token = self.token()
+        bodies = (
+            '{"type": "result", "total_cost_usd": NaN}',
+            '{"type": "result", "total_cost_usd": -2, "usage": {"output_tokens": 1}}',
+            '{"type": "result", "total_cost_usd": 1, "modelUsage": {"m": {"inputTokens": Infinity}}}',
+        )
+        for body in bodies:
+            with self.subTest(body=body):
+                transcript = self.project / "bad.jsonl"
+                transcript.write_text(body + "\n", encoding="utf-8")
+                with self.assertRaises(team.TeamError):
+                    team.ingest_usage(self.project, self.run, transcript, "Owner", token)
+        self.assertEqual(team.load_state(self.run).get("usage_sources", []), [])
+        with self.assertRaises(team.TeamError):
+            team.init_run(self.project, "NaN", "nan", "autonomous", "execute-only", "adaptive", {"usd": float("nan")})
 
 
 class MigrationTests(unittest.TestCase):

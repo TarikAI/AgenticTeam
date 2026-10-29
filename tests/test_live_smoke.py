@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from helpers import ROOT, fresh_project, team
@@ -27,6 +33,22 @@ RESULT_LINE = (
 class LiveSmokeTests(unittest.TestCase):
     def test_it_never_runs_without_opt_in(self) -> None:
         self.assertEqual(live.main([]), 3)
+
+    def test_the_agent_gets_a_scratch_home_and_the_exported_view(self) -> None:
+        project = fresh_project("platform-core", "claude-code")
+        team.init_run(project, "Live", "live", "autonomous", "execute-only", "adaptive")
+        cli = [sys.executable, str(project / ".agentic-team" / "bin" / "agentic_team.py")]
+        worker_home, view = tempfile.mkdtemp(prefix="smoke-home-"), tempfile.mkdtemp(prefix="smoke-view-")
+        self.addCleanup(shutil.rmtree, worker_home, True)
+        self.addCleanup(shutil.rmtree, view, True)
+        env = live.worker_environment(dict(os.environ), cli, project, worker_home, view)
+        self.assertEqual((env["AGENTIC_TEAM_HOME"], env["AGENTIC_TEAM_VIEW"]), (worker_home, view))
+        self.assertFalse(any(Path(worker_home).rglob("*.token")))
+        team.add_task(project, team.find_run(project, None), task_args("T1", "fullstack-engineer", path=["src"]))
+        claim = [*cli, "claim", "--project", str(project), "--task", "T1", "--agent", "fullstack-engineer"]
+        without_view = {key: value for key, value in env.items() if key != "AGENTIC_TEAM_VIEW"}
+        self.assertEqual(subprocess.run(claim, env=without_view, capture_output=True, text=True).returncode, 1)
+        self.assertEqual(subprocess.run(claim, env=env, capture_output=True, text=True).returncode, 0)
 
     def test_scoring_runs_the_acceptance_criteria_instead_of_checking_that_files_exist(self) -> None:
         project = fresh_project("platform-core", "claude-code")

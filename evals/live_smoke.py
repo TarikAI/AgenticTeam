@@ -64,6 +64,14 @@ def owner_token_file(home: str, project: Path) -> Path:
     return Path(home) / "owner-tokens" / f"{state['run_id']}.{state['run_uid']}.token"
 
 
+def worker_environment(owner_env: dict[str, str], cli: list[str], project: Path, worker_home: str, view: str) -> dict[str, str]:
+    """The agent's environment: the owner's minus its home, plus a scratch home and the exported view."""
+    subprocess.run([*cli, "export-view", "--project", str(project), "--to", view], check=True, env=owner_env, capture_output=True)
+    agent_env = {key: value for key, value in owner_env.items() if key not in {"AGENTIC_TEAM_HOME", "AGENTIC_TEAM_VIEW"}}
+    agent_env.update(AGENTIC_TEAM_HOME=worker_home, AGENTIC_TEAM_VIEW=view)
+    return agent_env
+
+
 def score_run(project: Path, transcript_lines: list[str]) -> dict[str, dict]:
     """Score a finished live run. Pure function over files, so it is unit-tested offline."""
     bus = project / ".agentic-team"
@@ -110,6 +118,8 @@ def main(argv: list[str] | None = None) -> int:
     out = OUT / stamp
     out.mkdir(parents=True, exist_ok=True)
     home = tempfile.mkdtemp(prefix="live-home-")
+    worker_home = tempfile.mkdtemp(prefix="live-worker-home-")
+    view = tempfile.mkdtemp(prefix="live-view-")
     project = Path(tempfile.mkdtemp(prefix="live-project-"))
     env = dict(os.environ, AGENTIC_TEAM_HOME=home)
     try:
@@ -119,8 +129,10 @@ def main(argv: list[str] | None = None) -> int:
         subprocess.run([*cli, "init-run", "--project", str(project), "--name", "Live smoke", "--run-id", "live",
                         "--autonomy", "autonomous", "--entry", "execute-only", "--budget", "usd=5"],
                        check=True, env=env, capture_output=True)
-        # The agent's environment must not point at the owner's folder.
-        agent_env = {key: value for key, value in env.items() if key != "AGENTIC_TEAM_HOME"}
+        # The agent gets its own empty home (no tokens) and a read-only view of the run's binding and
+        # ledger, exactly as the supervisor starts a worker: real decisions stay visible, and without
+        # the view the CLI refuses gated commands instead of trusting state.json.
+        agent_env = worker_environment(env, cli, project, worker_home, view)
         command = [claude, "-p", TASK, "--output-format", "stream-json", "--verbose", "--max-turns", str(args.max_turns),
                    "--permission-mode", "acceptEdits", "--allowedTools", *ALLOWED_TOOLS]
         if args.model:
@@ -147,6 +159,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             shutil.rmtree(project, ignore_errors=True)
             shutil.rmtree(home, ignore_errors=True)
+        shutil.rmtree(worker_home, ignore_errors=True)
+        shutil.rmtree(view, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -50,6 +50,8 @@ The harness orchestrator normally invokes these. Humans can use them to inspect 
 | `renew` | Extend the lease on a task you hold (1-480 minutes). |
 | `reassign` | Change the owner of an unclaimed open task, with a reason. |
 | `complete [--run-checks] [--usage tokens=N,usd=N]` | Attach typed evidence (`file:`, `cmd:`, `commit:`, `url:`, `note:`) and unlock dependents. Runs every `--check` command that has no passing record at the current HEAD (all of them with `--run-checks`) and refuses while one fails. Write tasks need at least one `file:`/`cmd:`/`commit:`. |
+| `supervise enqueue\|configure\|serve\|status\|pause\|resume\|cancel\|release\|allowance\|verify-isolation\|owner-copy\|poll-github\|host-example\|prune` | Owner side: the durable supervisor; `serve`, `resume`, `poll-github`, and `verify-isolation` run only from its owner copy outside the checkout. Turns triggers into runs with one bounded worker per checkout, meters and audits every attempt, and holds for the human instead of deciding ([operator guide](supervisor-operator-guide.md)). `serve` exits 0 ok, 1 error, 2 a job needs the human, 3 blocked. |
+| `export-view --to DIR` | Owner side: copy the run's binding and ledger (no token) into `DIR`, the verification view a worker reads through `AGENTIC_TEAM_VIEW`; a `view.json` manifest records both digests. |
 | `usage --transcript FILE [--task T] --by NAME --token-file PATH` | Owner side: record the tokens and USD the harness itself reported (Claude Code `json`/`stream-json` result message), hashed and signed into the ledger. The larger of reported and metered usage counts against the ceilings. |
 | `exec --task T --agent A [--shell] -- CMD...` | Run a command for your claimed task; records exit code, duration, git HEAD, and output under `_evidence/`. Commands matching a policy command rule need an approved task of that action. Exit code mirrors the command (0/1). |
 | `scaffold --artifact NAME` | Create `BRIEF.md`, `PRD.md`, `READINESS.md`, `VERIFICATION.md`, `RELEASE.md`, and the other run artifacts from their templates. |
@@ -339,6 +341,16 @@ Run a command for a claimed task and record its exit code and output
 | `--agent` | yes |  |  |
 | `--shell` |  |  | Run the command through the shell |
 | `cmd` |  |  | -- <command...> |
+
+### `export-view`
+
+Owner side: export a run's binding and ledger (no tokens) as a worker's verification view
+
+| Flag | Required | Default | Meaning |
+|---|---|---|---|
+| `--project` |  | `.` | Installed project root |
+| `--run` |  |  | Run id; defaults to CURRENT.md |
+| `--to` | yes |  | Directory the worker reads through AGENTIC_TEAM_VIEW |
 
 ### `fail`
 
@@ -695,6 +707,14 @@ Show durable run status
 | `--run` |  |  | Run id; defaults to CURRENT.md |
 | `--json` |  |  |  |
 | `--brief` |  |  | At most 20 lines, with what is ready now (for agents) |
+
+### `supervise`
+
+Owner side: turn triggers into runs with one bounded worker per checkout (enqueue, serve, status, resume, cancel)
+
+| Flag | Required | Default | Meaning |
+|---|---|---|---|
+| `helper_args` |  |  |  |
 
 ### `switch-run`
 

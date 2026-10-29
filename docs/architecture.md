@@ -49,7 +49,11 @@ ledger's source.
       preflight_skills.py     helpers, also exposed as CLI subcommands:
       findings_to_tasks.py      preflight, findings-to-tasks,
       design_to_admin.py        design-to-admin,
-      local_llm_check.py        llm-check
+      local_llm_check.py        llm-check,
+      agentic_supervisor.py     supervise (the owner-side supervisor)
+    supervisor/               supervisor intake and digest (owner-written; agents read only)
+      inbox/ quarantine/      trigger events waiting for intake; refused ones with a .reason
+      STATUS.md               the digest, rewritten every tick
     config/
       policies.json           generated policy
       guarantees.json         guarantee ledger source
@@ -85,6 +89,24 @@ The owner's material lives **outside the project**, in `~/.agentic-team/` (overr
 ```
 
 Agents must never read this folder; the Claude Code deny rules and the guard hook refuse it.
+
+The supervisor keeps its authoritative records there too, one store per project checkout:
+
+```text
+~/.agentic-team/supervisor/<project>-<hash12>/
+  config.json, control.json           configuration; checkout reservation, pause, aggregate allowance, reservations
+  jobs/<job>.json                     one job: frozen event and configuration, status, attempts, transitions
+  sources/<sha256>.json               the idempotency index (one accepted payload per source key)
+  attempts/<job>/<attempt>/           intent.json, claim, start.json, worker.json, heartbeat, exit.json,
+                                      stdout.jsonl (the frozen transcript), stderr.txt, wrapper.log
+  view/                               the verification view a worker reads (binding and ledger, no token)
+  worker-home/                        the worker's empty AGENTIC_TEAM_HOME
+  log.jsonl, digest.json, .lock       derived log and digest; the cross-process store lock
+```
+
+A worker runs with `AGENTIC_TEAM_HOME=worker-home` and `AGENTIC_TEAM_VIEW=view`: it sees the
+human's decisions without any token, and the CLI refuses its gated commands if the view is
+missing. See the [supervisor operator guide](supervisor-operator-guide.md).
 
 ## State invariants the CLI enforces
 
@@ -204,4 +226,9 @@ _Generated from `config/guarantees.json` by `python scripts/agentic_team.py docs
 | G18 | Verification is pinned to the code being released: Verified-SHA must equal the current HEAD when 05_verify exits, and 06_release cannot exit while HEAD differs from the verified commit. | cli | `test_evidence.VerificationTests.test_verified_sha_must_be_the_current_head_through_release` | Projects without git history (Verified-SHA: none); uncommitted edits do not move HEAD; the human's stage-exit:06_release:verified-head waiver. |
 | G19 | Autonomous, supervised, and unattended runs start only with a token or USD ceiling, and the ceiling counts the larger of agent-reported usage and usage metered from the harness transcript by the owner side (usage --transcript, signed into the ledger). | cli | `test_orchestration.MetricsAndBudgetTests.test_metered_usage_comes_from_the_harness_transcript_and_counts_against_the_ceiling` | Metering depends on whoever launched the session running usage with the transcript; the figures are the harness's client-side estimate. |
 | G20 | Under unattended, 06_release exits without a human checkpoint only when the exit contract passes (verified-head included), every completed build and verify task has a passing exec record for each declared check, no task in the run is above R1 (one R2+ task puts the human checkpoint back), RELEASE.md is complete and a rollback-test task by release-manager or devops-engineer passed its declared rollback command at the current HEAD, and no budget checkpoint is pending; release_gate executable is refused on every other profile, and policies.local.json can set it back to human. | cli | `test_unattended.UnattendedReleaseTests` | The checks and the rollback command are what the task authors declared; work declared as a benign action (G04's bypass) looks low-risk; the human's stage-exit:06_release:<check> waivers cover the exit contract; actions taken without a task are invisible, as everywhere. |
+| G21 | A worker started with AGENTIC_TEAM_VIEW reads human decisions only from that owner-exported view (binding and ledger, no token), never from its own writable home; a v3 run with neither the home binding nor a view counts no decision in state.json and refuses gated commands; the owner's audit verify replays every stage exit through a human gate, every claim of a risk-gated task, and every waiver against the signed home ledger. | cli | `test_authority.VerificationViewTests` | The gates run in the worker's own process, which can point the CLI at a view it wrote or edit state.json; that is found by the owner's audit after the attempt, not prevented, so production credentials must stay out of the worker's reach. |
+| G22 | Once a token or USD ceiling is spent, claim and exec refuse new work until the human waives budget:<metric>, while status, metering, fail, recover-leases and human decisions keep working; usage figures that are not finite or are negative are refused. | cli | `test_orchestration.MetricsAndBudgetTests.test_spent_budget_stops_new_work_but_not_recovery` | Spend inside a running harness session is metered only after the session ends; the ceiling stops the next command, not the session. |
+| G23 | The supervisor keeps one writer per checkout: each attempt and its budget reservation are recorded before its wrapper starts, exactly one wrapper can claim an attempt, a late wrapper finds it abandoned, an attempt whose processes cannot be shown to have stopped holds instead of relaunching, task leases are never released while the previous writer may act, and a cancelled or held job keeps the checkout until its last attempt is reconciled; the store lock is an operating-system lock released when its holder dies. | cli | `test_supervisor.LaunchRecoveryTests` | Process identity relies on the platform's process start time; where it cannot be read the supervisor holds for the owner. Two supervisors over two different stores for the same checkout are not detected. |
+| G24 | A supervised job is done only when the attempt's frozen transcript was metered exactly once, no checkpoint is pending, audit verify passes, the owner-side re-check of the verification, release, and learning exit contracts and of the event log agrees the run completed, and the tree (with no hidden or unreadable state) is clean at the verified commit; unknown usage keeps its reservation counted and holds further paid work until the owner resolves it. | cli | `test_supervisor.MeteringTests` | Cost figures are the harness's client-side estimate; a command-adapter worker reports whatever its output's result line says; a worker that can write the run folder could forge a consistent set of artifacts and events, which independent verification and owner review address. |
+| G25 | The supervisor holds rather than decides: it never approves, rejects, resolves, waives, or reopens; it runs its owner-side work from an owner copy outside the checkout, never from the project's bin/; a forged state approval, a step without a signed decision, or an edited or deleted view file holds the job as tampering. | cli, harness | `test_supervisor.TamperTests` | On the same OS user without an isolation boundary a worker could edit the owner store; audit verify and the view digests detect forgery after the attempt, not before. Paid workers therefore require a verified boundary that hides the store and keeps the view read-only. |
 <!-- GUARANTEES:END -->

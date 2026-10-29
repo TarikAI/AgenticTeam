@@ -32,6 +32,12 @@ Set one for the project, for example `{"budgets": {"tokens": 3000000, "usd": 40}
 - A command that would take a metric past its ceiling is refused with exit 3 (blocked). For
   `complete`, the completion is refused and the task stays claimed. For `usage`, the spend has
   already happened: it is recorded, and the command still exits 3 so the caller stops the next one.
+- Once a `tokens` or `usd` ceiling is spent (used at or above it), `claim` and `exec` refuse with
+  exit 3, because they would start more work. `status`, `usage`, `fail`, `recover-leases`,
+  completing an already-claimed task, and every human decision keep working, so the run can be
+  reported, accounted, and recovered.
+- Usage figures must be finite and at least zero: `complete --usage`, `init-run --budget`, and a
+  transcript's result message with `NaN`, `Infinity`, or a negative amount are refused.
 - Only the human lifts a ceiling for the rest of the run:
   `agentic_team.py waive --requirement budget:<metric> --reason "<why>" --by <name> --token-file <path>`
   (`<metric>` is the key, e.g. `budget:usd`).
@@ -52,6 +58,18 @@ agentic_team.py usage --project . --transcript <session.jsonl> [--task <id>] --b
 transcript, signs the figures into the decision ledger, refuses the same transcript twice, and
 needs the owner token, so an agent cannot "meter" itself. A harness that writes no such
 transcript stays unmetered; its agents' reports are then all the ceiling sees.
+
+## Supervised runs (owner side)
+
+The supervisor adds two owner-held limits on top of the run's ceiling: each worker attempt
+reserves a fixed USD amount before it starts, against the run's remaining allowance (its ceiling
+minus the larger of reported and metered usage, minus open reservations) and against an aggregate
+allowance across all jobs that only the owner replenishes and that never resets on restart. After
+the attempt its frozen transcript is metered once and replaces the reservation; an attempt whose
+cost is unknown keeps its reservation counted and holds the job until the owner meters a
+transcript or charges the reservation. The Claude adapter passes the harness a `--max-budget-usd`
+below the reservation (reservation ÷ headroom), because that limit is an estimate that can
+overshoot; nothing here is an exact billing cap.
 
 ## What agents do (instruction)
 

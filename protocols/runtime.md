@@ -48,6 +48,11 @@ stop. Never loop on `advance`.
 
 - `runs/<id>/events.jsonl` is append-only and hash-chained (each line carries the previous
   line's hash); read it with `log`, summarize with `metrics`. Only the CLI writes it.
+- A worker started by a supervisor gets its own, empty `AGENTIC_TEAM_HOME` and an
+  `AGENTIC_TEAM_VIEW`: a directory the owner side exports (`export-view --to <dir>`) holding the
+  run's binding and ledger and no token. Gates read the binding and ledger from the home first,
+  then from the view; a v3 run with neither refuses gated commands rather than trusting
+  `state.json`.
 - Human decisions go to an HMAC-signed, hash-chained ledger under `~/.agentic-team/ledger/`.
   Gates read the ledger, not `state.json`, so editing state approves nothing. `audit verify`
   recomputes both chains. Agents never read `~/.agentic-team/`.

@@ -1,8 +1,13 @@
-# Supervisor design (not yet implemented)
+# Supervisor design
 
-Status: design only, 2026-10-28. Nothing in this document exists in the code yet. It describes
-the one layer AgenticTeam still lacks for unattended operation: a durable service that turns
-triggers into runs, keeps workers alive, recovers from their failures, and reports to the owner.
+Status: written 2026-10-28 as a design; **implemented and offline-verified 2026-10-29**
+(`scripts/agentic_supervisor.py`, the `supervise` helper). Not pilot-verified and not activated.
+The implementation follows the corrected contract in [supervisor-progress.md](supervisor-progress.md),
+which supersedes this document where they differ (nine job states instead of six, an owner store
+outside the checkout, a verification view, attempt receipts and reservations); the
+[operator guide](supervisor-operator-guide.md) describes how to run it. This document describes
+the intent: a durable service that turns triggers into runs, keeps workers alive, recovers from
+their failures, and reports to the owner.
 
 ## 1. Why
 
@@ -70,9 +75,10 @@ whose id already exists in the inbox or in `jobs/` is skipped, so a poller can r
 
 ## 4. Commands
 
-All take `--project` (an installed project). Once the helper is registered the way
-`findings-to-tasks` is, the bus CLI exposes them under a `supervise` subcommand; until then no
-such command exists.
+All take `--project` (an installed project). The bus CLI exposes them under the `supervise`
+helper subcommand, registered the way `findings-to-tasks` is; the implemented set also has
+`configure`, `pause`, `resume`, `cancel`, `release`, `allowance`, `verify-isolation`,
+`host-example`, and `prune` (see the operator guide).
 
 | Command | Does |
 |---|---|
