@@ -10,7 +10,8 @@ supervisor has something to meter, and one `fake-env` line saying what it could 
 The mode comes from `<project>/.fake-worker-mode` (one word, then optional key=value options):
 success, crash-once, missing-usage, malformed, hang, slow, claim-and-hang, repeated-failure, r2, r3,
 stop-after-build, verdict-fail, commit-after-verify, dirty-after-verify, no-rollback, no-report,
-forge, forge-complete, self-approve. Options: cost=<usd> (default 0.01), sleep=<seconds> (slow mode).
+forge, forge-complete, self-approve. Options: cost=<usd> (default 0.01), sleep=<seconds> (slow mode),
+usd=number|missing|null|string (how the result line reports the cost; default number).
 """
 
 from __future__ import annotations
@@ -58,8 +59,16 @@ def main(argv: list[str] | None = None) -> int:
         elif mode == "malformed":
             print('{"type": "result", "total_cost_usd": ', flush=True)
         else:
-            emit({"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": cost,
-                  "usage": {"input_tokens": 100, "output_tokens": 20}, "modelUsage": {"fake-model": {"inputTokens": 1000, "outputTokens": 200, "costUSD": cost}}})
+            result = {"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": cost,
+                      "usage": {"input_tokens": 100, "output_tokens": 20}, "modelUsage": {"fake-model": {"inputTokens": 1000, "outputTokens": 200, "costUSD": cost}}}
+            usd = options.get("usd", "number")  # how the result line reports cost: number, missing, null, string
+            if usd != "number":
+                result["modelUsage"]["fake-model"].pop("costUSD")
+                if usd == "missing":
+                    result.pop("total_cost_usd")
+                else:
+                    result["total_cost_usd"] = None if usd == "null" else str(cost)
+            emit(result)
         return code
 
     def call(*parts: str) -> subprocess.CompletedProcess:

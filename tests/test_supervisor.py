@@ -1148,6 +1148,271 @@ class IsolationProbeTests(SupervisorBase):
         self.assertNotEqual(Path(spy.call_args.args[0][1]), bin_cli, "never the checkout's bin/, which a worker can edit")
 
 
+class CheckoutBindingTests(SupervisorBase):
+    """S1: one canonical checkout is bound to one owner store, whatever --store, owner home, or path alias is used."""
+
+    def other(self, root: Path | None = None, project: Path | None = None) -> "sup.Supervisor":
+        other = sup.Supervisor(project or self.project, root or scratch("other-store-") / "store")
+        self.addCleanup(self.stop_workers, other.store.attempts)
+        return other
+
+    def test_two_stores_never_launch_two_writers_in_one_checkout(self) -> None:
+        self.mode("hang")
+        self.enqueue()
+        other = self.other()
+        refused: list[str] = []
+        try:
+            other.configure(**fast_config())
+            other.add_allowance(20.0, "a second owner store")
+            other.enqueue({"id": "other-1", "kind": "manual", "title": "Other", "acceptance": ["AC-1: x"]})
+        except sup.Blocked as exc:
+            refused.append(str(exc))
+        arrived: list[int] = []
+        guard, both = threading.Lock(), threading.Event()
+        real = sup.dirty_paths
+
+        def synchronized(project: Path):  # both supervisors pass their startup checks before either initializes a run
+            result = real(project)
+            with guard:
+                first = threading.get_ident() not in arrived
+                if first:
+                    arrived.append(threading.get_ident())
+                if len(arrived) >= 2:
+                    both.set()
+            if first:
+                both.wait(10)
+            return result
+
+        def tick(supervisor: "sup.Supervisor") -> None:
+            try:
+                supervisor.tick()
+            except sup.Blocked as exc:
+                refused.append(str(exc))
+
+        with mock.patch.object(sup, "dirty_paths", synchronized):
+            threads = [threading.Thread(target=tick, args=(item,)) for item in (self.sup, other)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(120)
+        intents = list(self.sup.store.attempts.glob("*/*/intent.json")) + list(other.store.attempts.glob("*/*/intent.json"))
+        self.assertEqual(len(intents), 1, "two owner stores launched two writers in one checkout")
+        self.assertTrue(refused and all("bound to" in item for item in refused), refused)
+        self.assertEqual(self.job()["status"] in sup.ACTIVE, True)
+
+    def test_other_homes_aliases_and_reused_stores_are_refused(self) -> None:
+        with mock.patch.dict(os.environ, {"AGENTIC_TEAM_HOME": str(scratch("other-home-"))}):
+            with self.assertRaises(sup.Blocked) as raised:
+                sup.Supervisor(self.project).configure(**fast_config())
+            self.assertIn("bound to", str(raised.exception))
+        alias = scratch("alias-") / "checkout"
+        if os.name == "nt":
+            made = subprocess.run(["cmd", "/c", "mklink", "/J", str(alias), str(self.project)], capture_output=True, text=True)
+            if made.returncode != 0:
+                self.skipTest(f"no junction: {made.stderr}")
+        else:
+            os.symlink(self.project, alias, target_is_directory=True)
+        self.assertEqual(sup.Supervisor(alias).store.root, self.sup.store.root, "an alias reaches the same default store")
+        with self.assertRaises(sup.Blocked):
+            self.other(project=alias).configure(**fast_config())
+        second = git_project()
+        with self.assertRaises(sup.Blocked) as raised:
+            sup.Supervisor(second, self.sup.store.root).configure(**fast_config())
+        self.assertIn("belongs to", str(raised.exception))
+        self.assertTrue(self.sup.status() is not None, "the bound store keeps working")
+
+    def test_explicit_takeover_moves_the_binding_only_when_the_old_store_is_idle(self) -> None:
+        self.mode("hang")
+        self.enqueue()
+        self.sup.tick()
+        self.assertTrue(self.wait_for(lambda: (self.attempt_dir() / "worker.json").exists()))
+        other = self.other()
+        with self.assertRaises(sup.Blocked):
+            other.configure(**fast_config())
+        with self.assertRaises(sup.SupervisorError) as raised:
+            other.take_over_checkout("move to a new owner store")
+        self.assertIn("still", str(raised.exception))
+        self.sup.cancel("fix-1", "moving stores")
+        self.assertTrue(self.wait_for(lambda: (self.attempt_dir() / "exit.json").exists(), 30))
+        self.sup.tick()
+        self.sup.resume("fix-1", charge_reservation=True)
+        if self.sup.store.control()["checkout"]["job"]:
+            self.sup.release("fix-1", "nothing to keep")
+        self.assertIn("bound", other.take_over_checkout("move to a new owner store"))
+        other.configure(**fast_config())
+        with self.assertRaises(sup.Blocked):
+            self.sup.tick()
+        missing = self.other()
+        shutil.rmtree(other.store.root)
+        with self.assertRaises(sup.SupervisorError):
+            missing.take_over_checkout("the old store vanished")
+        self.assertIn("bound", missing.take_over_checkout("the old store was deleted", old_store_missing=True))
+
+
+class VerifiedUsageTests(SupervisorBase):
+    """S2: settlement and deduplication use only owner-ledger usage records, never the editable state projection."""
+
+    def ended(self) -> Path:
+        self.enqueue()
+        self.sup.tick()
+        self.assertTrue(self.wait_for(lambda: (self.attempt_dir() / "exit.json").exists(), 60))
+        return self.attempt_dir() / "stdout.jsonl"
+
+    def edit_state(self, change) -> None:
+        path = self.run_dir() / "state.json"
+        state = json.loads(path.read_text(encoding="utf-8"))
+        change(state)
+        path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+    def test_a_forged_zero_usage_projection_holds(self) -> None:
+        transcript = self.ended()
+        digest = sup.sha256_file(transcript)
+
+        def forge(state: dict) -> None:
+            state.setdefault("usage_sources", []).append({"id": "U-001", "transcript": str(transcript), "sha256": digest, "task": None,
+                                                          "by": "Owner", "time": sup.now_iso(), "tokens": 1.0, "usd": 0.0})
+            state["usage_metered"] = {"tokens": 1.0, "usd": 0.0}
+
+        self.edit_state(forge)
+        self.until_idle()
+        job = self.job()
+        self.assertNotEqual(job["status"], "done", "a projection with no signed usage record settled the attempt at 0 USD")
+        self.assertEqual(job["hold"]["kind"], "unknown-usage")
+        self.assertIn("ledger", job["hold"]["reason"])
+        status = self.sup.status()
+        self.assertEqual((status["allowance"]["usd_reserved"], status["allowance"]["usd_spent"]), (1.0, 0.0))
+
+    def test_a_replay_with_altered_amounts_holds_and_a_genuine_replay_reconciles(self) -> None:
+        self.ended()
+        real = sup.Supervisor.cli
+
+        def crash_after_usage(instance, *args):
+            result = real(instance, *args)
+            if args and args[0] == "usage":
+                raise RuntimeError("supervisor died right after the usage command")
+            return result
+
+        with mock.patch.object(sup.Supervisor, "cli", crash_after_usage):
+            with self.assertRaises(RuntimeError):
+                self.sup.tick()
+
+        def lower(state: dict) -> None:
+            state["usage_sources"][0]["usd"] = 0.0
+            state["usage_metered"]["usd"] = 0.0
+
+        self.edit_state(lower)
+        self.sup.tick()
+        job = self.job()
+        self.assertEqual((job["status"], job["hold"]["kind"]), ("needs-human", "unknown-usage"), "a lowered projection is not settled")
+        self.assertEqual(self.sup.status()["allowance"]["usd_reserved"], 1.0)
+
+        def restore(state: dict) -> None:
+            state["usage_sources"][0]["usd"] = 0.01
+            state["usage_metered"]["usd"] = 0.01
+
+        self.edit_state(restore)
+        self.sup.resume("fix-1", usage_transcript=self.attempt_dir() / "stdout.jsonl")
+        self.until_idle()
+        state = self.run_state()
+        self.assertEqual(len(state["usage_sources"]), 1, "the replay found the signed record instead of metering twice")
+        self.assertEqual((self.job()["status"], self.sup.status()["allowance"]["usd_spent"]), ("done", 0.01))
+
+
+class UnknownUsdTests(SupervisorBase):
+    """S3: a USD-bounded adapter settles USD only from a valid numeric figure; anything else stays unknown."""
+
+    def test_a_result_without_usd_holds_and_keeps_the_reservation(self) -> None:
+        self.mode("success usd=missing")
+        self.enqueue()
+        self.until_idle()
+        job = self.job()
+        self.assertEqual((job["status"], job["hold"]["kind"]), ("needs-human", "unknown-usage"), "tokens alone were settled as 0 USD")
+        self.assertEqual(self.sup.status()["allowance"]["usd_reserved"], 1.0)
+
+    def test_settling_needs_a_valid_usd_figure_and_genuine_zero_counts(self) -> None:
+        self.mode("missing-usage")
+        self.enqueue()
+        self.until_idle()
+        self.assertEqual(self.job()["hold"]["kind"], "unknown-usage")
+        folder = scratch("recovered-")
+        bad = {"missing": {}, "null": {"total_cost_usd": None}, "string": {"total_cost_usd": "0.01"}, "negative": {"total_cost_usd": -1},
+               "nan": {"total_cost_usd": float("nan")}, "infinite": {"total_cost_usd": float("inf")}, "bool": {"total_cost_usd": False}}
+        for name, figures in bad.items():
+            with self.subTest(usd=name):
+                path = folder / f"{name}.jsonl"
+                path.write_text(json.dumps({"type": "result", "usage": {"input_tokens": 100, "output_tokens": 20}, **figures}) + "\n", encoding="utf-8")
+                with self.assertRaises(team.TeamError):
+                    team.transcript_usage(path, require_usd=True)
+                with self.assertRaises(sup.SupervisorError):
+                    self.sup.resume("fix-1", usage_transcript=path)
+                job = self.job()
+                self.assertEqual((job["status"], job["hold"]["kind"]), ("needs-human", "unknown-usage"))
+                self.assertEqual(self.sup.status()["allowance"]["usd_reserved"], 1.0)
+        zero = folder / "zero.jsonl"
+        zero.write_text(json.dumps({"type": "result", "total_cost_usd": 0, "usage": {"input_tokens": 100, "output_tokens": 20}}) + "\n", encoding="utf-8")
+        self.assertEqual(team.transcript_usage(zero, require_usd=True)["usd"], 0.0)
+        self.assertEqual(self.sup.resume("fix-1", usage_transcript=zero), "job fix-1 is done")
+        status = self.sup.status()
+        self.assertEqual((status["allowance"]["usd_reserved"], status["allowance"]["usd_spent"]), (0, 0.0))
+
+
+class OrphanReservationTests(SupervisorBase):
+    """S4: a missing, moved, or torn job record never refunds its reservation or frees the checkout."""
+
+    def check_orphan(self, job_id: str = "fix-1") -> dict:
+        self.mode("success")
+        self.enqueue("next")
+        digest = self.sup.tick()
+        control = self.sup.store.control()
+        self.assertEqual(control["allowance"]["reservations"].get(f"{job_id}/{self.attempt_id}"), 1.0, "the reservation was refunded")
+        self.assertEqual(control["checkout"]["job"], job_id, "the checkout was freed")
+        self.assertEqual(self.job("next")["status"], "queued", "a second writer launched")
+        self.assertEqual(digest["exit_code"], sup.EXIT_BLOCKED)
+        self.assertTrue(any("recover-orphan" in item and job_id in item for item in digest["blockers"]), digest["blockers"])
+        return control
+
+    def test_a_moved_unknown_cost_record_keeps_its_reservation_and_checkout(self) -> None:
+        self.mode("missing-usage")
+        self.enqueue()
+        self.until_idle()
+        self.attempt_id = self.job()["attempts"][-1]["id"]
+        aside = scratch("aside-") / "fix-1.json"
+        shutil.move(str(self.sup.store.job_path("fix-1")), str(aside))
+        self.check_orphan()
+        shutil.move(str(aside), str(self.sup.store.job_path("fix-1")))
+        self.sup.tick()
+        self.assertEqual(self.sup.store.control().get("orphans") or {}, {}, "restoring the record ends the orphan hold")
+        self.assertEqual(self.job()["hold"]["kind"], "unknown-usage")
+
+    def test_a_missing_or_torn_record_of_a_live_worker_holds(self) -> None:
+        self.mode("hang")
+        self.enqueue()
+        self.sup.tick()
+        folder = self.attempt_dir()
+        self.attempt_id = self.job()["attempts"][-1]["id"]
+        transcript = folder / "stdout.jsonl"
+        self.assertTrue(self.wait_for(lambda: transcript.is_file() and "thinking forever" in transcript.read_text(encoding="utf-8")), "the worker hangs")
+        saved = self.sup.store.job_path("fix-1").read_text(encoding="utf-8")
+        self.sup.store.job_path("fix-1").write_text('{"schema": 1, "id": "fi', encoding="utf-8")
+        self.check_orphan()
+        self.sup.store.job_path("fix-1").unlink()
+        self.check_orphan()
+        with self.assertRaises(sup.SupervisorError) as raised:
+            self.sup.recover_orphan("fix-1", "the worker was stopped")
+        self.assertIn("running", str(raised.exception))
+        (folder / "cancel").touch()
+        self.assertTrue(self.wait_for(lambda: (folder / "exit.json").exists(), 30))
+        self.assertIn("charged", self.sup.recover_orphan("fix-1", "record lost; draft discarded"))
+        control = self.sup.store.control()
+        self.assertEqual((control["checkout"]["job"], control["allowance"]["charges"].get(f"fix-1/{self.attempt_id}")), (None, 1.0))
+        self.assertEqual(control["allowance"]["reservations"], {})
+        self.assertTrue(saved)
+        digest = self.sup.tick()
+        self.assertTrue(any("unrelated run sup-fix-1" in item for item in digest["blockers"]), digest["blockers"])
+        team.close_run(self.project, self.project / ".agentic-team" / "runs" / "sup-fix-1", "its job record was lost")
+        self.assertEqual(self.sup.tick()["exit_code"], sup.EXIT_OK)
+
+
 class OwnerCommandTests(SupervisorBase):
     """A5 (supervisor half): generated owner actions run the owner copy by absolute path with explicit context."""
 
