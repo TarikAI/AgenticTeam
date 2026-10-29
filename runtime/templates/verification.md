@@ -4,15 +4,17 @@ Verified-SHA: {{the current HEAD this verdict covers, or "none" when the project
 
 # Verification — {{project}}
 
-Owner: qa-lead. Stage: 05_verify. PASS = zero open blockers. CONDITIONAL = zero blockers and
-every open major has an owner and the human's waiver (`stage-exit:05_verify:conditional`).
-FAIL = any open blocker.
+Owner: qa-lead. Stage: 05_verify. Exactly one verdict applies. PASS = no open blocker or major,
+and every required criterion passed with evidence. CONDITIONAL = no open blocker, every required
+criterion passed, and each open major has an owner and the human's waiver
+(`stage-exit:05_verify:conditional`). FAIL = any open blocker or failed required criterion. A
+check that was not run is unknown, never passed: an unknown required criterion is FAIL until run.
 
 ## Traceability matrix
 
 | Requirement | Check (command or procedure) | Result | Evidence |
 |---|---|---|---|
-| AC-1 | {{check}} | {{pass/fail}} | {{exec id, file, or commit}} |
+| AC-1 | {{check}} | {{pass/fail/unknown (not run)}} | {{exec id, file, or commit}} |
 
 ## Findings
 

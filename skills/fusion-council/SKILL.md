@@ -22,8 +22,8 @@ The sponsor is `human-owner` or an installed agent that takes no other part; a `
 python .agentic-team/bin/agentic_team.py fusion-init --project . --id F-ARCH --question "Which persistence model for orders?" --sponsor human-owner --moderator fusion-moderator --verifier code-reviewer --contributor backend-lead --contributor database-engineer --contributor security-engineer
 ```
 
-It creates `<run>/_fusion/F-ARCH/` with `brief.md`, `proposals/<agent>.md`, `critiques/<agent>.md`,
-`synthesis.md`, `dissent.md`, `decision.md`. The moderator completes `brief.md` (facts, unknowns,
+It creates `<run>/_fusion/f-arch/` (the id lowercased, other characters as `-`) with `brief.md`,
+`proposals/<agent>.md`, `critiques/<agent>.md`, `synthesis.md`, `dissent.md`, `decision.md`. The moderator completes `brief.md` (facts, unknowns,
 constraints, rubric) and freezes it before any proposal starts.
 
 ## 2. Proposals (sealed)
@@ -34,10 +34,13 @@ Start one isolated subagent per contributor. Give it only `brief.md` and the pat
 only, so do not paste one proposal into another's prompt). Each contributor, when done:
 
 ```text
-python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F-ARCH --kind proposal --agent backend-lead --evidence file:.agentic-team/runs/<run-id>/_fusion/F-ARCH/proposals/backend-lead.md
+python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F-ARCH --kind proposal --agent backend-lead --file .agentic-team/runs/<run-id>/_fusion/f-arch/proposals/backend-lead.md --evidence file:.agentic-team/runs/<run-id>/_fusion/f-arch/proposals/backend-lead.md
 ```
 
-The phase moves to `critiques` when the last contributor submits. Submissions are final.
+`--file` seals the proposal: its hash is recorded at submission and re-checked when the last
+contributor submits, so a proposal edited after it was submitted stops the reveal (that
+submission is refused and the phase stays `proposals`; tell the human). Without `--file` nothing
+is sealed. The phase moves to `critiques` when the last contributor submits. Submissions are final.
 
 ## 3. Critiques and one revision
 
@@ -48,7 +51,7 @@ submitted before the last critique, because the last critique closes the phase:
 
 ```text
 python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F-ARCH --kind revision --agent database-engineer --evidence "revised section 2 after security-engineer's critique"
-python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F-ARCH --kind critique --agent database-engineer --evidence file:.agentic-team/runs/<run-id>/_fusion/F-ARCH/critiques/database-engineer.md
+python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F-ARCH --kind critique --agent database-engineer --evidence file:.agentic-team/runs/<run-id>/_fusion/f-arch/critiques/database-engineer.md
 ```
 
 ## 4. Synthesis, dissent, verification
@@ -58,7 +61,7 @@ averaged) and fills `dissent.md` with the columns of `.agentic-team/templates/fu
 then submits. A fresh verifier subagent checks traceability, evidence, and dissent, then submits:
 
 ```text
-python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F-ARCH --kind synthesis --agent fusion-moderator --evidence file:.agentic-team/runs/<run-id>/_fusion/F-ARCH/synthesis.md
+python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F-ARCH --kind synthesis --agent fusion-moderator --evidence file:.agentic-team/runs/<run-id>/_fusion/f-arch/synthesis.md
 python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F-ARCH --kind verification --agent code-reviewer --evidence "verified: every rubric item traced; dissent complete"
 ```
 

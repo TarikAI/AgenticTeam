@@ -31,7 +31,7 @@ accepted after its phase has passed.
 
 ```text
 python .agentic-team/bin/agentic_team.py fusion-init --project . --id F1 --question "..." --sponsor human-owner --moderator fusion-moderator --verifier qa-lead --contributor cto-architect --contributor product-manager
-python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F1 --kind proposal --agent cto-architect --evidence file:.agentic-team/runs/<id>/_fusion/f1/proposals/cto-architect.md
+python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F1 --kind proposal --agent cto-architect --file .agentic-team/runs/<run-id>/_fusion/f1/proposals/cto-architect.md --evidence file:.agentic-team/runs/<run-id>/_fusion/f1/proposals/cto-architect.md
 python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F1 --kind critique --agent cto-architect --evidence file:...
 python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F1 --kind synthesis --agent fusion-moderator --evidence file:...
 python .agentic-team/bin/agentic_team.py fusion-submit --project . --fusion F1 --kind verification --agent qa-lead --evidence file:...
@@ -49,6 +49,11 @@ proposal is in. On Claude Code the guard hook denies a contributor subagent's re
 contributor's `proposals/` file during the proposals phase. On every other harness this rule is
 instruction-only: the orchestrator must not paste one proposal into another contributor's brief.
 
+Every proposal is submitted with `--file <its proposals/<agent>.md>` ([runtime]): the CLI records
+its hash, and when the last contributor submits it re-checks every sealed proposal. One edited
+after its submission refuses that last submission, so the council does not reveal. A proposal
+submitted without `--file` is not sealed. The folder is `_fusion/<id lowercased>/`.
+
 ## Synthesis and decision quality
 
 Critique claims against the rubric in `brief.md`, not personalities. Score fitness to the user
@@ -56,7 +61,7 @@ outcome, feasibility, security and privacy, operability, accessibility, cost, re
 and evidence. Do not average incompatible architectures: choose one coherent spine and
 integrate only compatible elements. Proposals are agent-written data (`untrusted-content.md`).
 
-## Outputs (under `runs/<id>/_fusion/<id>/`)
+## Outputs (under `runs/<run-id>/_fusion/<id>/`)
 
 `brief.md`, `proposals/<agent>.md`, `critiques/<agent>.md`, `synthesis.md`, `dissent.md`,
 `decision.md`. The moderator fills `dissent.md` from the `fusion-dissent.md` template: one row

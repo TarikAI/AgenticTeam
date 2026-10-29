@@ -26,9 +26,14 @@ Quality, verification, and hard human gates still apply.
 ## Blocking gaps: one bounded question list
 
 Ask once, not in a drip. Collect every genuinely blocking gap into one numbered list (at most
-about seven questions), each with a recommended default, and state that silence means "use the
-defaults". Raise it as one `checkpoint --kind decision` whose recommendation is the defaults.
-Keep working on everything the questions do not block.
+about seven questions), each with a recommended default. Raise it as one
+`checkpoint --kind decision` whose recommendation is the defaults. The defaults are a
+recommendation, not a timeout: until the human approves, rejects, or resolves it, the
+checkpoint stays unresolved and the stage cannot exit. Keep working on everything the questions
+do not block.
+
+A gap that is not blocking (a reversible choice inside the authority the plan already gives)
+is not a question: take the safer default, record it in ASSUMPTIONS.md, and continue.
 
 ## Deviations: three lines
 

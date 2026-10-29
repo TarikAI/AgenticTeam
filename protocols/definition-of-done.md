@@ -6,9 +6,12 @@ add to them, never silently subtract.
 ## One verdict vocabulary
 
 - **Findings** are `blocker`, `major`, `minor`, or `nit` (format: `review-discipline.md`).
-- **Verdicts** are `PASS` (zero open blockers), `CONDITIONAL` (zero blockers; each open major
-  has an owner and an approved checkpoint; the 05_verify exit also needs the human's waiver
-  `stage-exit:05_verify:conditional`), or `FAIL` (any open blocker).
+- **Verdicts** are exclusive; exactly one applies. PASS = no open blocker or major, and every
+  required criterion has evidence that it passed. CONDITIONAL = no open blocker and every
+  required criterion passed, with one or more open majors, each with an owner; the 05_verify
+  exit also needs the human's waiver `stage-exit:05_verify:conditional`. FAIL = any open blocker
+  or failed required criterion. A check that was not run is unknown, never passed: a required
+  criterion left unknown is FAIL until its check runs.
 - The release verdict lives in the first lines of `VERIFICATION.md` (`workflow.md`).
 
 ## Typed evidence

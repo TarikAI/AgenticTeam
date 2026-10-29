@@ -45,14 +45,16 @@ detail):
 
 The owner token must never reach the agent. Ask the human to run, in their own terminal
 (choose `--autonomy autonomous|supervised|hitl|unattended`, `--entry idea|plan-given|execute-only`,
-`--context adaptive|bmad-progressive`):
+`--context adaptive|bmad-progressive`, and the spend ceiling `--budget usd=<n>` and/or
+`tokens=<n>`, which every profile except `hitl` requires unless `budgets` in
+`.agentic-team/config/policies.local.json` already sets one):
 
 ```powershell
-python .agentic-team/bin/agentic_team.py init-run --project . --name "Project name" --autonomy supervised --entry idea --context adaptive
+python .agentic-team/bin/agentic_team.py init-run --project . --name "Project name" --autonomy supervised --entry idea --context adaptive --budget usd=20
 ```
 
 ```bash
-python3 .agentic-team/bin/agentic_team.py init-run --project . --name "Project name" --autonomy supervised --entry idea --context adaptive
+python3 .agentic-team/bin/agentic_team.py init-run --project . --name "Project name" --autonomy supervised --entry idea --context adaptive --budget usd=20
 ```
 
 It prints the run folder; the token path goes to their terminal only. Do not read
@@ -87,8 +89,10 @@ python .agentic-team/bin/agentic_team.py deactivate-specialist --project . --age
 
 ## 5. Stage loop (repeat until the run is complete)
 
-1. Scaffold the stage artifact (table in `references/operating-guide.md`); ARCHITECTURE.md and
-   `_decisions/ADR-NNN.md` are written from `.agentic-team/templates/adr.md` by their owner:
+1. Scaffold the stage artifact (table in `references/operating-guide.md`). ARCHITECTURE.md has
+   no template and cannot be scaffolded: cto-architect writes `<run>/ARCHITECTURE.md` by hand
+   (the 02_solution exit needs it present, with no template marker left); each
+   `_decisions/ADR-NNN.md` starts from `.agentic-team/templates/adr.md`:
 
    ```text
    python .agentic-team/bin/agentic_team.py scaffold --project . --artifact PRD.md
