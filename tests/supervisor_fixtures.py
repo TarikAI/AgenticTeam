@@ -109,8 +109,13 @@ class SupervisorBase(unittest.TestCase):
     def wait_for(self, predicate, seconds: float = 30.0, step: float = 0.1) -> bool:
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            if predicate():
-                return True
+            try:
+                if predicate():
+                    return True
+            except (PermissionError, team.TeamError) as exc:
+                # Windows refuses a read while the worker's CLI replaces the file; poll again.
+                if not isinstance(exc, PermissionError) and not isinstance(exc.__cause__, PermissionError):
+                    raise
             time.sleep(step)
         return False
 

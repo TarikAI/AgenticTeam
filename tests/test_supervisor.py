@@ -398,6 +398,25 @@ class LaunchRecoveryTests(SupervisorBase):
         self.assertEqual(self.job()["status"], "cancelled")
         self.assertEqual(len(self.run_state()["tasks"]["T1"]["failures"]), 1)
 
+    @unittest.skipUnless(os.name == "nt", "console windows are a Windows concept")
+    def test_the_worker_and_its_children_get_no_console_window(self) -> None:
+        # Through the real launch: only below the console-less wrapper does a worker get a window of its own.
+        folder = scratch("console-probe-")
+        probe, report = folder / "probe.py", folder / "windows.txt"
+        probe.write_text(
+            "import ctypes, subprocess, sys\n"
+            "with open(sys.argv[1], 'a', encoding='utf-8') as out:\n"
+            "    out.write(f'{ctypes.windll.kernel32.GetConsoleWindow()}\\n')\n"
+            "if len(sys.argv) > 2:\n"
+            "    subprocess.run([sys.executable, __file__, sys.argv[1]])\n",
+            encoding="utf-8",
+        )
+        self.sup.configure(command=[sys.executable, str(probe), str(report), "{run}"])
+        self.enqueue()
+        self.sup.tick()
+        self.assertTrue(self.wait_for(lambda: report.is_file() and len(report.read_text(encoding="utf-8").split()) >= 2))
+        self.assertEqual(report.read_text(encoding="utf-8").split()[:2], ["0", "0"], "a window the owner can close ends the worker mid-command")
+
 
 class CheckoutTests(SupervisorBase):
     def test_dirty_tree_blocks_the_first_launch(self) -> None:

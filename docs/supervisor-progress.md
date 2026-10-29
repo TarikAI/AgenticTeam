@@ -6,9 +6,11 @@ kept distinct: **planned**, **implemented**, **offline-verified** (fake workers,
 **pilot-verified** (a bounded paid run on a configured host), **activated** (a persistent host
 task registered by the owner).
 
-**Where it stands (2026-10-29): implemented and offline-verified on Windows 11 / Python 3.14.**
-Not pilot-verified, not activated, not run on macOS, Linux, or Python 3.10 (those come from the
-CI matrix once the branch is pushed, which has not happened). Nothing was pushed or merged.
+**Where it stands (2026-10-29): implemented and offline-verified on Windows 11 / Python 3.14,
+merged into `main` (`9dcb753`) and pushed at the owner's request.** Not pilot-verified, not
+activated. The first CI run on the merge failed on four cross-platform defects outside the
+supervisor and showed nothing about 3.10 (see [After the merge](#after-the-merge)); they are fixed,
+and macOS, Linux, and Python 3.10 come from the CI matrix on the fix.
 
 Branch: `claude/pensive-poincare-5e61a2`, one phase-group branch based on `main` at `719aad0`
 (design `6781b11`, plan and prompts `6d4eb3f`, unattended profile `2f04554`). P0 and P1 have one
@@ -266,7 +268,7 @@ pilot is called operational; **pilot** needs the configured host. Test ids are u
 | | plugin export | `test_supervisor.PackagingTests.test_plugin_ships_the_supervisor` | offline |
 | | reinstall and uninstall keep supervisor state | `test_supervisor.PackagingTests.test_reinstall_and_uninstall_keep_supervisor_state` | hardening |
 | | Windows paths with spaces | `test_supervisor.PackagingTests.test_paths_with_spaces` | hardening |
-| | Python 3.10, macOS, Linux | the CI matrix (not run: the branch is not pushed) | hardening |
+| | Python 3.10, macOS, Linux | the CI matrix on `main` (the supervisor tests passed on macOS and Linux in the first run; 3.10 never reached the tests until the fixes below) | hardening |
 | Operations | once, until-idle, forever | `test_supervisor.OperationsTests.test_once_until_idle_and_forever` | offline |
 | | graceful shutdown with a running attempt | `test_supervisor.ReviewFindingTests.test_an_interrupt_leaves_a_running_attempt_with_its_wrapper` | hardening |
 | | bounded backoff | `test_supervisor.OperationsTests.test_retry_backoff_is_bounded` | hardening |
@@ -292,6 +294,29 @@ The pilot needs the owner's explicit authorization for model spend and a configu
 | Stop conditions | any hold, any exit other than 0, the aggregate allowance spent |
 | Owner controls | `status`, `pause --all`, `cancel --job`, the runtime's `approve`/`reject` for checkpoints |
 
+## After the merge
+
+CI run 40814045143 on `9dcb753` failed in all nine jobs. All 73 supervisor tests passed on
+Linux, macOS, and Windows (3.12, 3.14); the failures were older and outside the supervisor:
+
+| Failure | Where | Cause | Fix |
+|---|---|---|---|
+| `docs --check` | every 3.10 job, so its unit tests never ran | the CLI reference read argparse's `required`, which 3.13 changed for `nargs=REMAINDER` positionals | positionals by `nargs` alone; the docs are unchanged |
+| golden snapshot | Linux, macOS | the golden held `python`; POSIX hosts compile `python3` | `compile_snapshot` pins the hook interpreter |
+| Fusion commit-reveal test | macOS, Windows | a resolved run path against an unresolved temp project (`RUNNER~1`, `/private/var`) | the test resolves the project |
+| `greenfield-autonomous-adaptive` | Windows | the eval runner re-expanded substituted text, so `RUN` replaced inside `RUNNER~1` | one-pass token expansion |
+
+Both Windows path failures were reproduced locally with a short-name `TEMP` before the fix.
+
+Verifying the fixes under load (two full suites in parallel) surfaced one supervisor defect:
+the wrapper runs without a console, so every worker got a **visible console window** of its own,
+inherited by its children; when the window went away, the worker and the CLI command it was
+running ended with `STATUS_CONTROL_C_EXIT`, leaving the run lock held and the usage unknown.
+Workers now start with `CREATE_NO_WINDOW` (`LaunchRecoveryTests.test_the_worker_and_its_children_get_no_console_window`
+fails against the old flags). The two tests that flaked failed 2 of 24 times under four parallel
+processes before the fix and 0 of 40 after. The fixture's polling also tolerates the Windows
+sharing violation it hit while the worker replaced `state.json` (the supervisor already did).
+
 ## Remaining limits
 
 - The CLI's gates inside a worker are defense in depth; forgery is found by the owner's audit
@@ -300,9 +325,10 @@ The pilot needs the owner's explicit authorization for model spend and a configu
 - Owner controls carry no separate credential; the store must sit behind the isolation boundary.
 - One checkout, one worker; no webhooks; the Claude adapter has not run against a real session.
 - Cost figures are the harness's estimate; the harness's spend limit can overshoot.
-- Not run here: macOS, Linux, Python 3.10, the paid pilot, a registered host task.
+- Not run locally: macOS, Linux, Python 3.10 (the CI matrix covers them; 3.11 ran locally).
+  Not run at all: the paid pilot, a registered host task.
 
 ## Next step
 
-The owner's decision: review and merge the branch into local `main` (and push to run the CI
-matrix), then authorize the pilot above if desired.
+Merged into `main` and pushed at the owner's request. Confirm the CI matrix is green on the
+fixes, then the owner decides whether to authorize the pilot above.

@@ -399,7 +399,10 @@ class ProcessTree:
                 if not _kernel32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)):
                     _kernel32.CloseHandle(job)
                     job = None
-            flags = 0x00000200 | (0x00000004 if job else 0)  # CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED
+            # CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW | CREATE_SUSPENDED. The wrapper has no console,
+            # so without CREATE_NO_WINDOW every worker opened a visible console window, and closing it
+            # (or the terminal it was handed to) ended the worker mid-command with STATUS_CONTROL_C_EXIT.
+            flags = 0x00000200 | 0x08000000 | (0x00000004 if job else 0)
             process = subprocess.Popen(argv, cwd=cwd, stdout=stdout, stderr=stderr, stdin=subprocess.DEVNULL, creationflags=flags)
             if job:
                 assigned = _kernel32.AssignProcessToJobObject(job, int(process._handle))  # type: ignore[attr-defined]
