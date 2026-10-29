@@ -1462,6 +1462,189 @@ class IsolationBindingTests(SupervisorBase):
         self.assertIsNone(job["run_id"])
 
 
+class DurableRequeueTests(SupervisorBase):
+    """S6: a requeue survives an interruption at every write boundary with exactly one accepted job."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.sup.pause(None, "requeue tests launch nothing")
+
+    def event(self, name: str) -> dict:
+        return {"id": name, "kind": "manual", "title": f"Fix {name}", "brief": "Make feature() return 42.", "acceptance": ["AC-1: feature() returns 42"]}
+
+    def interrupted(self, name: str, boundary: int) -> None:
+        self.sup.enqueue(self.event(name))
+        self.sup.tick()
+        self.sup.cancel(name, "requeue it")
+        real, writes = sup.write_json, []
+
+        def crash_after(path: Path, data) -> None:
+            real(path, data)
+            writes.append(path)
+            if len(writes) == boundary:
+                raise RuntimeError(f"supervisor died after durable write {boundary} ({path.name})")
+
+        with mock.patch.object(sup, "write_json", crash_after):
+            try:
+                self.sup.enqueue(self.event(name), requeue=True)
+            except RuntimeError:
+                pass
+            else:
+                self.skipTest(f"requeue has fewer than {boundary} durable writes")
+
+    def assert_one_requeued(self, name: str, job_id: str) -> None:
+        jobs = [job["id"] for job in self.sup.store.jobs()[0] if job["id"].startswith(name)]
+        self.assertEqual(sorted(jobs), sorted([name, job_id]), "exactly the original and one requeued job")
+        self.assertEqual(self.job(job_id)["status"], "queued")
+
+    def test_retrying_after_each_interruption(self) -> None:
+        for boundary in (1, 2):
+            with self.subTest(boundary=boundary):
+                name = f"retry-{boundary}"
+                self.interrupted(name, boundary)
+                outcome, job_id = self.sup.enqueue(self.event(name), requeue=True)
+                self.assertIn(outcome, {"requeued", "duplicate"})
+                self.assertTrue(self.sup.store.job_path(job_id).is_file() or (self.sup.store.inbox / f"{job_id}.json").is_file(),
+                                f"{outcome} names {job_id}, which is neither a job nor a waiting event")
+                self.sup.tick()
+                self.assert_one_requeued(name, job_id)
+                self.assertEqual(self.sup.enqueue(self.event(name), requeue=True), ("duplicate", job_id))
+
+    def test_a_tick_repairs_a_dangling_index(self) -> None:
+        for boundary in (1, 2):
+            with self.subTest(boundary=boundary):
+                name = f"tick-{boundary}"
+                self.interrupted(name, boundary)
+                self.sup.tick()
+                outcome, job_id = self.sup.enqueue(self.event(name), requeue=True)
+                self.assertEqual(outcome, "duplicate")
+                self.assert_one_requeued(name, job_id)
+
+
+class FailureOutcomeTests(SupervisorBase):
+    """S7: an unresolved terminal failure is a nonzero outcome until the owner acknowledges it."""
+
+    def test_failed_jobs_are_not_a_successful_exit(self) -> None:
+        self.sup.configure(retries=0)
+        self.mode("stop-after-build")
+        self.enqueue()
+        code = self.until_idle()
+        self.assertEqual(self.job()["status"], "failed")
+        self.assertEqual(code, sup.EXIT_HUMAN, "serve --until-idle returned success over a failed job")
+        self.assertEqual(self.sup.status()["exit_code"], sup.EXIT_HUMAN)
+        self.assertEqual(sup.main(["status", "--project", str(self.project)]), sup.EXIT_HUMAN)
+        self.assertIn("acknowledge --job fix-1", self.sup.status()["jobs"][0]["next_action"])
+        self.mode("success")
+        self.enqueue("later")
+        self.assertEqual(self.until_idle(), sup.EXIT_HUMAN, "later success does not hide the earlier failure")
+        (self.project / "stray.txt").write_text("owner work in progress\n", encoding="utf-8")
+        self.enqueue("blocked")
+        self.assertEqual(self.sup.tick()["exit_code"], sup.EXIT_BLOCKED, "a blocker still outranks a failure (3 > 2)")
+        (self.project / "stray.txt").unlink()
+        self.sup.cancel("blocked", "not needed")
+        self.sup.acknowledge("fix-1", "reviewed; the feature was dropped")
+        self.assertEqual(self.sup.tick()["exit_code"], sup.EXIT_OK)
+        self.assertEqual(self.job()["status"], "failed", "acknowledging keeps the history")
+        self.assertEqual(self.job()["failure_acknowledged"]["reason"], "reviewed; the feature was dropped")
+        with self.assertRaises(sup.SupervisorError):
+            self.sup.acknowledge("later", "not a failure")
+
+    def test_a_requeue_acknowledges_the_failure_it_replaces(self) -> None:
+        self.sup.configure(retries=0)
+        self.mode("stop-after-build")
+        self.enqueue()
+        self.assertEqual(self.until_idle(), sup.EXIT_HUMAN)
+        self.sup.pause(None, "no relaunch")
+        event = {"id": "fix-1", "kind": "manual", "title": "Fix fix-1", "brief": "Make feature() return 42.", "acceptance": ["AC-1: feature() returns 42"]}
+        self.assertEqual(self.sup.enqueue(event, requeue=True), ("requeued", "fix-1-r2"))
+        self.assertIn("fix-1-r2", self.job()["failure_acknowledged"]["reason"])
+        self.mode("success")
+        self.sup.resume(None)
+        self.assertEqual(self.until_idle(), sup.EXIT_OK)
+
+
+class FailureReconciliationTests(SupervisorBase):
+    """S8: every task the ended attempt held gets its failure recorded before anything relaunches."""
+
+    def crashed(self) -> None:
+        self.mode("crash-once cost=0.05")
+        self.enqueue()
+        self.sup.tick()
+        self.assertTrue(self.wait_for(lambda: (self.attempt_dir() / "exit.json").exists(), 60))
+
+    def failing(self, times: int | None):
+        real, calls = sup.Supervisor.cli, []
+
+        def cli(instance, *args):
+            if args and args[0] == "fail" and (times is None or len(calls) < times):
+                calls.append(args)
+                return 1, "", "the state lock is busy (simulated)"
+            return real(instance, *args)
+
+        return mock.patch.object(sup.Supervisor, "cli", cli)
+
+    def test_a_transient_fail_error_holds_launch_until_recorded(self) -> None:
+        self.crashed()
+        with self.failing(1):
+            self.sup.tick()
+        job = self.job()
+        self.assertNotEqual(job["status"], "retrying", "reconciliation was marked complete though `fail` was not recorded")
+        self.assertFalse(job["attempts"][-1].get("failures_reconciled"))
+        self.assertEqual(self.run_state()["tasks"]["T1"]["status"], "claimed")
+        self.assertEqual(len(job["attempts"]), 1)
+        self.until_idle()
+        job = self.job()
+        self.assertEqual((job["status"], len(job["attempts"])), ("done", 2))
+        failures = self.run_state()["tasks"]["T1"]["failures"]
+        self.assertEqual([item["signature"] for item in failures], [sup.FAIL_SIGNATURE], "recorded exactly once")
+
+    def test_a_persistent_fail_error_holds_for_the_owner(self) -> None:
+        self.crashed()
+        with self.failing(None):
+            for _ in range(5):
+                self.sup.tick()
+            job = self.job()
+            self.assertEqual((job["status"], job["hold"]["kind"]), ("needs-human", "failure-record"))
+            self.assertEqual(len(job["attempts"]), 1, "no relaunch while a claim is unaccounted for")
+            with self.assertRaises(sup.SupervisorError):
+                self.sup.resume("fix-1")
+        self.assertEqual(self.sup.resume("fix-1"), "job fix-1 is retrying")
+        self.until_idle()
+        self.assertEqual(self.job()["status"], "done")
+        self.assertEqual(len(self.run_state()["tasks"]["T1"]["failures"]), 1)
+
+
+class PollCursorTests(SupervisorBase):
+    """S9: GitHub poll watermarks are namespaced by host, repository, and label."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.sup.pause(None, "polling tests launch nothing")
+        self.calls: list[list[str]] = []
+
+    def poll(self, newest: str) -> str:
+        page = [{"number": len(self.calls) + 1, "title": "Issue", "body": "AC-1: x", "updated_at": newest}]
+
+        def fetch(argv: list[str]) -> tuple[int, str, str]:
+            self.calls.append(argv)
+            return 0, json.dumps(page), ""
+
+        self.sup.poll_github(fetch)
+        return self.calls[-1][-1]
+
+    def test_each_source_has_its_own_watermark(self) -> None:
+        self.sup.configure(github={"host": "github.com", "repo": "acme/app", "label": "agentic"})
+        self.assertNotIn("since=", self.poll("2026-10-28T10:00:00Z"))
+        self.assertIn("since=2026-10-28T10%3A00%3A00Z", self.poll("2026-10-28T11:00:00Z"), "unchanged source: incremental")
+        for change in ({"host": "ghe.example.com"}, {"repo": "acme/other"}, {"label": "agentic-2"}):
+            with self.subTest(change=change):
+                self.sup.configure(github={"host": "github.com", "repo": "acme/app", "label": "agentic", **change})
+                self.assertNotIn("since=", self.poll("2026-10-20T00:00:00Z"), f"{change} reused another source's watermark")
+                self.assertIn("since=2026-10-20T00%3A00%3A00Z", self.poll("2026-10-20T00:00:00Z"))
+        self.sup.configure(github={"host": "GitHub.com", "repo": "Acme/App", "label": "agentic"})
+        self.assertIn("since=2026-10-28T11%3A00%3A00Z", self.poll("2026-10-28T11:00:00Z"), "the original cursor is kept, canonically keyed")
+
+
 class OwnerCommandTests(SupervisorBase):
     """A5 (supervisor half): generated owner actions run the owner copy by absolute path with explicit context."""
 
