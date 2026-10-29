@@ -4730,7 +4730,8 @@ def render_cli_reference() -> str:
             flag = ", ".join(action.option_strings) or action.dest
             choices = f" ({'|'.join(map(str, action.choices))})" if action.choices and not isinstance(action.choices, dict) else ""
             default = "" if action.default in (None, [], False, argparse.SUPPRESS) else f"`{action.default}`"
-            required = "yes" if getattr(action, "required", False) or not action.option_strings and action.nargs != argparse.REMAINDER else ""
+            # Positionals by nargs alone: argparse's own `required` for them changed in Python 3.13.
+            required = "yes" if (action.required if action.option_strings else action.nargs != argparse.REMAINDER) else ""
             rows.append((f"`{flag}`{choices}", required, default, (action.help or "").replace("|", "\\|")))
         if rows:
             lines += ["| Flag | Required | Default | Meaning |", "|---|---|---|---|"]

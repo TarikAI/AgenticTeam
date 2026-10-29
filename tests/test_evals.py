@@ -38,7 +38,8 @@ class FusionCommitRevealTests(unittest.TestCase):
         base = run / "_fusion" / "f1" / "proposals"
         (base / "product-manager.md").write_text("Plan A\n", encoding="utf-8")
         (base / "cto-architect.md").write_text("Plan B\n", encoding="utf-8")
-        relative = lambda name: (base / name).relative_to(project).as_posix()  # noqa: E731
+        # The run path is resolved (long Windows names, /private/var on macOS); the temp project may not be.
+        relative = lambda name: (base / name).relative_to(project.resolve()).as_posix()  # noqa: E731
         team.fusion_submit(project, run, "f1", "proposal", "product-manager", "plan A", relative("product-manager.md"))
         (base / "product-manager.md").write_text("Plan A, rewritten after peeking\n", encoding="utf-8")
         with self.assertRaises(team.TeamError) as raised:
