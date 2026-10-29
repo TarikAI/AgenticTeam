@@ -56,8 +56,12 @@ return their findings in their final message, and the orchestrator records claim
 A supplied plan, spec, PRD, or task list is authoritative: adopt it, never author a competing
 one (entry modes and rules: `plan-modes.md`).
 
-- **Blocking gaps** go to the human as a bounded question list with a recommended default for
-  each question, so silence can be read as "use the defaults".
+- **Optional assumptions** (reversible choices inside the authority you already have) proceed on
+  a recorded default: write it to ASSUMPTIONS.md or the task evidence, and revisit it if wrong.
+- **Blocking gaps** (anything that needs a decision you do not hold) go to the human as one
+  bounded question list with a recommended default for each question, raised as a `checkpoint`.
+  Silence is not an answer: an unanswered checkpoint stays unresolved, and only the human's
+  `approve`, `reject`, or `resolve` decides it. Keep working on everything it does not block.
 - **Deviations** are stated in three lines: what fails as written, the smallest fix, and the cost
   of doing it as written. Record them with `checkpoint --kind deviation`.
 

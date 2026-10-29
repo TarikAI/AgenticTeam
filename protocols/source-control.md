@@ -6,15 +6,17 @@ or **[instruction]** (the team follows it; nothing refuses a violation).
 
 ## Base
 
-- [instruction] Right after `init-run`, the orchestrator records the starting commit
-  (`git rev-parse HEAD`) as `Base-SHA: <sha>` in BRIEF.md. The runtime does not store a base
-  SHA; every task branch and every verification diff starts from this line.
+- [runtime] `init-run` records the starting commit (`git rev-parse HEAD`, or null without git
+  history) as `base_sha` in the run state and its `run-created` event; `status --json`
+  shows it. Every task branch and every verification diff starts from it.
+- [instruction] The orchestrator copies it into BRIEF.md as `Base-SHA: <sha>` so readers of the
+  artifacts see it; on a mismatch, the runtime's `base_sha` wins.
 - [instruction] Start from a clean tree (`git status --porcelain` empty) or commit/stash first.
 
 ## One branch per write task
 
 - [instruction] Each claimed write task works on its own branch `at/<run>/<task>` (optionally
-  in its own worktree), created from `Base-SHA` or from a merge the integrator already verified:
+  in its own worktree), created from the run's `base_sha` or from a merge the integrator already verified:
   `git worktree add -b at/<run>/<task> ../<repo>-<task> <base-sha>`.
 - [instruction] Commits touch only the task's owned paths (`add-task --path`); a needed edit
   outside them is a new task or a `checkpoint --kind deviation`, not a quiet widening.

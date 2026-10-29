@@ -21,9 +21,12 @@ relevant `PRD.md`, `ARCHITECTURE.md`, and `_decisions/ADR-NNN.md` entries.
 1. Freeze the brief and rubric, then create the workspace (moderator and verifier must differ
    and neither may contribute; the CLI enforces this):
    `fusion-init --id <id> --question "<q>" --sponsor human-owner --moderator fusion-moderator --verifier qa-lead --contributor <a> --contributor <b>`
-2. Delegate each contributor separately to write `_fusion/<id>/proposals/<agent>.md`; never
-   show one draft to another. Each records
-   `fusion-submit --fusion <id> --kind proposal --agent <a> --evidence file:<path>`.
+2. Delegate each contributor separately to write `_fusion/<id>/proposals/<agent>.md` (the
+   folder is the id lowercased); never show one draft to another. Each records, sealing the
+   file so an edit after submission blocks the reveal,
+   `fusion-submit --fusion <id> --kind proposal --agent <a> --file <path> --evidence file:<path>`
+   with `<path>` = `.agentic-team/runs/<run-id>/_fusion/<id>/proposals/<a>.md`. A refused last
+   submission ("changed after submission") is a finding for the human, not a retry.
 3. Reveal all proposals together; delegate cross-critiques against the frozen rubric
    (`--kind critique`). A contributor may file one evidence-backed `--kind revision` during
    critiques.

@@ -23,8 +23,8 @@ python .agentic-team/bin/agentic_team.py status --project . --json
 
 Collect: `stage` (must be `05_verify`), `integration_sha` (HEAD recorded when 04_build exited),
 the current HEAD (`git rev-parse HEAD`; the verdict names this, and it must still be HEAD when
-you write it), the 04_build tasks and who held them, and the base commit (the commit the run
-started from; ask the human if unknown). Read the `AC-` ids in `<run>/PRD.md` (or `BRIEF.md`) and the contracts in
+you write it), the 04_build tasks and who held them, and the base commit (`base_sha`, which
+`init-run` recorded; ask the human only when it is null). Read the `AC-` ids in `<run>/PRD.md` (or `BRIEF.md`) and the contracts in
 `<run>/ARCHITECTURE.md`.
 
 **Independence check:** if the intended verifier appears as `claimed_by` or in `failures` of any
@@ -82,8 +82,12 @@ at the new HEAD and update the line; a stale verdict is refused, not stretched.
 
 Fill the traceability matrix (one row per `AC-` id, each with an exec id, file, or commit),
 findings (`blocker|major|minor|nit`, `file:line`, failing scenario, owner), and review coverage.
-Remove every `{{...}}` marker. PASS = zero open blockers; CONDITIONAL = zero blockers, open majors
-each with an owner; FAIL = any open blocker. Never weaken an acceptance criterion to reach PASS.
+Remove every `{{...}}` marker. Exactly one verdict applies. PASS = no open blocker or major, and
+every required criterion passed with evidence. CONDITIONAL = no open blocker, every required
+criterion passed, open majors each with an owner (the exit also needs the human's waiver).
+FAIL = any open blocker or failed required criterion. A check that was not run is unknown, never
+passed: mark the row `unknown`, and an unknown required criterion is FAIL until it runs. Never
+weaken an acceptance criterion to reach PASS.
 
 ## 5. Remediation
 

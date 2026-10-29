@@ -68,5 +68,7 @@ rule or reference-slice change that prevents it via
 Findings written to `.agentic-team/runs/<run-id>/findings/code-review-<task-id>.json` (team
 finding schema: severity, file, line, claim, scenario, fix) plus a short summary of what was
 reviewed, skipped with reasons, and residual risk. Remediation is filed with
-`findings-to-tasks <findings.json> --project . --apply`. Complete with
+`findings-to-tasks <findings.json> --project . --check "<project test command>" --apply` (the
+check is the acceptance command each remediation task must pass; without it nothing is added).
+Complete with
 `complete --task <T> --agent code-reviewer --evidence file:<findings path> --evidence cmd:<exec-id>`.

@@ -31,9 +31,11 @@ VERIFICATION.md that traces every `AC-` id to a reproduced check.
    accessibility-specialist, eval-engineer, performance-engineer, privacy-engineer) report
    findings; with adminwright, its release validation and `coverage` must exit 0.
 5. **Defects.** Classify with the S1–S4 scale and file remediation in the current stage (05_verify):
-   `findings-to-tasks <findings.json> --project . --apply` for review-gate findings, or
-   `add-task --owner <writer-role> --action build --target local --path <owned path> --check
-   "<repro command>" --verifies <task>` for your own. Re-verify each fix by re-running its check.
+   `findings-to-tasks <findings.json> --project . --check "<project test command>" --apply` for
+   review-gate findings (it refuses to apply without `--check`), or `add-task --id <id> --title
+   "<title>" --owner <writer-role> --action build --target local --path <owned path> --check
+   "<repro command>"` for your own. The owner is a writing role, never you; the check is the
+   command that fails before the fix. Re-verify each fix by re-running its check.
 
 | Scale | Severity | Meaning | Release rule |
 |---|---|---|---|
@@ -44,9 +46,11 @@ VERIFICATION.md that traces every `AC-` id to a reproduced check.
 
 6. **Verdict.** VERIFICATION.md starts with exactly three lines: `Verdict: PASS|CONDITIONAL|FAIL`,
    `Verifier: qa-lead`, `Verified-SHA: <the HEAD you verified, or none>`; a later commit needs a
-   new verdict at the new HEAD. PASS = zero open blockers.
-   CONDITIONAL = zero blockers, each open major with an owner and the human's waiver
-   (`stage-exit:05_verify:conditional`). FAIL = any open blocker. Never weaken an `AC-` to reach PASS.
+   new verdict at the new HEAD. Exactly one verdict applies. PASS = no open blocker or major,
+   and every `AC-` passed with evidence. CONDITIONAL = no open blocker, every `AC-` passed,
+   each open major with an owner and the human's waiver (`stage-exit:05_verify:conditional`).
+   FAIL = any open blocker or failed required criterion. A check that was not run is unknown,
+   never passed: an unknown `AC-` is FAIL until its check runs. Never weaken an `AC-` to reach PASS.
 
 ## Collaboration
 Reports to delivery-lead. Manages test-engineer, eval-engineer, and accessibility-specialist.
