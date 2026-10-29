@@ -1148,5 +1148,47 @@ class IsolationProbeTests(SupervisorBase):
         self.assertNotEqual(Path(spy.call_args.args[0][1]), bin_cli, "never the checkout's bin/, which a worker can edit")
 
 
+class OwnerCommandTests(SupervisorBase):
+    """A5 (supervisor half): generated owner actions run the owner copy by absolute path with explicit context."""
+
+    def test_next_actions_use_the_owner_copy_with_explicit_context(self) -> None:
+        self.mode("r2")
+        self.enqueue()
+        self.until_idle()
+        row = self.sup.status()["jobs"][0]
+        runtime, supervisor = self.sup.store.bin / "agentic_team.py", self.sup.store.bin / "agentic_supervisor.py"
+        self.assertNotIn(".agentic-team/bin/agentic_team.py", row["next_action"], "the checkout's runtime is worker-writable")
+        self.assertIn(str(runtime), row["next_action"])
+        for shell in ("bash", "powershell"):
+            commands = row["next_commands"][shell]
+            self.assertEqual(len(commands), 2)
+            text = " ".join(commands)
+            for needed in (str(runtime), str(supervisor), str(self.project), str(self.sup.store.root), "--run", self.job()["run_id"]):
+                self.assertIn(needed, text)
+            self.assertNotIn(str(self.project / ".agentic-team" / "bin"), text)
+        argv = [part for part in sup.shlex.split(row["next_commands"]["bash"][0]) if not sup.re.match(r"^[A-Z_]+=", part)]
+        self.assertEqual(argv[:3], [sys.executable, str(runtime), "approve"])
+        self.assertEqual(argv[argv.index("--project") + 1], str(self.project))
+
+    @unittest.skipUnless(os.name == "nt" and shutil.which("powershell"), "PowerShell execution is checked on Windows")
+    def test_powershell_commands_run_with_spaces_in_every_path(self) -> None:
+        parent = scratch("space parent ")
+        project = parent / "my project"
+        shutil.copytree(git_project(), project)
+        supervisor = sup.Supervisor(project, parent / "owner store")
+        supervisor.configure(**fast_config())
+        supervisor.add_allowance(5.0, "spaces")
+        (project / ".fake-worker-mode").write_text("r2\n", encoding="utf-8")
+        supervisor.enqueue({"id": "spaced", "kind": "manual", "title": "Spaces", "acceptance": ["AC-1: works"]})
+        supervisor.serve("until-idle", max_seconds=120)
+        self.addCleanup(self.stop_workers, supervisor.store.attempts)
+        commands = supervisor.status()["jobs"][0]["next_commands"]["powershell"]
+        for command in commands:
+            result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", command], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, (command, result.stdout[-400:], result.stderr[-400:]))
+        supervisor.serve("until-idle", max_seconds=120)
+        self.assertEqual(supervisor.store.job("spaced")["status"], "done")
+
+
 if __name__ == "__main__":
     unittest.main()

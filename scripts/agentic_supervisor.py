@@ -1085,7 +1085,7 @@ class Supervisor:
             if holder["status"] in TERMINAL:
                 blockers.append(
                     f"the checkout is reserved by {holder['status']} job {holder['id']}, which left uncommitted changes; inspect them, then "
-                    f"`supervise release --job {holder['id']} --disposition \"...\"`"
+                    f"`{self.owner_command('supervisor', 'release', '--job', holder['id'], '--disposition', '...')}`"
                 )
                 return
             if any(job["status"] == "queued" for job in jobs):
@@ -1633,6 +1633,75 @@ class Supervisor:
         if previous != to:
             self.store.log(f"job-{to}", job=job["id"], reason=reason[:300], attempt=attempt)
 
+    # -- owner commands ------------------------------------------------------------------------
+
+    def owner_argv(self, which: str, *args: str, run: str | None = None, by: str | None = None, token_file: str | None = None) -> list[str]:
+        """An owner command through the owner copy, by absolute path, with explicit project and run or store context.
+
+        Never the checkout's .agentic-team/bin/, which a worker can edit, and never dependent on the current
+        directory or CURRENT.md: the command does the same thing from any directory, in any shell.
+        """
+        if which == "runtime":
+            argv = [sys.executable, str(self.store.bin / "agentic_team.py"), *args, "--project", str(self.project)]
+            if run:
+                argv += ["--run", run]
+            if by:
+                argv += ["--by", by, "--token-file", token_file or "<owner token file>"]
+            return argv
+        return [sys.executable, str(self.store.bin / "agentic_supervisor.py"), *args, "--project", str(self.project), "--store", str(self.store.root)]
+
+    def owner_command(self, which: str, *args: str, shell: str | None = None, **context: Any) -> str:
+        return render_command(self.owner_argv(which, *args, **context), shell or NATIVE_SHELL)
+
+    def next_steps(self, job: dict[str, Any], state: dict[str, Any] | None) -> tuple[str, list[list[str]]]:
+        """The owner's next step for a job: prose with {0}, {1}... for the exact commands, and the commands as argv lists."""
+        hold = job.get("hold") or {}
+        run = job.get("run_id")
+        owner = str((job.get("config") or {}).get("owner_name") or "supervisor")
+        token = str(self.token_file(state)) if state else "<owner token file>"
+        resume = self.owner_argv("supervisor", "resume", "--job", job["id"])
+
+        def human(*args: str) -> list[str]:
+            return self.owner_argv("runtime", *args, run=run, by=owner, token_file=token)
+
+        if job["status"] == "retrying":
+            return "none: the supervisor relaunches it" + (" after the backoff" if job.get("next_attempt_after") else ""), []
+        if job["status"] == "failed" and not job.get("failure_acknowledged"):
+            return ("the job failed; inspect its run and attempt records, then acknowledge the failure with {0} (or run its source again "
+                    "with enqueue --requeue)", [self.owner_argv("supervisor", "acknowledge", "--job", job["id"], "--reason", "...")])
+        if job["status"] != "needs-human":
+            return "-", []
+        kind = hold.get("kind")
+        if kind == "checkpoint":
+            view = team.verified_view(state) if state else None
+            pending = [item["id"] for item in (state or {}).get("checkpoints", []) if view and view.checkpoint_status(item) == "pending"]
+            if pending:
+                return "{0} (or reject instead of approve); then {1}", [human("approve", "--checkpoint", pending[0], "--decision", "..."), resume]
+            rejected = [item["id"] for item in (state or {}).get("checkpoints", []) if view and view.checkpoint_status(item) == "rejected"]
+            return "after correcting the work, {0}; then {1}", [human("resolve", "--checkpoint", rejected[0] if rejected else "<id>", "--resolution", "..."), resume]
+        if kind == "unknown-usage":
+            return "{0}  or  {1}", [resume + ["--usage-transcript", "<file>"], resume + ["--charge-reservation"]]
+        if kind == "ownership":
+            return "confirm the attempt's processes stopped, then {0}", [resume + ["--confirm-stopped"]]
+        if kind == "failed-task":
+            failed = [task["id"] for task in (state or {}).get("tasks", {}).values() if task.get("status") == "failed"]
+            return "{0}; then {1}", [human("reopen", "--task", failed[0] if failed else "<id>", "--reason", "new approach", "--extend-retries", "1"), resume]
+        if kind == "budget":
+            return "{0} (or configure a larger budget for new jobs); then {1}", [human("waive", "--requirement", "budget:usd", "--reason", "..."), resume]
+        if kind == "tamper":
+            return "{0}; investigate what changed, then {1}", [human("audit", "verify"), resume]
+        if kind == "evidence":
+            return "inspect the run folder and its event log: the run's own records do not support completion; then {0} (or cancel the job)", [resume]
+        if kind == "source":
+            return "inspect `git status` and `git log` (the supervisor never resets or cleans); restore the verified tree, then {0}", [resume]
+        if kind == "pointer":
+            return "{0}; then {1}", [self.owner_argv("runtime", "switch-run", run=run), resume]
+        if kind in {"config", "adapter"}:
+            return "fix the configuration or the worker's login (supervise configure ...), then {0}", [resume + ["--refresh-config"]]
+        if kind == "failure-record":
+            return "make the runtime accept the ended attempt's `fail` records (the hold says which failed and why), then {0}", [resume]
+        return "{0}", [resume]
+
     # -- owner controls ------------------------------------------------------------------------
 
     def pause(self, job_id: str | None, reason: str) -> str:
@@ -1813,6 +1882,8 @@ class Supervisor:
 
     def describe(self, job: dict[str, Any], control: dict[str, Any]) -> dict[str, Any]:
         state = self.run_state(job)
+        template, steps = self.next_steps(job, state)
+        rendered = {shell: [render_command(argv, shell) for argv in steps] for shell in SHELLS}
         attempt = job["attempts"][-1] if job["attempts"] else None
         reserved = sum(amount for key, amount in control["allowance"]["reservations"].items() if key.startswith(f"{job['id']}/"))
         remaining = None
@@ -1827,7 +1898,7 @@ class Supervisor:
             "hold": job.get("hold"), "note": job.get("note"), "next_attempt_after": job.get("next_attempt_after") if job["status"] == "retrying" else None,
             "worker": worker_label(job["config"]),
             "questions": [item.get("question") for item in (state or {}).get("checkpoints", []) if item.get("status") == "pending"],
-            "next_action": next_action(job, state),
+            "next_action": template.format(*rendered[NATIVE_SHELL]), "next_commands": rendered,
         }
 
     def write_digest(self, blockers: list[str]) -> dict[str, Any]:
@@ -2152,44 +2223,29 @@ def run_gh(argv: list[str]) -> tuple[int, str, str]:
     return result.returncode, result.stdout, result.stderr
 
 
-SUPERVISE = ".agentic-team/bin/agentic_team.py supervise"
+SHELLS = ("bash", "powershell")
+NATIVE_SHELL = "powershell" if os.name == "nt" else "bash"
 
 
-def next_action(job: dict[str, Any], state: dict[str, Any] | None) -> str:
-    """The exact next owner command for a held job ('-' when none is needed)."""
-    hold = job.get("hold") or {}
-    resume = f"{SUPERVISE} resume --job {job['id']}"
-    run = job.get("run_id")
-    human = f".agentic-team/bin/agentic_team.py {{}} --run {run} --by <you> --token-file <owner token file>"
-    if job["status"] == "retrying":
-        return "none: the supervisor relaunches it" + (" after the backoff" if job.get("next_attempt_after") else "")
-    if job["status"] != "needs-human":
-        return "-"
-    kind = hold.get("kind")
-    if kind == "checkpoint":
-        pending = [item["id"] for item in (state or {}).get("checkpoints", []) if item.get("status") == "pending"]
-        if pending:
-            return human.format(f"approve --checkpoint {pending[0]} --decision \"...\"") + f" (or reject); then {resume}"
-        return human.format("resolve --checkpoint <id> --resolution \"...\"") + f" after correcting the work; then {resume}"
-    if kind == "unknown-usage":
-        return f"{resume} --usage-transcript <file>  or  {resume} --charge-reservation"
-    if kind == "ownership":
-        return f"confirm the attempt's processes stopped, then {resume} --confirm-stopped"
-    if kind == "failed-task":
-        return human.format("reopen --task <id> --reason \"new approach\" --extend-retries 1") + f"; then {resume}"
-    if kind == "budget":
-        return human.format("waive --requirement budget:usd --reason \"...\"") + f" (or {SUPERVISE} configure a larger budget for new jobs); then {resume}"
-    if kind == "tamper":
-        return human.format("audit verify") + f"; investigate what changed, then {resume}"
-    if kind == "evidence":
-        return f"inspect the run folder and its event log: the run's own records do not support completion; then {resume} (or cancel the job)"
-    if kind == "source":
-        return f"inspect `git status` and `git log` (the supervisor never resets or cleans); restore the verified tree, then {resume}"
-    if kind == "pointer":
-        return f".agentic-team/bin/agentic_team.py switch-run --run {run}; then {resume}"
-    if kind in {"config", "adapter"}:
-        return f"fix the configuration or the worker's login ({SUPERVISE} configure ...), then {resume} --refresh-config"
-    return resume
+POWERSHELL_BARE = re.compile(r"^(?:[A-Za-z0-9_][A-Za-z0-9_\-./:\\=]*|--?[A-Za-z0-9][A-Za-z0-9_\-]*)$")
+
+
+def powershell_quote(text: str) -> str:
+    """A PowerShell single-quoted literal (no expansion) unless the word is plainly safe bare; typographic quotes count as quotes."""
+    value = str(text)
+    if POWERSHELL_BARE.match(value):
+        return value
+    for mark in ("'", "\u2018", "\u2019", "\u201a", "\u201b"):
+        value = value.replace(mark, mark * 2)
+    return f"'{value}'"
+
+
+def render_command(argv: list[str], shell: str, home: str | None = None) -> str:
+    """One owner command for a shell, with the owner home explicit: every argument quoted, paths with spaces included."""
+    home = str(team.agentic_home().resolve()) if home is None else home
+    if shell == "powershell":
+        return f"$env:AGENTIC_TEAM_HOME = {powershell_quote(home)}; & " + " ".join(powershell_quote(part) for part in argv)
+    return f"AGENTIC_TEAM_HOME={shlex.quote(home)} " + " ".join(shlex.quote(part) for part in argv)
 
 
 def render_digest(digest: dict[str, Any]) -> str:
@@ -2455,8 +2511,7 @@ def main(argv: list[str] | None = None) -> int:
             supervisor.store.ensure()
             raise Blocked(
                 f"`{args.op}` acts with the owner's token and credentials, and this copy of the supervisor runs from inside the checkout "
-                f"({HERE}), which a worker can edit. Run the owner copy instead: "
-                f"{subprocess.list2cmdline([sys.executable, str(supervisor.store.bin / 'agentic_supervisor.py'), args.op, '--project', str(supervisor.project)])} ..."
+                f"({HERE}), which a worker can edit. Run the owner copy instead: {supervisor.owner_command('supervisor', args.op)} ..."
             )
         if args.op == "owner-copy":
             supervisor.store.ensure()
