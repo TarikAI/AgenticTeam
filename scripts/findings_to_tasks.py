@@ -209,9 +209,18 @@ def add_task_argv(task, project=".", run=None):
     return argv
 
 
+# Windows PowerShell 5.1 (and 7.0-7.2) drop embedded double quotes when calling a native program unless
+# they are backslash-escaped; 7.3+ passes them as written. Q escapes only where the running shell needs it.
+POWERSHELL_PRELUDE = (
+    "function Q([string]$s) { if ($null -eq $PSNativeCommandArgumentPassing -or $PSNativeCommandArgumentPassing -eq 'Legacy') "
+    "{ $s -replace '(\\\\*)\"', '$1$1\\\"' } else { $s } }"
+)
+
+
 def quote(value, shell):
     if shell == "powershell":
-        return "'" + value.replace("'", "''") + "'"
+        literal = "'" + value.replace("'", "''") + "'"
+        return f"(Q {literal})" if '"' in value else literal
     return shlex.quote(value)
 
 
@@ -307,6 +316,8 @@ def main(argv=None):
         print(f"No installed writable role for: {', '.join(unassigned)}; assign an owner before adding.", file=sys.stderr)
     if args.commands:
         print("\nRunnable add-task invocations (the runtime CLI is the state writer):")
+        if args.shell == "powershell" and any('"' in part for task in tasks for part in add_task_argv(task)):
+            print("  " + POWERSHELL_PRELUDE)
         for task in tasks:
             print("  " + add_task_command(task, args.shell, args.project or ".", context.get("run") or args.run))
     if args.apply:

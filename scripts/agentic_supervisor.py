@@ -1040,6 +1040,17 @@ class Supervisor:
         target, history = index.get("job"), index.get("history") or []
         if not history or not target or self.store.job_path(target).exists() or (self.store.inbox / f"{target}.json").exists():
             return False
+        # A job that already ran (attempt receipts, a reservation, the checkout, an orphan hold) lost its
+        # record; it was not an interrupted requeue. Recreating it would refund its spend and free the checkout.
+        control = self.store.control()
+        ran = (
+            target in (control.get("orphans") or {})
+            or any(key.split("/", 1)[0] == target for key in (control.get("allowance", {}).get("reservations") or {}))
+            or (control.get("checkout") or {}).get("job") == target
+            or (self.store.attempts / safe_id(target)).exists()
+        )
+        if ran:
+            return False
         previous = read_optional_quiet(self.store.job_path(history[-1]))
         if not previous or not isinstance(previous.get("event"), dict):
             raise SupervisorError(f"source {index.get('source_key')} names requeued job {target}, which has no record or waiting event, and the "
@@ -2670,7 +2681,9 @@ def render_command(argv: list[str], shell: str, home: str | None = None) -> str:
     """One owner command for a shell, with the owner home explicit: every argument quoted, paths with spaces included."""
     home = str(team.agentic_home().resolve()) if home is None else home
     if shell == "powershell":
-        return f"$env:AGENTIC_TEAM_HOME = {powershell_quote(home)}; & " + " ".join(powershell_quote(part) for part in argv)
+        # Always a string literal: a bare path after `=` would be parsed as a command, not assigned.
+        literal = "'" + "".join(mark * 2 if mark in "'‘’‚‛" else mark for mark in home) + "'"
+        return f"$env:AGENTIC_TEAM_HOME = {literal}; & " + " ".join(powershell_quote(part) for part in argv)
     return f"AGENTIC_TEAM_HOME={shlex.quote(home)} " + " ".join(shlex.quote(part) for part in argv)
 
 

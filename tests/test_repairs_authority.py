@@ -105,6 +105,14 @@ class SignedRejectionTests(Base):
         with self.assertRaises(team.GateError):
             team.claim_task(self.project, self.run, "SHIP", "devops-engineer", 60)
 
+    def test_re_approving_an_edited_rejection_is_refused(self) -> None:
+        checkpoint = self.reject_decision()
+        self.edit_state(lambda state: [item.update(status="pending") for item in state["checkpoints"] if item["id"] == checkpoint])
+        with self.assertRaises(team.TeamError) as raised:
+            team.approve_checkpoint(self.project, self.run, checkpoint, "Owner", "ok", self.token())
+        self.assertIn("resolve", str(raised.exception))
+        self.assertEqual(team.rejected_checkpoints(team.load_state(self.run)), [checkpoint])
+
     def test_a_genuine_approval_still_admits_the_claim(self) -> None:
         risky = self.gated()
         team.approve_checkpoint(self.project, self.run, risky, "Owner", "ship", self.token())
@@ -150,6 +158,26 @@ class ExecutionGateTests(Base):
             team.exec_command(self.project, self.run, "A", "backend-engineer", [marker_command(marker)], shell=True)
         self.assertFalse(marker.exists())
 
+    def test_restoring_pre_close_state_and_events_does_not_reopen(self) -> None:
+        marker = self.scratch / "ran"
+        self.claimed(marker)
+        saved = {name: (self.run / name).read_bytes() for name in ("state.json", "events.jsonl")}
+        team.close_run(self.project, self.run, "stop")
+        for name, data in saved.items():
+            (self.run / name).write_bytes(data)
+        with self.assertRaises(team.BlockedError):
+            team.exec_command(self.project, self.run, "A", "backend-engineer", [marker_command(marker)], shell=True)
+        self.assertFalse(marker.exists())
+        problems = team.audit_verify(self.project, self.run, self.token())
+        self.assertTrue(any("closed" in problem for problem in problems), problems)
+
+    def test_a_torn_event_line_does_not_read_as_closure(self) -> None:
+        team.add_task(self.project, self.run, task_args("A", "backend-engineer"))
+        with team.events_path(self.run).open("ab") as handle:
+            handle.write(b'{"seq": 99, "type": "task-ad')
+        team.claim_task(self.project, self.run, "A", "backend-engineer", 60)
+        self.assertEqual(team.audit_verify(self.project, self.run, self.token()), [])
+
 
 class ActionApprovalTests(Base):
     """A3: an approval covers its task's action, target and risk, not just any R3 command."""
@@ -165,6 +193,23 @@ class ActionApprovalTests(Base):
         self.assertEqual(len(team.load_state(self.run)["tasks"]["SHIP"].get("execs", [])), 0)
         code, out, err = run_cli(self.project, *base, "echo fly deploy")
         self.assertEqual(code, 0, err)
+
+    def test_an_approved_command_cannot_carry_a_chained_one(self) -> None:
+        checkpoint = self.gated()
+        team.approve_checkpoint(self.project, self.run, checkpoint, "Owner", "ship", self.token())
+        team.claim_task(self.project, self.run, "SHIP", "devops-engineer", 60)
+        for command in ("echo fly deploy && echo docker push evil/img", "echo fly deploy; echo gh release create v9",
+                        "echo fly deploy && echo git push --force"):
+            with self.subTest(command=command), self.assertRaises(team.GateError):
+                team.exec_command(self.project, self.run, "SHIP", "devops-engineer", [command], shell=True)
+            previous = os.environ.pop("CLAUDE_PROJECT_DIR", None)
+            try:
+                reason = team.guard_decision({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(self.project)})
+            finally:
+                if previous is not None:
+                    os.environ["CLAUDE_PROJECT_DIR"] = previous
+            self.assertIsNotNone(reason, command)
+        self.assertEqual(team.load_state(self.run)["tasks"]["SHIP"].get("execs", []), [])
 
     def test_changing_the_approved_scope_voids_the_approval(self) -> None:
         checkpoint = self.gated()

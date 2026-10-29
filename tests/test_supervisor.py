@@ -1384,6 +1384,23 @@ class OrphanReservationTests(SupervisorBase):
         self.assertEqual(self.sup.store.control().get("orphans") or {}, {}, "restoring the record ends the orphan hold")
         self.assertEqual(self.job()["hold"]["kind"], "unknown-usage")
 
+    def test_a_requeued_job_that_ran_is_not_recreated_when_its_record_goes(self) -> None:
+        self.sup.pause(None, "no launches")
+        self.enqueue()
+        self.sup.tick()
+        self.sup.cancel("fix-1", "not now")
+        event = {"id": "fix-1", "kind": "manual", "title": "Fix fix-1", "brief": "Make feature() return 42.", "acceptance": ["AC-1: feature() returns 42"]}
+        self.assertEqual(self.sup.enqueue(event, requeue=True), ("requeued", "fix-1-r2"))
+        self.sup.resume(None)
+        self.mode("missing-usage")
+        self.until_idle()
+        self.attempt_id = self.job("fix-1-r2")["attempts"][-1]["id"]
+        aside = scratch("aside-") / "fix-1-r2.json"
+        shutil.move(str(self.sup.store.job_path("fix-1-r2")), str(aside))
+        self.check_orphan("fix-1-r2")
+        self.assertFalse(self.sup.store.job_path("fix-1-r2").exists(), "the orphan was recreated as a fresh job")
+        self.assertFalse((self.sup.store.inbox / "fix-1-r2.json").exists())
+
     def test_a_missing_or_torn_record_of_a_live_worker_holds(self) -> None:
         self.mode("hang")
         self.enqueue()
@@ -1685,6 +1702,15 @@ class OwnerCommandTests(SupervisorBase):
             self.assertEqual(result.returncode, 0, (command, result.stdout[-400:], result.stderr[-400:]))
         supervisor.serve("until-idle", max_seconds=120)
         self.assertEqual(supervisor.store.job("spaced")["status"], "done")
+
+    @unittest.skipUnless(os.name == "nt" and shutil.which("powershell"), "PowerShell execution is checked on Windows")
+    def test_the_powershell_home_assignment_takes_effect(self) -> None:
+        home = scratch("ownerhome")  # no spaces: the case a bare word broke
+        command = sup.render_command([sys.executable, "-c", "import os; print(os.environ['AGENTIC_TEAM_HOME'])"], "powershell", str(home))
+        env = {**os.environ, "AGENTIC_TEAM_HOME": str(scratch("inherited-"))}
+        result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", command], capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), str(home), "the owner command ran against the inherited home")
 
 
 if __name__ == "__main__":

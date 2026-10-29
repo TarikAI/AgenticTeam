@@ -150,6 +150,47 @@ class RunPinningTests(unittest.TestCase):
         self.assertEqual(len(team.load_state(self.other)["tasks"]), 1, "apply wrote into the current run")
 
 
+class RemediationShellTests(unittest.TestCase):
+    """G2: printed remediation commands run as written in each documented shell, quotes and spaces included."""
+
+    def printed(self, project: Path, shell: str) -> list[str]:
+        findings = Path(tempfile.mkdtemp(prefix="agentic-findings-")) / "findings.json"
+        findings.write_text(json.dumps([{"path": "src/app.py", "line": 3, "content": 'crash on "empty" input', "severity": "blocker"}]),
+                            encoding="utf-8")
+        import builtins
+        captured: list[str] = []
+        original = builtins.print
+        builtins.print = lambda *args, **kwargs: captured.append(" ".join(str(arg) for arg in args))
+        try:
+            findings_to_tasks.main([str(findings), "--project", str(project), "--run", "wanted", "--commands", "--shell", shell,
+                                    "--check", PASSING_CHECK])
+        finally:
+            builtins.print = original
+        lines = [line.strip() for line in "\n".join(captured).splitlines()]
+        start = next(index for index, line in enumerate(lines) if line.startswith("Runnable add-task"))
+        return [line for line in lines[start + 1:] if line.startswith(("python ", "function Q"))]
+
+    def test_powershell_lines_add_the_task_in_every_available_powershell(self) -> None:
+        programs = [program for program in (shutil.which("powershell"), shutil.which("pwsh")) if program]
+        if not programs:
+            self.skipTest("PowerShell is not available")
+        for program in programs:
+            project = spaced_project()
+            wanted = team.init_run(project, "Wanted", "wanted", "autonomous", "execute-only", "adaptive")
+            team.init_run(project, "Other", "other", "autonomous", "execute-only", "adaptive")
+            lines = self.printed(project, "powershell")
+            cli = project / ".agentic-team" / "bin" / "agentic_team.py"
+            script = "\n".join(line if line.startswith("function") else f"& '{sys.executable}' '{cli}' " + line.split(" ", 2)[2]
+                               for line in lines)
+            result = subprocess.run([program, "-NoProfile", "-NonInteractive", "-Command", script + "\nexit $LASTEXITCODE"],
+                                    capture_output=True, text=True, env=dict(os.environ))
+            with self.subTest(shell=program):
+                self.assertEqual(result.returncode, 0, (script, result.stderr[-600:]))
+                tasks = team.load_state(wanted)["tasks"]
+                self.assertEqual(len(tasks), 1)
+                self.assertIn('"empty"', next(iter(tasks.values()))["title"])
+
+
 class SectionContextTests(unittest.TestCase):
     """G3: a requested #section survives budgeting; missing or ambiguous anchors are reported."""
 
@@ -175,6 +216,15 @@ class SectionContextTests(unittest.TestCase):
         self.assertNotIn("Background that does not matter", text)
         self.assertNotIn("AFTER-MARKER", text)
         self.assertNotIn("INCOMPLETE", text)
+
+    def test_a_comment_in_a_code_block_does_not_end_the_section(self) -> None:
+        doc = self.project / "docs" / "setup.md"
+        doc.write_text("# Setup\n\n## Required\n\nBefore.\n\n```bash\n# install deps\npip install x\n```\n\n"
+                       "AFTER-FENCE-MARKER\n\n## Next\n\nNEXT-MARKER\n", encoding="utf-8")
+        text, _ = self.pack("docs/setup.md#Required")
+        self.assertIn("# install deps", text)
+        self.assertIn("AFTER-FENCE-MARKER", text)
+        self.assertNotIn("NEXT-MARKER", text)
 
     def test_unicode_duplicate_and_missing_anchors(self) -> None:
         text, _ = self.pack("docs/large.md#café ñandú")

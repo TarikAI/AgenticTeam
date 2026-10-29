@@ -201,13 +201,33 @@ class SmokeJourneyTests(unittest.TestCase):
         team.claim_task(journey.project, journey.run, "R1", "devops-engineer", 60)
         team.complete_task(journey.project, journey.run, "R1", "devops-engineer", ["file:src/greet.py"])
         journey.write_verdict("devops-engineer", "R1-1")
-        try:
+        with self.assertRaises(team.TeamError) as refused:  # the runtime itself refuses it (A7 repaired)
             journey.to_gate()
-        except team.TeamError as refused:  # the runtime itself now refuses it (A7 repaired): also not a pass
-            self.assertIn("devops-engineer", str(refused))
-            return
+        self.assertIn("devops-engineer", str(refused.exception))
+        # The scorer reaches the same verdict on its own, without relying on the runtime's refusal.
         scores = journey.score(metering=journey.meter())
         self.assertIn("self-verification", scores["independent verification"]["detail"])
+        self.assertIn("independent verification", self.failed(scores))
+
+    def test_a_verifier_that_never_ran_the_tests_fails(self) -> None:
+        for case in ("no-exec", "no-verifies"):
+            journey = Journey(self)
+            journey.build()
+            self.assertEqual(team.advance_stage(journey.project, journey.run), "05_verify")
+            verifies = [] if case == "no-verifies" else ["T1"]
+            team.add_task(journey.project, journey.run, task_args("V1", "qa-lead", action="test", target="local", path=[], check=[],
+                                                                  verifies=verifies))
+            team.claim_task(journey.project, journey.run, "V1", "qa-lead", 60)
+            evidence = [f"file:.agentic-team/runs/{live.RUN_ID}/VERIFICATION.md"]
+            if case == "no-verifies":
+                record = team.exec_command(journey.project, journey.run, "V1", "qa-lead", TEST_COMMAND)
+                evidence.append(f"cmd:{record['id']}")
+            journey.write_verdict("qa-lead", "V1")
+            team.complete_task(journey.project, journey.run, "V1", "qa-lead", evidence)
+            journey.to_gate()
+            scores = journey.score(metering=journey.meter())
+            with self.subTest(case=case):
+                self.assertIn("independent verification", self.failed(scores), scores["independent verification"])
 
     def test_a_verdict_older_than_the_code_fails(self) -> None:
         journey = Journey(self, use_git=True)

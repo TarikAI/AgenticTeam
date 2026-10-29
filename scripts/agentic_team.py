@@ -1708,7 +1708,14 @@ def verify_events(run_dir: Path, state: dict[str, Any] | None = None) -> list[st
     for number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
-        record = json.loads(line)
+        try:
+            record = json.loads(line)
+        except ValueError:
+            if number == len(lines):
+                problems.append(f"event line {number} is a torn write (an interrupted append; the next CLI write recovers it)")
+                break
+            problems.append(f"event line {number} is not valid JSON (edited history)")
+            continue
         count += 1
         if record.get("prev") != head:
             problems.append(f"event line {number} does not chain to the previous event (edited or removed history)")
@@ -2001,6 +2008,9 @@ def close_run(project: Path, run_dir: Path, reason: str) -> None:
         was_current = is_current_run(project, run_dir)
         state["status"] = "closed"
         append_event(state, "run-closed", reason=reason)
+        # Recorded outside the project too, so restoring older state and events cannot reopen the run.
+        # Unsigned on purpose: closing only removes authority, so any caller may record it.
+        append_ledger(home_key(state), None, action="close", subject=state["run_id"], reason=reason)
         state["updated_at"] = utcnow()
         write_state(run_dir, state)
         if was_current:
@@ -2041,11 +2051,20 @@ def run_closed(run_dir: Path | None, state: dict[str, Any]) -> bool:
     """Closed in state, or closed on the run's event history (closing is never undone)."""
     if state.get("status") == "closed":
         return True
+    with contextlib.suppress(OSError, ValueError, TeamError):
+        if any(record.get("action") == "close" for record in verified_view(state).records):
+            return True
     if run_dir is None:
         return False
-    with contextlib.suppress(OSError, ValueError, TeamError):
-        return any(event.get("type") == "run-closed" for event in read_events(run_dir))
-    return True
+    # Only positive evidence closes a run, so an unreadable line (such as the torn tail of an
+    # interrupted append) is skipped rather than read as a closure.
+    path = events_path(run_dir)
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines() if path.is_file() else []
+    for line in lines:
+        with contextlib.suppress(ValueError, AttributeError):
+            if json.loads(line).get("type") == "run-closed":
+                return True
+    return any(isinstance(event, dict) and event.get("type") == "run-closed" for event in state.get("events") or [])
 
 
 def assert_not_blocked(state: dict[str, Any], action: str, run_dir: Path | None = None) -> None:
@@ -2301,6 +2320,11 @@ def derive_risk_floor(title: str, objective: str, stage: str, paths: list[str], 
         # Both the source checkout and an installed bus keep policy at ../config/policies.json.
         policy = load_json(Path(__file__).resolve().parent.parent / "config" / "policies.json")
     return derive_risk(policy, action, target, title, objective, paths)[0]
+
+
+def command_rules(policy: dict[str, Any], command: str) -> list[dict[str, Any]]:
+    """Every command rule a shell command matches: a chained command can match several."""
+    return [rule for rule in policy.get("command_rules", []) if re.search(rule["regex"], command, flags=re.IGNORECASE)]
 
 
 def command_risk(policy: dict[str, Any], command: str) -> tuple[str, dict[str, Any] | None]:
@@ -2670,10 +2694,12 @@ def ingest_usage(
             raise TeamError(f"Unknown task: {task_id}")
         digest = file_sha256(transcript)
         sources = state.setdefault("usage_sources", [])
-        if any(item["sha256"] == digest for item in sources):
+        signed = [item for item in read_ledger(home_key(state)) if item.get("action") == "usage"]
+        if any(item["sha256"] == digest for item in sources) or any(item.get("sha256") == digest for item in signed):
             raise TeamError(f"transcript {transcript.name} was already metered ({digest[:12]})")
         record = {
-            "id": f"U-{len(sources) + 1:03d}",
+            # Numbered from the signed ledger, not the editable state, so an ID is never reused.
+            "id": f"U-{max(len(sources), len(signed)) + 1:03d}",
             "transcript": str(transcript),
             "sha256": digest,
             "task": task_id,
@@ -2884,17 +2910,17 @@ def command_refusal(policy: dict[str, Any], state: dict[str, Any], task: dict[st
     A command that matches a policy rule needs a task declared for that rule's action, a task risk at
     or above the rule's, and, from R3 up, a signed approval covering that action, target, and risk.
     """
-    level, rule = command_risk(policy, command)
-    if rule is None:
-        return None
-    needed = f"It needs a task declared as --action {rule['action']} with an approved risk checkpoint."
-    if rule.get("action") and rule["action"] != task.get("action", "build"):
-        return (f"Command matches a {level} {rule['action']} rule ({rule['reason']}), but task {task['id']} is declared "
-                f"--action {task.get('action', 'build')}. {needed}")
-    if RISK_ORDER[level] > RISK_ORDER.get(task.get("risk", "R0"), 0):
-        return f"Command matches a {level} rule ({rule['reason']}) above task {task['id']}'s risk {task.get('risk')}. {needed}"
-    if RISK_ORDER[level] >= 3 and not risk_approval(state, task, level, verified):
-        return f"Command matches a {level} rule ({rule['reason']}). {needed}"
+    # Every matching rule must be covered: an approved command cannot carry another one chained after it.
+    for rule in command_rules(policy, command):
+        level = rule["risk"]
+        needed = f"It needs a task declared as --action {rule['action']} with an approved risk checkpoint."
+        if rule.get("action") and rule["action"] != task.get("action", "build"):
+            return (f"Command matches a {level} {rule['action']} rule ({rule['reason']}), but task {task['id']} is declared "
+                    f"--action {task.get('action', 'build')}. {needed}")
+        if RISK_ORDER[level] > RISK_ORDER.get(task.get("risk", "R0"), 0):
+            return f"Command matches a {level} rule ({rule['reason']}) above task {task['id']}'s risk {task.get('risk')}. {needed}"
+        if RISK_ORDER[level] >= 3 and not risk_approval(state, task, level, verified):
+            return f"Command matches a {level} rule ({rule['reason']}). {needed}"
     return None
 
 
@@ -3353,7 +3379,10 @@ def audit_verify(project: Path, run_dir: Path, token: str) -> list[str]:
             problems.append(f"ledger record {record.get('seq')} does not chain to the previous record")
         body = {key: value for key, value in record.items() if key != "mac"}
         expected = hmac.new(token.encode("utf-8"), canonical(body).encode("utf-8"), hashlib.sha256).hexdigest()
-        if not record.get("mac") or not secrets.compare_digest(str(record.get("mac")), expected):
+        if record.get("action") == "close" and not record.get("mac"):
+            if state.get("status") != "closed":
+                problems.append(f"the ledger records the run closed (record {record.get('seq')}), but state.json is {state.get('status')}")
+        elif not record.get("mac") or not secrets.compare_digest(str(record.get("mac")), expected):
             problems.append(f"ledger record {record.get('seq')} ({record.get('action')} {record.get('subject')}) is not signed by the owner")
         previous = record_hash(record)
     for checkpoint in state["checkpoints"]:
@@ -3366,6 +3395,7 @@ def audit_verify(project: Path, run_dir: Path, token: str) -> list[str]:
             problems.append(f"state shows {checkpoint['id']} as {checkpoint['status']}, but its last signed decision makes it {effective}")
         if view.disposition.get(checkpoint["id"]) == "approved" and effective != "approved":
             problems.append(f"{checkpoint['id']} no longer matches the checkpoint the owner approved (its task, risk, or scope changed)")
+    problems.extend(usage_problems(state, view))
     listed = {checkpoint["id"] for checkpoint in state["checkpoints"]}
     for subject in view.open_rejections():
         if subject not in listed:
@@ -3376,6 +3406,45 @@ def audit_verify(project: Path, run_dir: Path, token: str) -> list[str]:
     problems.extend(verify_events(run_dir, state))
     if view.bound is not None:
         problems.extend(decision_problems(project, run_dir, state, view))
+    return problems
+
+
+USAGE_FIGURES = ("tokens", "usd")
+
+
+def usage_problems(state: dict[str, Any], view: VerifiedView) -> list[str]:
+    """Metered usage in state must be exactly what the owner signed: each source, and the running totals."""
+    if view.bound is None:
+        return []
+    records = [record for record in view.records if record.get("action") == "usage"]
+    signed = {record["subject"]: record for record in records}
+    problems: list[str] = []
+    subjects = [record["subject"] for record in records]
+    for subject in sorted({item for item in subjects if subjects.count(item) > 1}):
+        problems.append(f"the ledger signs more than one usage record as {subject}; the run's spend is ambiguous")
+    totals: dict[str, float] = {}
+    for record in records:
+        for key in USAGE_FIGURES:
+            if isinstance(record.get(key), (int, float)):
+                totals[key] = round(totals.get(key, 0.0) + record[key], 6)
+    for source in state.get("usage_sources", []):
+        record = signed.get(source.get("id"))
+        if record is None:
+            problems.append(f"state lists usage {source.get('id')}, but the ledger has no signed usage record")
+            continue
+        if record.get("sha256") != source.get("sha256"):
+            problems.append(f"usage {source.get('id')} names a transcript digest the owner did not sign")
+        for key in USAGE_FIGURES:
+            if key in record or key in source:
+                if record.get(key) != source.get(key):
+                    problems.append(f"usage {source.get('id')} records {key}={source.get(key)}, but the signed record says {record.get(key)}")
+    listed = {source.get("id") for source in state.get("usage_sources", [])}
+    for subject in sorted(set(signed) - listed):
+        problems.append(f"the ledger signs usage {subject}, but state.json no longer lists it")
+    metered = state.get("usage_metered", {})
+    for key in USAGE_FIGURES:
+        if round(float(metered.get(key, 0.0) or 0.0), 6) != totals.get(key, 0.0):
+            problems.append(f"metered {key} total {metered.get(key, 0.0)} does not equal the signed usage records ({totals.get(key, 0.0)})")
     return problems
 
 
@@ -3528,8 +3597,10 @@ def approve_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str
         state = load_state(run_dir)
         human_decision(project, run_dir, state, by, token, f"approve {checkpoint_id}")
         checkpoint = find_checkpoint(state, checkpoint_id)
-        if checkpoint["status"] != "pending":
-            raise TeamError(f"Checkpoint {checkpoint_id} is already {checkpoint['status']}")
+        effective = verified_view(state).checkpoint_status(checkpoint)
+        if checkpoint["status"] != "pending" or effective != "pending":
+            raise TeamError(f"Checkpoint {checkpoint_id} is already {effective if effective != 'pending' else checkpoint['status']}"
+                            + ("; a rejection is closed with `resolve`" if effective == "rejected" else ""))
         checkpoint.update(status="approved", approved_by=by, decision=decision, approved_at=utcnow())
         append_ledger(home_key(state), token, action="approve", subject=checkpoint_id, by=by, decision=decision,
                       fingerprint=checkpoint_fingerprint(checkpoint))
@@ -3543,8 +3614,9 @@ def reject_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str,
         state = load_state(run_dir)
         human_decision(project, run_dir, state, by, token, f"reject {checkpoint_id}")
         checkpoint = find_checkpoint(state, checkpoint_id)
-        if checkpoint["status"] != "pending":
-            raise TeamError(f"Checkpoint {checkpoint_id} is already {checkpoint['status']}")
+        effective = verified_view(state).checkpoint_status(checkpoint)
+        if checkpoint["status"] != "pending" or effective != "pending":
+            raise TeamError(f"Checkpoint {checkpoint_id} is already {effective if effective != 'pending' else checkpoint['status']}")
         checkpoint.update(status="rejected", rejected_by=by, decision=decision, rejected_at=utcnow())
         append_ledger(home_key(state), token, action="reject", subject=checkpoint_id, by=by, decision=decision)
         append_event(state, "checkpoint-rejected", checkpoint=checkpoint_id, by=by)
@@ -4214,7 +4286,7 @@ def shell_word(value: str) -> str:
         return value
     if "'" not in value:
         return f"'{value}'"
-    return '"' + value.replace('"', '\\"') + '"'
+    raise TeamError(f"Cannot quote {value!r} safely for both Bash and PowerShell; use a path without single quotes")
 
 
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
@@ -4232,15 +4304,29 @@ def extract_section(text: str, anchor: str) -> tuple[str | None, str]:
     """
     wanted = heading_key(anchor)
     lines = text.splitlines()
+    # A `# comment` inside a fenced code block is code, not a heading.
+    fenced: list[bool] = []
+    fence: str | None = None
+    for line in lines:
+        marker = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
+        if marker and (fence is None or (marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence))):
+            fenced.append(True)
+            fence = marker.group(1) if fence is None else None
+            continue
+        fenced.append(fence is not None)
+
+    def heading(at: int) -> "re.Match[str] | None":
+        return None if fenced[at] else HEADING.match(lines[at])
+
     found: list[str] = []
     index = 0
     while index < len(lines):
-        match = HEADING.match(lines[index])
+        match = heading(index)
         if match and heading_key(match.group(2)) == wanted:
             level = len(match.group(1))
             end = index + 1
             while end < len(lines):
-                other = HEADING.match(lines[end])
+                other = heading(end)
                 if other and len(other.group(1)) <= level:
                     break
                 end += 1

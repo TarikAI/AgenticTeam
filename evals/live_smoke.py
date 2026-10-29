@@ -334,6 +334,16 @@ def score_run(
         independence.append(f"verifier {verifier} also built or remediated work: self-verification")
     if verifier and not verifier_tasks:
         independence.append(f"verifier {verifier} completed no 05_verify task of its own")
+    # The verifier ran the tests itself: a passing exec record of its own, under its claim, that runs them.
+    verifier_runs = [record for task in verifier_tasks for record in task.get("execs", [])
+                     if record.get("agent") == verifier and record.get("exit_code") == 0 and not record.get("stale_claim")
+                     and "unittest" in str(record.get("command", ""))]
+    if verifier_tasks and not verifier_runs:
+        independence.append(f"verifier {verifier} has no passing test run of its own (an exec record that runs the tests)")
+    built = {task["id"] for task in completed_writes if task["stage"] == "04_build"}
+    covered = {item for task in verifier_tasks for item in task.get("verifies", [])}
+    if verifier_tasks and built - covered:
+        independence.append(f"the verification task does not declare --verifies for: {', '.join(sorted(built - covered))}")
 
     # Current: the verdict still describes the code and the file the human is asked about.
     staleness = list(head_problems)

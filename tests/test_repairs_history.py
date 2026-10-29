@@ -152,6 +152,41 @@ class ReopenRetryTests(Base):
         self.assertEqual(self.task()["status"], "failed")
 
 
+class SignedUsageAuditTests(Base):
+    """S2, owner audit side: metered usage in state must match the signed usage records."""
+
+    def test_forged_usage_projections_fail_the_owner_audit(self) -> None:
+        transcript = self.run / "transcript.jsonl"
+        transcript.write_text(json.dumps({"type": "result", "subtype": "success", "total_cost_usd": 0.01,
+                                          "usage": {"input_tokens": 100, "output_tokens": 20}}) + "\n", encoding="utf-8")
+        team.ingest_usage(self.project, self.run, transcript, "Owner", self.token())
+        self.assertEqual(team.audit_verify(self.project, self.run, self.token()), [])
+        forgeries = [
+            lambda state: state["usage_sources"][0].update(usd=0.0),
+            lambda state: state["usage_metered"].update(usd=0.0),
+            lambda state: state["usage_sources"].append({"id": "U-002", "sha256": "0" * 64, "usd": 0.0}),
+            lambda state: state.update(usage_sources=[], usage_metered={}),
+        ]
+        original = (self.run / "state.json").read_bytes()
+        cleared = team.load_state(self.run)
+        cleared.update(usage_sources=[], usage_metered={})
+        team.write_json_atomic(self.run / "state.json", cleared)
+        cheaper = self.run / "cheaper.jsonl"
+        cheaper.write_text(json.dumps({"type": "result", "subtype": "success", "total_cost_usd": 0.001,
+                                       "usage": {"input_tokens": 1}}) + "\n", encoding="utf-8")
+        record = team.ingest_usage(self.project, self.run, cheaper, "Owner", self.token())
+        self.assertEqual(record["id"], "U-002", "a usage ID is never reused after state was cleared")
+        self.assertTrue(any("usage" in problem for problem in team.audit_verify(self.project, self.run, self.token())))
+        (self.run / "state.json").write_bytes(original)
+        for forge in forgeries:
+            state = team.load_state(self.run)
+            forge(state)
+            team.write_json_atomic(self.run / "state.json", state)
+            with self.subTest(forge=forge):
+                self.assertTrue(any("usage" in problem for problem in team.audit_verify(self.project, self.run, self.token())))
+            (self.run / "state.json").write_bytes(original)
+
+
 class IndependenceTests(Base):
     """A7: earlier builders and 05_verify remediation writers cannot verify their own work."""
 
