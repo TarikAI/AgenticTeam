@@ -49,11 +49,11 @@ not inside the harness chat.
 Open a terminal in your project folder and run one of these (change the name):
 
 ```powershell
-py -3 .agentic-team/bin/agentic_team.py init-run --project . --name "My Platform" --autonomy supervised --entry idea --context adaptive
+py -3 .agentic-team/bin/agentic_team.py init-run --project . --name "My Platform" --autonomy supervised --entry idea --context adaptive --budget usd=20
 ```
 
 ```bash
-python3 .agentic-team/bin/agentic_team.py init-run --project . --name "My Platform" --autonomy supervised --entry idea --context adaptive
+python3 .agentic-team/bin/agentic_team.py init-run --project . --name "My Platform" --autonomy supervised --entry idea --context adaptive --budget usd=20
 ```
 
 Choices:
@@ -67,6 +67,8 @@ Choices:
   `execute-only` (build exactly the plan you supply).
 - `--context`: `adaptive` (lighter paperwork for clear, bounded work) or `bmad-progressive`
   (a full document for every stage).
+- `--budget usd=20`: the run's spend ceiling; pick your own figure. `supervised`, `autonomous`,
+  and `unattended` runs refuse to start without one.
 
 The command prints where it wrote your token, for example:
 

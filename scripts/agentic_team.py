@@ -3844,7 +3844,8 @@ def stage_exit_problems(project: Path, run_dir: Path, state: dict[str, Any], sta
                 continue
             path = run_dir / name
             if not path.is_file():
-                problems.append(f"{name} is missing (scaffold it with `scaffold --artifact {name}`)")
+                how = f"scaffold it with `scaffold --artifact {name}`" if name in ARTIFACT_TEMPLATES else "write it by hand; it has no scaffold template"
+                problems.append(f"{name} is missing ({how})")
                 continue
             text = path.read_text(encoding="utf-8")
             if PLACEHOLDER.search(text):
