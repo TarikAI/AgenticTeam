@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import time
+import unicodedata
 from typing import Any, Iterator
 
 
@@ -1192,6 +1193,10 @@ def install_team(
     target.mkdir(parents=True, exist_ok=True)
     bus = target / ".agentic-team"
     previous_record = load_json(bus / "install-manifest.json") if (bus / "install-manifest.json").is_file() else {}
+    # Reinstall deletes stale files the previous manifest names: validate all of them first.
+    assert_manifest_paths(target, {"skill_dir": manifest["harnesses"][harness]["skill_dir"], **previous_record})
+    for relative in previous_record.get("generated_hashes", {}) if isinstance(previous_record.get("generated_hashes"), dict) else []:
+        contained_path(target, relative, "generated file path")
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     modified = []
     for relative, digest in previous_record.get("generated_hashes", {}).items():
@@ -1390,6 +1395,72 @@ def remove_empty_parents(path: Path, stop: Path) -> None:
         current = current.parent
 
 
+SKILL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+
+
+def contained_path(target: Path, relative: Any, label: str) -> Path:
+    """A manifest path as a location inside the project, or TeamError.
+
+    The install manifest is a project file, so an agent can edit it: every path it names must be a
+    plain relative path that stays inside the project after resolving symlinks and junctions.
+    """
+    text = str(relative) if isinstance(relative, str) else ""
+    pure = text.replace("\\", "/")
+    if (not pure or pure.startswith("/") or re.match(r"^[A-Za-z]:", pure) or "\x00" in pure
+            or any(part == ".." for part in pure.split("/"))):
+        raise TeamError(f"Unsafe {label} in the install manifest: {relative!r}")
+    root = target.resolve()
+    resolved = (target / pure).resolve()
+    if resolved == root:
+        raise TeamError(f"Unsafe {label} in the install manifest: {relative!r} is the project itself")
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise TeamError(f"Unsafe {label} in the install manifest: {relative!r} resolves outside the project") from exc
+    return resolved
+
+
+def manifest_path_problems(target: Path, record: dict[str, Any]) -> list[str]:
+    """Check every path an install manifest would make install/uninstall touch, before touching any."""
+    problems: list[str] = []
+
+    def check(relative: Any, label: str) -> Path | None:
+        try:
+            return contained_path(target, relative, label)
+        except TeamError as exc:
+            problems.append(str(exc))
+            return None
+
+    for key in ("generated_files",):
+        values = record.get(key, [])
+        if not isinstance(values, list):
+            problems.append(f"Unsafe install manifest: {key} is not a list")
+            continue
+        for relative in values:
+            check(relative, "generated file path")
+    owned = record.get("owned_settings", {})
+    for relative in owned if isinstance(owned, dict) else []:
+        check(relative, "owned settings path")
+    if not isinstance(owned, dict):
+        problems.append("Unsafe install manifest: owned_settings is not an object")
+    skill_root = check(record.get("skill_dir", ".agents/skills"), "skill folder")
+    skills = record.get("skills", [])
+    for name in skills if isinstance(skills, list) else []:
+        if not isinstance(name, str) or not SKILL_NAME.match(name):
+            problems.append(f"Unsafe skill name in the install manifest: {name!r}")
+        elif skill_root is not None:
+            check(f"{str(record.get('skill_dir', '.agents/skills')).rstrip('/')}/{name}", "skill path")
+    if not isinstance(skills, list):
+        problems.append("Unsafe install manifest: skills is not a list")
+    return problems
+
+
+def assert_manifest_paths(target: Path, record: dict[str, Any]) -> None:
+    problems = manifest_path_problems(target, record)
+    if problems:
+        raise TeamError("Refusing to change any file: " + "; ".join(problems))
+
+
 def uninstall_team(target: Path, purge: bool = False) -> list[str]:
     """Remove what install wrote; keep project-owned knowledge/, runs/, and supervisor/ unless --purge."""
     bus = target / ".agentic-team"
@@ -1397,6 +1468,7 @@ def uninstall_team(target: Path, purge: bool = False) -> list[str]:
     if not record_path.is_file():
         raise TeamError(f"No AgenticTeam installation found in {target}")
     record = load_json(record_path)
+    assert_manifest_paths(target, record)
     removed = []
     for relative in record.get("generated_files", []):
         path = target / relative
@@ -1558,7 +1630,70 @@ def flush_events(run_dir: Path, state: dict[str, Any]) -> None:
     state["event_count"] = count
 
 
+def reconcile_event_tail(run_dir: Path, state: dict[str, Any]) -> None:
+    """Make events.jsonl agree with state before appending to it.
+
+    Events are appended before state.json is replaced, so an interruption between the two leaves
+    events the state never recorded. That tail is a valid continuation of the chain (or a torn last
+    line): it is moved to events.interrupted.jsonl and the recovery is itself an event, so the next
+    append continues from the head state.json names. A prefix that does not reach state's head, or a
+    tail that does not chain, is edited or truncated history: refuse instead of forking it.
+    """
+    path = events_path(run_dir)
+    if "event_count" not in state or not path.is_file():
+        return
+    count, expected = int(state["event_count"]), state.get("events_head", "0" * 64)
+    data = path.read_bytes()
+    head, offset, seen = "0" * 64, 0, 0
+    while seen < count:
+        end = data.find(b"\n", offset)
+        if end < 0:
+            raise TeamError(f"events.jsonl holds fewer than the {count} events state records (truncated history); "
+                            "the human should run `audit verify`")
+        line = data[offset:end].strip()
+        offset = end + 1
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            record = {}
+        if record.get("prev") != head:
+            raise TeamError("events.jsonl does not chain up to the head state records (edited history); "
+                            "the human should run `audit verify`")
+        head = hashlib.sha256(canonical(record).encode("utf-8")).hexdigest()
+        seen += 1
+    if head != expected:
+        raise TeamError("events.jsonl does not match the head state records (edited history); the human should run `audit verify`")
+    tail = data[offset:]
+    if not tail.strip():
+        return
+    previous = head
+    for number, raw in enumerate(tail.split(b"\n")):
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            if tail.split(b"\n")[number + 1:] and any(rest.strip() for rest in tail.split(b"\n")[number + 1:]):
+                raise TeamError("events.jsonl has an unreadable event after the state's head (edited history)") from None
+            break  # a torn final line from an interrupted append
+        if record.get("prev") != previous or record.get("seq") != count + number + 1:
+            raise TeamError("events.jsonl has events after the state's head that do not continue its chain (edited history)")
+        previous = hashlib.sha256(canonical(record).encode("utf-8")).hexdigest()
+    with (run_dir / "events.interrupted.jsonl").open("ab") as handle:
+        handle.write(tail if tail.endswith(b"\n") else tail + b"\n")
+    with path.open("r+b") as handle:
+        handle.truncate(offset)
+    state.setdefault("_new_events", []).insert(0, {
+        "time": utcnow(), "type": "interrupted-write-recovered", "discarded_sha256": hashlib.sha256(tail).hexdigest(),
+        "kept": count, "moved_to": "events.interrupted.jsonl",
+    })
+
+
 def write_state(run_dir: Path, state: dict[str, Any]) -> None:
+    reconcile_event_tail(run_dir, state)
     flush_events(run_dir, state)
     write_json_atomic(run_dir / "state.json", state)
 
@@ -1885,7 +2020,7 @@ def recompute_status(state: dict[str, Any], profile: dict[str, Any]) -> None:
         return
     tasks = state["tasks"].values()
     verified = verified_view(state)
-    if any(verified.checkpoint_status(item) == "rejected" for item in state["checkpoints"]):
+    if rejected_checkpoints(state, verified):
         state["status"] = "blocked-rejection"
     elif not profile.get("continue_after_noncritical_failure", True) and any(task["status"] == "failed" for task in tasks):
         state["status"] = "blocked-failure"
@@ -1895,7 +2030,38 @@ def recompute_status(state: dict[str, Any], profile: dict[str, Any]) -> None:
         state["status"] = "verifying" if state["stage"] == "05_verify" else "active"
 
 
-def assert_not_blocked(state: dict[str, Any], action: str) -> None:
+def rejected_checkpoints(state: dict[str, Any], verified: "VerifiedView | None" = None) -> list[str]:
+    """Unresolved rejections: those state.json shows plus every one the signed ledger still holds open."""
+    verified = verified or verified_view(state)
+    listed = [item["id"] for item in state["checkpoints"] if verified.checkpoint_status(item) == "rejected"]
+    return sorted(set(listed) | set(verified.open_rejections()))
+
+
+def run_closed(run_dir: Path | None, state: dict[str, Any]) -> bool:
+    """Closed in state, or closed on the run's event history (closing is never undone)."""
+    if state.get("status") == "closed":
+        return True
+    if run_dir is None:
+        return False
+    with contextlib.suppress(OSError, ValueError, TeamError):
+        return any(event.get("type") == "run-closed" for event in read_events(run_dir))
+    return True
+
+
+def assert_not_blocked(state: dict[str, Any], action: str, run_dir: Path | None = None) -> None:
+    """Refuse new work while the run is rejected, closed, or failed.
+
+    The rejection and closure checks derive from the signed ledger and the event history, not from
+    the editable `status` field, so editing state.json cannot reopen a run the human stopped.
+    """
+    if run_closed(run_dir, state):
+        raise BlockedError(f"Cannot {action}: the run is closed")
+    rejected = rejected_checkpoints(state)
+    if rejected:
+        raise BlockedError(
+            f"Cannot {action}: the run is blocked by rejected checkpoint(s) {', '.join(rejected)}. Correct the work, "
+            "then the human closes the rejection with `resolve`."
+        )
     status = state.get("status")
     if status == "blocked-failure":
         failed = ", ".join(task["id"] for task in state["tasks"].values() if task["status"] == "failed")
@@ -1950,8 +2116,11 @@ def route_specialists(project: Path, run_dir: Path, signals: list[str]) -> list[
     with state_lock(run_dir):
         state = load_state(run_dir)
         for match in matches:
+            # Each activation has its own identity: only work done for this activation satisfies it.
+            state["specialist_activations"] = int(state.get("specialist_activations", 0)) + 1
             state.setdefault("active_specialists", {})[match["agent"]] = {
                 "status": "active",
+                "activation": f"SA-{state['specialist_activations']:03d}",
                 "reason": f"Matched signals: {', '.join(match['matched'])}",
                 "activated_at": utcnow(),
                 "stage": state["stage"],
@@ -2047,6 +2216,9 @@ def add_task(project: Path, run_dir: Path, args: argparse.Namespace) -> None:
             "evidence": [],
             "created_at": utcnow(),
         }
+        specialist = state.get("active_specialists", {}).get(args.owner, {})
+        if specialist.get("status") == "active" and specialist.get("activation"):
+            task["activation"] = specialist["activation"]  # this task is the specialist's work for that activation
         state["tasks"][args.id] = task
         refresh_ready(state)
         append_event(state, "task-added", task=args.id, owner=args.owner, risk=effective_risk, stage=stage)
@@ -2185,7 +2357,7 @@ def claim_task(project: Path, run_dir: Path, task_id: str, agent: str, lease_min
         task = state["tasks"].get(task_id)
         if not task:
             raise TeamError(f"Unknown task: {task_id}")
-        assert_not_blocked(state, f"claim {task_id}")
+        assert_not_blocked(state, f"claim {task_id}", run_dir)
         if agent != task["owner"]:
             raise TeamError(
                 f"Task {task_id} is owned by {task['owner']}, not {agent}. Use `reassign` to change the owner."
@@ -2214,10 +2386,7 @@ def claim_task(project: Path, run_dir: Path, task_id: str, agent: str, lease_min
             task["risk"] = floor
             append_event(state, "risk-raised", task=task_id, effective=floor)
         requires_human = task["risk"] in profile["pause_at"] or task["risk"] in policy.get("always_human_risk", ["R3", "R4"])
-        approved = any(
-            item.get("kind") == "risk" and item.get("task") == task_id and verified.checkpoint_status(item) == "approved"
-            for item in state["checkpoints"]
-        )
+        approved = risk_approval(state, task, task["risk"], verified)
         if requires_human and not approved:
             existing = next(
                 (
@@ -2237,6 +2406,8 @@ def claim_task(project: Path, run_dir: Path, task_id: str, agent: str, lease_min
                         "task": task_id,
                         "stage": task["stage"],
                         "risk": task["risk"],
+                        "action": task.get("action", "build"),
+                        "target": task.get("target", "local"),
                         "question": f"Approve {task['risk']} task {task_id}: {task['title']}?",
                         "recommendation": "Review the action, impact, evidence, and rollback before approval.",
                         "created_at": utcnow(),
@@ -2263,7 +2434,9 @@ def claim_task(project: Path, run_dir: Path, task_id: str, agent: str, lease_min
             claimed_by=agent,
             claimed_at=utcnow(),
             lease_expires=expires.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            claim_generation=int(task.get("claim_generation", 0)) + 1,
         )
+        note_contributor(task, agent)
         append_event(state, "task-claimed", task=task_id, agent=agent)
         save_state(project, run_dir, state)
 
@@ -2309,9 +2482,18 @@ EVIDENCE_TYPES = ("file", "cmd", "commit", "url", "note")
 
 
 def task_builders(task: dict[str, Any]) -> set[str]:
-    """Every agent that ever held the task (current claim, completion, earlier attempts)."""
-    names = {task.get("claimed_by")} | {failure.get("agent") for failure in task.get("failures", [])}
+    """Every agent that ever held the task (current claim, completion, earlier attempts).
+
+    `contributors` persists across reopen, reassignment, and completion, which clear the claim.
+    """
+    names = {task.get("claimed_by"), task.get("completed_by")} | {failure.get("agent") for failure in task.get("failures", [])}
+    names |= set(task.get("contributors", []))
     return {name for name in names if name}
+
+
+def note_contributor(task: dict[str, Any], agent: str | None) -> None:
+    if agent and agent not in task.setdefault("contributors", []):
+        task["contributors"].append(agent)
 
 
 def git_head(project: Path) -> str | None:
@@ -2392,7 +2574,7 @@ def writes_workspace(stage: str | None, owner_access: str | None, action: str | 
 
 def check_record(task: dict[str, Any], check: str) -> dict[str, Any] | None:
     """The latest exec record of one acceptance check, if it ever ran."""
-    runs = [item for item in task.get("execs", []) if item["command"] == check]
+    runs = [item for item in task.get("execs", []) if item["command"] == check and not item.get("stale_claim")]
     return runs[-1] if runs else None
 
 
@@ -2557,7 +2739,8 @@ def complete_task(
                     f"Task {task_id} changes the workspace: attach at least one file:, cmd:, or commit: evidence "
                     "(prose alone is not evidence)"
                 )
-        task.update(status="completed", completed_at=utcnow(), evidence=evidence, evidence_records=records)
+        task.update(status="completed", completed_at=utcnow(), completed_by=agent, evidence=evidence, evidence_records=records)
+        note_contributor(task, agent)
         if usage:
             task["usage"] = usage
             totals = state.setdefault("usage", {})
@@ -2587,21 +2770,27 @@ def exec_command(
         task = state["tasks"].get(task_id)
         if not task or task["status"] != "claimed" or task.get("claimed_by") != agent:
             raise TeamError(f"Task {task_id} is not claimed by {agent}")
+        # Every new process, including the checks `complete` runs, passes the run gate: a rejected
+        # or closed run records and reports, but starts nothing.
+        assert_not_blocked(state, f"exec for {task_id}", run_dir)
         if admit:
             budget_admission(project, state, f"exec for {task_id}")
-        level, rule = command_risk(policy, text)
-        if rule is not None:
-            verified = verified_view(state)
-            approved = any(
-                item.get("kind") == "risk" and item.get("task") == task_id and verified.checkpoint_status(item) == "approved"
-                for item in state["checkpoints"]
-            )
-            if RISK_ORDER[level] > RISK_ORDER[task["risk"]] or (RISK_ORDER[level] >= 3 and not approved):
-                raise GateError(
-                    f"Command matches a {level} rule ({rule['reason']}). It needs a task declared as "
-                    f"--action {rule['action']} with an approved risk checkpoint."
-                )
-        number = len(task.get("execs", [])) + 1
+        refusal = command_refusal(policy, state, task, text)
+        if refusal:
+            raise GateError(refusal)
+        # Reserve the execution's identity durably before the lock is released, so concurrent or
+        # restarted commands never share an ID or a log file.
+        number = max(int(task.get("exec_seq", 0)), len(task.get("execs", []))) + 1
+        evidence_dir = run_dir / "_evidence" / slug(task_id)
+        while (evidence_dir / f"{number}.log").exists() or (evidence_dir / f"{number}.json").exists():
+            number += 1  # evidence left by an earlier, unrecorded execution stays untouched
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        task["exec_seq"] = number
+        generation = int(task.get("claim_generation", 0))
+        exec_id = f"{task_id}-{number}"
+        task.setdefault("exec_pending", []).append(exec_id)
+        append_event(state, "command-reserved", task=task_id, agent=agent, exec_id=exec_id, claim_generation=generation)
+        save_state(project, run_dir, state)
     limits = policy.get("evidence", {})
     started = time.monotonic()
     head = git_head(project.resolve())
@@ -2629,7 +2818,8 @@ def exec_command(
         return text_out
 
     record = {
-        "id": f"{task_id}-{number}",
+        "id": exec_id,
+        "claim_generation": generation,
         "command": text,
         "shell": shell,
         "exit_code": exit_code,
@@ -2638,17 +2828,67 @@ def exec_command(
         "agent": agent,
         "time": utcnow(),
     }
-    evidence_dir = run_dir / "_evidence" / slug(task_id)
-    write_text(evidence_dir / f"{number}.log", f"$ {text}\n\n--- stdout ---\n{clip(stdout)}\n--- stderr ---\n{clip(stderr)}\n--- exit {exit_code} ---")
-    record["log"] = str((evidence_dir / f"{number}.log").relative_to(run_dir)).replace("\\", "/")
-    write_json_atomic(evidence_dir / f"{number}.json", record)
+    log = evidence_dir / f"{number}.log"
+    record["log"] = str(log.relative_to(run_dir)).replace("\\", "/")
+    # Exclusive creation: evidence is immutable, and a reserved ID is never written twice.
+    for path, content in ((log, f"$ {text}\n\n--- stdout ---\n{clip(stdout)}\n--- stderr ---\n{clip(stderr)}\n--- exit {exit_code} ---"),
+                          (evidence_dir / f"{number}.json", json.dumps(record, indent=2) + "\n")):
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(content)
     with state_lock(run_dir):
         state = load_state(run_dir)
         task = state["tasks"][task_id]
+        if any(item.get("id") == exec_id for item in task.get("execs", [])):
+            raise TeamError(f"Execution {exec_id} is already recorded")
+        if exec_id in task.get("exec_pending", []):
+            task["exec_pending"].remove(exec_id)
+        current = task.get("status") == "claimed" and task.get("claimed_by") == agent and int(task.get("claim_generation", 0)) == generation
+        if not current:
+            # The claim this command ran under ended meanwhile: keep the evidence, but it never counts
+            # as a passing check for a later claim.
+            record["stale_claim"] = True
         task.setdefault("execs", []).append(record)
-        append_event(state, "command-executed", task=task_id, agent=agent, exec_id=record["id"], exit_code=exit_code)
+        append_event(state, "command-executed", task=task_id, agent=agent, exec_id=exec_id, exit_code=exit_code,
+                     claim_generation=generation)
         save_state(project, run_dir, state)
     return record
+
+
+def risk_approval(state: dict[str, Any], task: dict[str, Any], level: str, verified: "VerifiedView | None" = None) -> bool:
+    """A signed approval of this task's risk checkpoint, for this action and target, at `level` or above."""
+    verified = verified or verified_view(state)
+    for item in state["checkpoints"]:
+        if item.get("kind") != "risk" or item.get("task") != task["id"] or verified.checkpoint_status(item) != "approved":
+            continue
+        # Checkpoints from before v3.1 did not record their scope; their approval still covers the task's own action.
+        if item.get("action", task.get("action", "build")) != task.get("action", "build"):
+            continue
+        if item.get("target", task.get("target", "local")) != task.get("target", "local"):
+            continue
+        if RISK_ORDER.get(str(item.get("risk")), -1) >= RISK_ORDER[level]:
+            return True
+    return False
+
+
+def command_refusal(policy: dict[str, Any], state: dict[str, Any], task: dict[str, Any], command: str,
+                    verified: "VerifiedView | None" = None) -> str | None:
+    """Why a claimed task may not run this command, or None. Shared by `exec` and the guard hook.
+
+    A command that matches a policy rule needs a task declared for that rule's action, a task risk at
+    or above the rule's, and, from R3 up, a signed approval covering that action, target, and risk.
+    """
+    level, rule = command_risk(policy, command)
+    if rule is None:
+        return None
+    needed = f"It needs a task declared as --action {rule['action']} with an approved risk checkpoint."
+    if rule.get("action") and rule["action"] != task.get("action", "build"):
+        return (f"Command matches a {level} {rule['action']} rule ({rule['reason']}), but task {task['id']} is declared "
+                f"--action {task.get('action', 'build')}. {needed}")
+    if RISK_ORDER[level] > RISK_ORDER.get(task.get("risk", "R0"), 0):
+        return f"Command matches a {level} rule ({rule['reason']}) above task {task['id']}'s risk {task.get('risk')}. {needed}"
+    if RISK_ORDER[level] >= 3 and not risk_approval(state, task, level, verified):
+        return f"Command matches a {level} rule ({rule['reason']}). {needed}"
+    return None
 
 
 def retry_limit(task: dict[str, Any], profile: dict[str, Any], state: dict[str, Any] | None = None) -> int:
@@ -2918,6 +3158,15 @@ def record_hash(record: dict[str, Any]) -> str:
     return hashlib.sha256(canonical(record).encode("utf-8")).hexdigest()
 
 
+DECISION_OUTCOMES = {"approve": "approved", "reject": "rejected", "resolve": "resolved"}
+FINGERPRINT_FIELDS = ("kind", "task", "stage", "risk", "action", "target", "question")
+
+
+def checkpoint_fingerprint(checkpoint: dict[str, Any]) -> str:
+    """What a signed approval covers: the checkpoint's question and the task, risk, and scope it gates."""
+    return record_hash({field: checkpoint.get(field) for field in FINGERPRINT_FIELDS})
+
+
 def append_ledger(run_id: str, token: str | None, **fields: Any) -> dict[str, Any]:
     """Append an HMAC-signed, hash-chained human decision outside the project."""
     records = read_ledger(run_id)
@@ -2973,6 +3222,16 @@ class VerifiedView:
         self.approved = {r["subject"] for r in self.records if r.get("action") == "approve"}
         self.rejected = {r["subject"] for r in self.records if r.get("action") == "reject"}
         self.resolved = {r["subject"] for r in self.records if r.get("action") == "resolve"}
+        # The effective disposition of each decided checkpoint is the last signed decision about it, so
+        # editing, deleting, or renumbering the checkpoint in state.json cannot lift a rejection.
+        self.disposition: dict[str, str] = {}
+        self.fingerprints: dict[str, str | None] = {}
+        for record in self.records:
+            outcome = DECISION_OUTCOMES.get(str(record.get("action")))
+            if outcome:
+                self.disposition[record["subject"]] = outcome
+                if outcome == "approved":
+                    self.fingerprints[record["subject"]] = record.get("fingerprint")
         self.cancelled = {task for r in self.records if r.get("action") == "cancel" for task in r.get("tasks", [])}
         self.waivers = {r["subject"]: r for r in self.records if r.get("action") == "waive"}
         self.closed_councils = {r["subject"] for r in self.records if r.get("action") == "fusion-close"}
@@ -3003,11 +3262,23 @@ class VerifiedView:
         status = checkpoint.get("status", "pending")
         if not self.enforced:
             return status
-        if status == "approved" and checkpoint["id"] not in self.approved:
+        decided = self.disposition.get(checkpoint["id"])
+        if decided == "approved":
+            # An approval covers the checkpoint it was given for: changing the task, risk, action,
+            # or target it describes (or giving its ID to another checkpoint) makes it pending again.
+            signed = self.fingerprints.get(checkpoint["id"])
+            return "approved" if signed is None or signed == checkpoint_fingerprint(checkpoint) else "pending"
+        if decided:
+            return decided
+        if status == "approved":
             return "pending"
-        if status == "resolved" and checkpoint["id"] not in self.resolved:
+        if status == "resolved":
             return "rejected"
         return status
+
+    def open_rejections(self) -> list[str]:
+        """Checkpoints whose last signed decision is a rejection, whether or not state.json still lists them."""
+        return sorted(subject for subject, outcome in self.disposition.items() if outcome == "rejected") if self.enforced else []
 
     def task_cancelled(self, task: dict[str, Any]) -> bool:
         return task["status"] == "cancelled" and (not self.enforced or task["id"] in self.cancelled)
@@ -3083,6 +3354,15 @@ def audit_verify(project: Path, run_dir: Path, token: str) -> list[str]:
             problems.append(f"state claims {checkpoint['id']} approved, but the ledger has no signed approval")
         if checkpoint["status"] == "resolved" and checkpoint["id"] not in view.resolved:
             problems.append(f"state claims {checkpoint['id']} resolved, but the ledger has no signed resolution")
+        effective = view.checkpoint_status(checkpoint)
+        if effective in {"rejected", "resolved", "approved"} and checkpoint["status"] != effective and checkpoint["id"] in view.disposition:
+            problems.append(f"state shows {checkpoint['id']} as {checkpoint['status']}, but its last signed decision makes it {effective}")
+        if view.disposition.get(checkpoint["id"]) == "approved" and effective != "approved":
+            problems.append(f"{checkpoint['id']} no longer matches the checkpoint the owner approved (its task, risk, or scope changed)")
+    listed = {checkpoint["id"] for checkpoint in state["checkpoints"]}
+    for subject in view.open_rejections():
+        if subject not in listed:
+            problems.append(f"the ledger holds an open rejection of {subject}, but state.json no longer lists that checkpoint")
     for task in state["tasks"].values():
         if task["status"] == "cancelled" and task["id"] not in view.cancelled:
             problems.append(f"state claims task {task['id']} cancelled, but the ledger has no signed cancellation")
@@ -3244,7 +3524,8 @@ def approve_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str
         if checkpoint["status"] != "pending":
             raise TeamError(f"Checkpoint {checkpoint_id} is already {checkpoint['status']}")
         checkpoint.update(status="approved", approved_by=by, decision=decision, approved_at=utcnow())
-        append_ledger(home_key(state), token, action="approve", subject=checkpoint_id, by=by, decision=decision)
+        append_ledger(home_key(state), token, action="approve", subject=checkpoint_id, by=by, decision=decision,
+                      fingerprint=checkpoint_fingerprint(checkpoint))
         append_event(state, "checkpoint-approved", checkpoint=checkpoint_id, by=by)
         recompute_status(state, profile_policy(project, state))
         save_state(project, run_dir, state)
@@ -3269,8 +3550,16 @@ def resolve_checkpoint(project: Path, run_dir: Path, checkpoint_id: str, by: str
     with state_lock(run_dir):
         state = load_state(run_dir)
         human_decision(project, run_dir, state, by, token, f"resolve {checkpoint_id}")
-        checkpoint = find_checkpoint(state, checkpoint_id)
-        if verified_view(state).checkpoint_status(checkpoint) != "rejected":
+        view = verified_view(state)
+        checkpoint = next((item for item in state["checkpoints"] if item["id"] == checkpoint_id), None)
+        if checkpoint is None:
+            # A signed rejection whose checkpoint was removed from state.json still blocks the run;
+            # the owner can still close it.
+            if checkpoint_id not in view.open_rejections():
+                raise TeamError(f"Unknown checkpoint: {checkpoint_id}")
+            checkpoint = {"id": checkpoint_id, "kind": "restored", "status": "rejected", "restored_at": utcnow()}
+            state["checkpoints"].append(checkpoint)
+        if view.checkpoint_status(checkpoint) != "rejected":
             raise TeamError(f"Checkpoint {checkpoint_id} is {checkpoint['status']}; only a rejection can be resolved")
         checkpoint.update(status="resolved", resolved_by=by, resolution=resolution, resolved_at=utcnow())
         append_ledger(home_key(state), token, action="resolve", subject=checkpoint_id, by=by, decision=resolution)
@@ -3329,8 +3618,18 @@ def reopen_task(
                 )
             human_decision(project, run_dir, state, by, token, f"reopen {task_id}")
         previous = task["status"]
+        exhausted = False
         if previous == "claimed":
+            # Abandoning a claim is a failed attempt like any other: it keeps the claimant on record and
+            # spends the same retry budget, so claim/reopen cycles cannot retry without limit.
+            fingerprint = failure_signature(reason)
+            repeated = any(item.get("signature") == fingerprint for item in task.get("failures", []))
             task["attempts"] += 1
+            task["last_failure"] = {"time": utcnow(), "reason": f"reopened: {reason}", "agent": task.get("claimed_by"),
+                                    "signature": fingerprint}
+            task.setdefault("failures", []).append(task["last_failure"])
+            note_contributor(task, task.get("claimed_by"))
+            exhausted = not human_needed and (repeated or task["attempts"] > retry_limit(task, profile, state))
         if extend_retries:
             task["retry_extension"] = int(task.get("retry_extension", 0)) + extend_retries
         release_claim(task)
@@ -3344,10 +3643,13 @@ def reopen_task(
         task.setdefault("reopen_history", []).append(
             {"time": utcnow(), "from": previous, "reason": reason, "by": by or "orchestrator", "extend_retries": extend_retries}
         )
-        task["status"] = "pending"
+        task["status"] = "failed" if exhausted else "pending"
         task.pop("cancelled_reason", None)
         refresh_ready(state)
         append_event(state, "task-reopened", task=task_id, previous=previous, reason=reason, by=by or "orchestrator")
+        if exhausted:
+            append_event(state, "task-failed", task=task_id, agent=task["last_failure"]["agent"], reason=reason, retry=False,
+                         signature=task["last_failure"]["signature"])
         recompute_status(state, profile)
         save_state(project, run_dir, state)
 
@@ -3398,7 +3700,7 @@ def cancel_task(
 def advance_stage(project: Path, run_dir: Path) -> str:
     with state_lock(run_dir):
         state = load_state(run_dir)
-        assert_not_blocked(state, "advance")
+        assert_not_blocked(state, "advance", run_dir)
         current = state["stage"]
         verified = verified_view(state)
         verified.assert_intact()
@@ -3575,9 +3877,14 @@ def stage_exit_problems(project: Path, run_dir: Path, state: dict[str, Any], sta
     for agent, record in state.get("active_specialists", {}).items():
         if record.get("status") != "active":
             continue
-        finished = any(task["owner"] == agent and task["status"] == "completed" for task in state["tasks"].values())
+        activation = record.get("activation")
+        finished = any(
+            task["owner"] == agent and task["status"] == "completed" and (activation is None or task.get("activation") == activation)
+            for task in state["tasks"].values()
+        )
         if not finished and STAGE_NAMES.index(record.get("stage", stage)) <= STAGE_NAMES.index(stage):
-            problems.append(f"specialist {agent} is active with no completed task; complete its review or `deactivate-specialist` with a reason")
+            problems.append(f"specialist {agent} is active with no completed task for activation {activation or 'current'}; complete "
+                            "fresh scoped work for it or `deactivate-specialist` with a reason")
     return problems
 
 
@@ -3625,14 +3932,17 @@ def verdict_problems(project: Path, run_dir: Path, state: dict[str, Any], name: 
         role = verifier.group(1)
         if role not in installed_agents(project):
             problems.append(f"verifier {role} is not an installed role")
+        roster = installed_agents(project)
         builders = {
             builder
             for task in state["tasks"].values()
+            # The build itself, and source remediation inside 05_verify: both change what is verified.
             if task["stage"] == "04_build"
+            or writes_workspace(task["stage"], roster.get(task["owner"], {}).get("access"), task.get("action", "build"))
             for builder in task_builders(task)
         }
         if role in builders:
-            problems.append(f"verifier {role} built 04_build work; verification must be independent")
+            problems.append(f"verifier {role} wrote 04_build work or 05_verify remediation; verification must be independent")
     integration = state.get("integration_sha")
     if integration:
         # The verdict must name the code as it is now. Remediation inside 05_verify moves HEAD, and a
@@ -3887,8 +4197,62 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+ACTIVE_ACCESS = {"workspace-write", "orchestrate", "review"}  # roles with a shell: they run the lifecycle CLI
+
+
+def shell_word(value: str) -> str:
+    """Quote one word so the same command line works in Bash and PowerShell."""
+    if value and re.fullmatch(r"[A-Za-z0-9_@%+=:,./\\-]+", value):
+        return value
+    if "'" not in value:
+        return f"'{value}'"
+    return '"' + value.replace('"', '\\"') + '"'
+
+
+HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+
+
+def heading_key(text: str) -> str:
+    return " ".join(unicodedata.normalize("NFKC", text).replace("-", " ").casefold().split())
+
+
+def extract_section(text: str, anchor: str) -> tuple[str | None, str]:
+    """The section under a Markdown heading (to the next heading of its level or above).
+
+    Returns (section, note). The section is None when no heading matches; when several headings
+    match, all their sections are returned and the note says the anchor is ambiguous.
+    """
+    wanted = heading_key(anchor)
+    lines = text.splitlines()
+    found: list[str] = []
+    index = 0
+    while index < len(lines):
+        match = HEADING.match(lines[index])
+        if match and heading_key(match.group(2)) == wanted:
+            level = len(match.group(1))
+            end = index + 1
+            while end < len(lines):
+                other = HEADING.match(lines[end])
+                if other and len(other.group(1)) <= level:
+                    break
+                end += 1
+            found.append("\n".join(lines[index:end]).strip())
+            index = end
+            continue
+        index += 1
+    if not found:
+        return None, f"heading '#{anchor}' not found"
+    return "\n\n".join(found), (f"heading '#{anchor}' is ambiguous ({len(found)} matches, all included)" if len(found) > 1 else "")
+
+
 def build_pack(project: Path, run_dir: Path, task_id: str) -> tuple[Path, int, list[str]]:
-    """Task context packet: everything an agent needs for one task, inside the token budget."""
+    """Task context packet: everything an agent needs for one task, inside the token budget.
+
+    Operational facts come from runtime data: identity, the owner's access class, owned paths,
+    checks, and commands pinned to this project and run. Required inputs (with their #sections
+    resolved first) are budgeted before optional background, and required material that does not
+    fit is reported as an incomplete-context condition rather than silently dropped.
+    """
     state = load_state(run_dir)
     task = state["tasks"].get(task_id)
     if not task:
@@ -3897,17 +4261,49 @@ def build_pack(project: Path, run_dir: Path, task_id: str) -> tuple[Path, int, l
     budget = manifest.get("defaults", {}).get("context_target_tokens", {"min": 2000, "max": 8000})
     ceiling = int(budget.get("max", 8000))
     bus = project_bus(project)
+    access = installed_agents(project).get(task["owner"], {}).get("access", "workspace-write")
     omissions: list[str] = []
+    incomplete: list[str] = []
     cli = ".agentic-team/bin/agentic_team.py"
+    who = f"--task {shell_word(task['id'])} --agent {shell_word(task['owner'])}"
+    pin = f"--project {shell_word(str(project.resolve()))} --run {shell_word(state['run_id'])}"
     acceptance_lines = [f"- [ ] {item}" for item in task.get("acceptance", [])] or ["- [ ] Objective demonstrated"]
     evidence_lines = [f"- {item}" for item in task.get("evidence_contract", [])] or ["- file:, cmd:, or commit: evidence"]
+    if access in ACTIVE_ACCESS:
+        commands = [
+            "## Commands (pinned to this project and run)",
+            "",
+            "```text",
+            f"python {cli} claim {who} {pin}",
+            f"python {cli} exec {who} {pin} -- <test command>",
+            f"python {cli} complete {who} {pin} --evidence cmd:<exec-id>" + (" --run-checks" if task.get("checks") else ""),
+            f"python {cli} fail {who} {pin} --reason \"<what failed>\"",
+            "```",
+        ]
+    else:
+        commands = [
+            f"## How to report (`{access}` role: no shell, no state changes)",
+            "",
+            f"`{task['owner']}` has no shell and does not run the CLI. Work read-only and return the result",
+            "envelope below; the orchestrator records it (claim, evidence, complete, or fail).",
+            "",
+            "Orchestrator recording commands (not for this role):",
+            "",
+            "```text",
+            f"python {cli} claim {who} {pin}",
+            f"python {cli} complete {who} {pin} --evidence note:<findings summary>",
+            "```",
+        ]
+    location = run_dir.relative_to(project.resolve()).as_posix() if run_dir.is_relative_to(project.resolve()) else str(run_dir)
     sections = [
         f"# Task packet — {task['id']}: {task['title']}",
         "",
-        f"- Run: `{state['run_id']}` · stage `{task['stage']}` · owner `{task['owner']}` · risk `{task['risk']}` "
-        f"({task.get('action', 'build')}/{task.get('target', 'local')})",
+        f"- Project: `{project.resolve()}` · Run: `{state['run_id']}` · Task: `{task['id']}` · attempt {int(task.get('attempts', 0)) + 1}",
+        f"- Stage `{task['stage']}` · profile `{state.get('autonomy', '?')}` · owner `{task['owner']}` ({access}) · risk "
+        f"`{task['risk']}` ({task.get('action', 'build')}/{task.get('target', 'local')})",
         f"- Owned paths: {', '.join(task.get('owned_paths', [])) or ('whole workspace (exclusive)' if task.get('exclusive') else 'none')}",
         f"- Depends on: {', '.join(task.get('depends_on', [])) or 'nothing'}",
+        f"- Run folder: `{location}`",
         "",
         "## Objective",
         "",
@@ -3922,42 +4318,70 @@ def build_pack(project: Path, run_dir: Path, task_id: str) -> tuple[Path, int, l
         "",
         *evidence_lines,
         "",
-        "## Commands",
+        *commands,
+        "",
+        "## Result envelope (return exactly this)",
         "",
         "```text",
-        f"python {cli} claim --task {task['id']} --agent {task['owner']}",
-        f"python {cli} exec --task {task['id']} --agent {task['owner']} -- <test command>",
-        f"python {cli} complete --task {task['id']} --agent {task['owner']} --evidence cmd:<exec-id>"
-        + (" --run-checks" if task.get("checks") else ""),
-        f"python {cli} fail --task {task['id']} --agent {task['owner']} --reason \"<what failed>\"",
+        f"Task: {task['id']} · Run: {state['run_id']}",
+        "Status: done | blocked | failed",
+        "Changes or findings: <files changed, or findings with file:line>",
+        "Acceptance -> evidence: <each acceptance item -> the evidence that shows it>",
+        "Checks run: <command -> exit code> (a check that was not run is unknown, never passed)",
+        "Blockers and deviations: <open items, or none>",
+        "Next owner: <role or human>",
         "```",
+        "",
+        "## Stop conditions",
+        "",
+        "- Stop and report when required context is missing, when a check you cannot run decides acceptance, or when",
+        "  the work needs paths, tools, or authority outside this packet. A blocking decision stays open until a human",
+        "  answers it; silence never resolves it. Meanwhile continue only with independent work.",
     ]
-    base = "\n".join(sections)
-    extras: list[tuple[str, str]] = []
+    required: list[tuple[str, str]] = []
+    for item in task.get("inputs", []):
+        name, _, anchor = item.partition("#")
+        candidate = project.resolve() / name.strip()
+        if not candidate.is_file():
+            required.append((f"Input — {item}", "(named input; not a file in the project)"))
+            continue
+        text = candidate.read_text(encoding="utf-8", errors="replace")
+        if anchor.strip():
+            section, note = extract_section(text, anchor.strip())
+            if section is None:
+                incomplete.append(f"{item}: {note}")
+                continue
+            if note:
+                omissions.append(f"{item}: {note}")
+            text = section
+        required.append((f"Input — {item}", text))
+    optional: list[tuple[str, str]] = []
     context = run_dir / task["stage"] / "CONTEXT.md"
     if context.is_file():
-        extras.append(("Stage contract", context.read_text(encoding="utf-8")))
+        optional.append(("Stage contract", context.read_text(encoding="utf-8")))
     playbook = bus / "knowledge" / "playbooks" / f"{task['owner']}.md"
     if playbook.is_file():
-        extras.append((f"Playbook — {task['owner']}", playbook.read_text(encoding="utf-8")))
-    for item in task.get("inputs", []):
-        candidate = (project.resolve() / item.split("#", 1)[0].strip())
-        if candidate.is_file():
-            extras.append((f"Input — {item}", candidate.read_text(encoding="utf-8", errors="replace")))
-        else:
-            extras.append((f"Input — {item}", "(named input; not a file in the project)"))
-    body = base
-    for title, text in extras:
-        addition = f"\n\n## {title}\n\n{text.strip()}"
-        if estimate_tokens(body + addition) <= ceiling:
-            body += addition
-            continue
-        room = (ceiling - estimate_tokens(body)) * 4 - 200
-        if room > 400:
-            body += f"\n\n## {title} (truncated)\n\n{text.strip()[:room]}\n[... truncated to fit the {ceiling}-token budget ...]"
-            omissions.append(f"{title}: truncated")
-        else:
-            omissions.append(f"{title}: omitted (budget)")
+        optional.append((f"Playbook — {task['owner']}", playbook.read_text(encoding="utf-8")))
+    reserve = 300  # tokens kept for the omissions report and the incomplete-context notice
+    body = "\n".join(sections)
+    for kind, extras in (("required", required), ("optional", optional)):
+        for title, text in extras:
+            addition = f"\n\n## {title}\n\n{text.strip()}"
+            if estimate_tokens(body + addition) <= ceiling - reserve:
+                body += addition
+                continue
+            room = (ceiling - reserve - estimate_tokens(body)) * 4 - 200
+            if room > 400:
+                body += f"\n\n## {title} (truncated)\n\n{text.strip()[:room]}\n[... truncated to fit the {ceiling}-token budget ...]"
+                omissions.append(f"{title}: truncated")
+            else:
+                omissions.append(f"{title}: omitted (budget)")
+            if kind == "required":
+                incomplete.append(f"{title}: cut to fit the {ceiling}-token budget")
+    if incomplete:
+        body += ("\n\n## Context condition: INCOMPLETE\n\nRequired material is missing or cut. Read it from the project "
+                 "yourself, or stop and report it as a blocker:\n\n" + "\n".join(f"- {item}" for item in incomplete))
+        omissions.extend(f"incomplete: {item}" for item in incomplete)
     if omissions:
         body += "\n\n## Omitted\n\n" + "\n".join(f"- {item}" for item in omissions)
     path = run_dir / "_context" / f"{slug(task['id'])}.md"
@@ -3973,16 +4397,23 @@ def render_brief(project: Path, run_dir: Path, task_id: str) -> str:
         raise TeamError(f"Unknown task: {task_id}")
     pack, tokens, _ = build_pack(project, run_dir, task_id)
     relative = pack.relative_to(project.resolve()) if pack.is_relative_to(project.resolve()) else pack
-    return "\n".join(
-        [
-            f"You are `{task['owner']}`. Work on task {task['id']}: {task['title']}.",
-            f"Read your packet first: `{relative}` (~{tokens} tokens). It holds the objective, acceptance,",
-            "owned paths, stage contract, your playbook, and the exact CLI commands.",
+    access = installed_agents(project).get(task["owner"], {}).get("access", "workspace-write")
+    lead = [
+        f"You are `{task['owner']}`. Work on task {task['id']} of run `{state['run_id']}`: {task['title']}.",
+        f"Read your packet first: `{relative}` (~{tokens} tokens). It holds the objective, acceptance,",
+    ]
+    if access in ACTIVE_ACCESS:
+        return "\n".join(lead + [
+            "owned paths, stage contract, your playbook, and the exact CLI commands, pinned to this run.",
             "Stay inside the owned paths. Claim before writing; run checks through `exec`; complete with",
             "typed evidence (file:, cmd:, commit:). If blocked, `fail` with the reason or raise a checkpoint",
             "with alternatives, impact, evidence, and rollback. Never read ~/.agentic-team/.",
-        ]
-    )
+            "Finish with the packet's result envelope.",
+        ])
+    return "\n".join(lead + [
+        f"and the result envelope. Your role is `{access}`: read and report only. Do not run the CLI or edit",
+        "files; return the result envelope and the orchestrator records it. Never read ~/.agentic-team/.",
+    ])
 
 
 def compute_metrics(run_dir: Path) -> dict[str, Any]:
@@ -4585,6 +5016,39 @@ def find_project_root(start: Path) -> Path | None:
     return None
 
 
+def risky_command_refusal(project: Path, command: str) -> str | None:
+    """Guard side of command admission: an R3+ command is allowed only when some claimed task admits it.
+
+    Once a risky rule matches, anything that prevents checking the approval (no current run, an
+    unreadable state or policy, an unverifiable ledger) denies, with the reason.
+    """
+    try:
+        policy = load_policy(project)
+    except (TeamError, OSError, ValueError, KeyError) as exc:
+        # Classify with the policy shipped beside this CLI, so a broken project policy cannot hide a rule.
+        try:
+            policy = load_json(Path(__file__).resolve().parent.parent / "config" / "policies.json")
+        except (TeamError, OSError, ValueError):
+            return f"AgenticTeam guard: the policy cannot be read ({exc}), so this command cannot be classified; fix the policy first."
+    level, rule = command_risk(policy, command)
+    if rule is None or RISK_ORDER[level] < 3:
+        return None
+    denied = (f"AgenticTeam guard: this command is {level} ({rule['reason']}). Run it only inside a claimed task "
+              f"declared --action {rule['action']} whose risk checkpoint the human approved.")
+    try:
+        run_dir = find_run(project, None)
+        state = load_state(run_dir)
+        assert_not_blocked(state, "run a risky command", run_dir)
+        verified = verified_view(state)
+        verified.assert_intact()
+        claimed = [task for task in state["tasks"].values() if task.get("status") == "claimed"]
+        if any(command_refusal(policy, state, task, command, verified) is None for task in claimed):
+            return None
+    except (TeamError, OSError, ValueError, KeyError, TypeError) as exc:
+        return f"{denied} The approval could not be checked: {exc}"
+    return denied
+
+
 def guard_decision(payload: dict[str, Any], scope: str | None = None, agent: str | None = None) -> str | None:
     """Return a denial reason for a harness PreToolUse payload, or None to allow."""
     payload = normalize_hook_payload(payload)
@@ -4628,27 +5092,9 @@ def guard_decision(payload: dict[str, Any], scope: str | None = None, agent: str
             if not (relative.startswith(tuple(allowed)) or (playbook and relative == playbook)):
                 return f"AgenticTeam guard: review role {agent} may write only under .agentic-team/runs/ and its own playbook, not {relative}."
     if command and project is not None:
-        with contextlib.suppress(TeamError, OSError, ValueError, KeyError):
-            policy = load_policy(project)
-            level, rule = command_risk(policy, command)
-            if rule is not None and RISK_ORDER[level] >= 3:
-                run_dir = find_run(project, None)
-                state = load_state(run_dir)
-                verified = verified_view(state)
-                covered = any(
-                    task["status"] == "claimed"
-                    and task.get("action") == rule["action"]
-                    and any(
-                        item.get("kind") == "risk" and item.get("task") == task["id"] and verified.checkpoint_status(item) == "approved"
-                        for item in state["checkpoints"]
-                    )
-                    for task in state["tasks"].values()
-                )
-                if not covered:
-                    return (
-                        f"AgenticTeam guard: this command is {level} ({rule['reason']}). Run it only inside a claimed task "
-                        f"declared --action {rule['action']} whose risk checkpoint the human approved."
-                    )
+        refusal = risky_command_refusal(project, command)
+        if refusal:
+            return refusal
     if tool in READ_TOOLS and project is not None and payload.get("agent_type"):
         requester = str(payload["agent_type"])
         for text in strings:

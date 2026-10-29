@@ -29,7 +29,7 @@
     },
     {
       "id": "G03",
-      "statement": "The verifier is not a builder: --verifies tasks refuse their builders and VERIFICATION.md's Verifier may not be a 04_build claimant.",
+      "statement": "The verifier is not a builder: --verifies tasks refuse every agent that ever held the work (across reopen, reassignment, and completion), and VERIFICATION.md's Verifier may not be a 04_build contributor or a 05_verify remediation writer.",
       "enforced_by": [
         "cli"
       ],
@@ -47,7 +47,7 @@
     },
     {
       "id": "G05",
-      "statement": "Commands matching an R3/R4 command rule (deploys, publishes, force pushes, infrastructure apply, global installs) run only inside a claimed task of that action with a human-approved risk checkpoint.",
+      "statement": "Commands matching an R3/R4 command rule (deploys, publishes, force pushes, infrastructure apply, global installs) run only inside a claimed task of that action with a human-approved risk checkpoint covering that action, target, and risk; once such a rule matches, a guard that cannot check the approval (no run, unreadable state or policy, unverifiable ledger) denies.",
       "enforced_by": [
         "harness",
         "cli"
@@ -134,7 +134,7 @@
     },
     {
       "id": "G14",
-      "statement": "A rejection blocks the run until the human resolves it; exhausted retries in hitl block until the human reopens or cancels.",
+      "statement": "A rejection blocks the run, and every new process in it, until the human resolves it: the block derives from the last signed decision, so editing, deleting, or renumbering the checkpoint in state.json does not lift it. Exhausted retries in hitl block until the human reopens or cancels.",
       "enforced_by": [
         "cli"
       ],
@@ -164,7 +164,7 @@
     },
     {
       "id": "G17",
-      "statement": "A task that fails the same way twice stops retrying; only the human reopens it.",
+      "statement": "A task that fails the same way twice, or exhausts its retries through fail, lease expiry, or claim reopen, stops retrying; only the human reopens it.",
       "enforced_by": [
         "cli"
       ],
