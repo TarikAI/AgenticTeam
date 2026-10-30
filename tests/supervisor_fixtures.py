@@ -119,9 +119,9 @@ class SupervisorBase(unittest.TestCase):
             time.sleep(step)
         return False
 
-    def stop_workers(self) -> None:
+    def stop_workers(self, root: Path | None = None) -> None:
         """Ask every wrapper still running to end its worker, and wait for the receipts."""
-        root = self.sup.store.attempts
+        root = self.sup.store.attempts if root is None else root
         if not root.is_dir():
             return
         pending = [folder for folder in root.glob("*/*") if (folder / "claim").exists() and not (folder / "exit.json").exists()]

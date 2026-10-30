@@ -184,10 +184,16 @@ def build_tasks(findings, context=None, stage=None, checks=None):
     return tasks
 
 
-def add_task_argv(task, project="."):
-    """argv (after the CLI path) for one task; every flag exists in `add-task`."""
-    argv = ["add-task", "--project", project, "--id", task["id"], "--title", task["title"], "--owner", task["owner"],
-            "--risk", task["risk"]]
+def add_task_argv(task, project=".", run=None):
+    """argv (after the CLI path) for one task; every flag exists in `add-task`.
+
+    With a run, the command is pinned to it: running it later, after CURRENT moved, still adds the
+    task to the run the findings were resolved against.
+    """
+    argv = ["add-task", "--project", project]
+    if run:
+        argv += ["--run", run]
+    argv += ["--id", task["id"], "--title", task["title"], "--owner", task["owner"], "--risk", task["risk"]]
     if task.get("stage"):
         argv += ["--stage", task["stage"]]
     for path in task.get("paths", []):
@@ -203,15 +209,24 @@ def add_task_argv(task, project="."):
     return argv
 
 
+# Windows PowerShell 5.1 (and 7.0-7.2) drop embedded double quotes when calling a native program unless
+# they are backslash-escaped; 7.3+ passes them as written. Q escapes only where the running shell needs it.
+POWERSHELL_PRELUDE = (
+    "function Q([string]$s) { if ($null -eq $PSNativeCommandArgumentPassing -or $PSNativeCommandArgumentPassing -eq 'Legacy') "
+    "{ $s -replace '(\\\\*)\"', '$1$1\\\"' } else { $s } }"
+)
+
+
 def quote(value, shell):
     if shell == "powershell":
-        return "'" + value.replace("'", "''") + "'"
+        literal = "'" + value.replace("'", "''") + "'"
+        return f"(Q {literal})" if '"' in value else literal
     return shlex.quote(value)
 
 
-def add_task_command(task, shell="bash", project="."):
+def add_task_command(task, shell="bash", project=".", run=None):
     cli = ".agentic-team/bin/agentic_team.py"
-    return " ".join(["python", cli] + [quote(part, shell) for part in add_task_argv(task, project)])
+    return " ".join(["python", cli] + [quote(part, shell) for part in add_task_argv(task, project, run)])
 
 
 def load_context(project, run=None):
@@ -301,15 +316,17 @@ def main(argv=None):
         print(f"No installed writable role for: {', '.join(unassigned)}; assign an owner before adding.", file=sys.stderr)
     if args.commands:
         print("\nRunnable add-task invocations (the runtime CLI is the state writer):")
+        if args.shell == "powershell" and any('"' in part for task in tasks for part in add_task_argv(task)):
+            print("  " + POWERSHELL_PRELUDE)
         for task in tasks:
-            print("  " + add_task_command(task, args.shell, args.project or "."))
+            print("  " + add_task_command(task, args.shell, args.project or ".", context.get("run") or args.run))
     if args.apply:
         if not args.project:
             parser.error("--apply requires --project")
         if unassigned:
             print("Refusing to apply: unassigned tasks exist.", file=sys.stderr)
             return 2
-        apply_tasks(tasks, args.project, args.run)
+        apply_tasks(tasks, args.project, context.get("run") or args.run)
         print(f"Added {len(tasks)} remediation task(s) to stage {stage}.")
     print(f"Review gate verdict: {result['verdict']}", file=sys.stderr)
     return 0 if result["verdict"] == "PASS" else 1

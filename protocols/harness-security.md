@@ -22,14 +22,14 @@ isolation makes it impossible.
 | Harness | Enforced by the harness | Instruction only |
 |---|---|---|
 | `claude-code` | `.claude/settings.json` deny rules (read/edit of `~/.agentic-team`, edits of run `state.json`, `events.jsonl`, `_evidence/`); `PreToolUse` guard hook; per-role `tools` allowlists; subagent-scoped guard hooks for review roles | anything done through a tool the hook does not see |
-| `codex` | `.codex/hooks.json` guard, loaded only in a trusted project after the human reviews it with `/hooks`; `sandbox_mode` per access (`read-only` for read-only/research roles) | per-agent tool limits (none exist); review-role source protection |
+| `codex` | `.codex/hooks.json` guard hook, loaded only in a trusted project after the human reviews it with `/hooks`; `sandbox_mode` per access (`read-only` for read-only/research roles) | per-agent tool limits (none exist); review-role source protection |
 | `opencode` | `permission` maps: `edit`, `webfetch`, `websearch`, `task`, and `bash` patterns from policy command rules (R4 deny, R3 ask) | `edit: deny` does not stop writes through `bash`; no guard hook, so owner-home and run-state protection |
 | `gemini-cli` | `BeforeTool` guard hook in `.gemini/settings.json` (owner home, run state, command rules); `tools` allowlists for read-only, research, and review roles | review-role source protection |
 | `antigravity` | `PreToolUse` guard hook in `.agents/hooks.json` (owner home, run state, command rules) | per-agent read-only limits (no reliable switch) |
 | `copilot`, `factory`, `kiro` | read-only tool lists for read-only/research roles | everything else |
 | `cursor` | `readonly: true` for read-only/research roles | everything else |
 | `qwen-code`, `junie` | `tools` allowlists (junie also for review roles) | everything else |
-| `antigravity`, `pi`, `generic` | nothing | all rules (text in the compiled prompt) |
+| `pi`, `generic` | nothing | all rules (text in the compiled prompt) |
 
 Every harness also gets the rules as text (`ACCESS CONSTRAINT`). The CLI checks
 (human-only commands, stage exits, risk checkpoints, `exec` command rules, the event chain)
@@ -38,7 +38,8 @@ apply on every harness, because they run inside `agentic_team.py`. Details per t
 
 ## What the guard denies
 
-The guard (`agentic_team.py guard`, wired as a `PreToolUse` hook on Claude Code and Codex) denies:
+The guard (`agentic_team.py guard`, wired as a `PreToolUse` hook on Claude Code, Codex, and Antigravity,
+and as a `BeforeTool` hook on Gemini CLI) denies:
 
 - any read or write of `~/.agentic-team` (owner tokens, bound keys, the decision ledger);
 - writes to `.agentic-team/runs/**/state.json`, `events.jsonl`, and `_evidence/`, including
@@ -85,10 +86,11 @@ from an owner copy outside the checkout, never from the project's `bin/`.
 
 ## Verify
 
-- `agentic_team.py doctor` (Claude Code and Codex installs): feeds the guard a read of the
-  owner-token folder and expects a denial, and checks the hook is registered in
-  `.claude/settings.json` or `.codex/hooks.json`. On Codex, also confirm the project is trusted
-  and the hook was approved in `/hooks`.
+- `agentic_team.py doctor` (Claude Code, Codex, Antigravity, and Gemini CLI installs): feeds the
+  guard a read of the owner-token folder and expects a denial, and checks the hook is registered
+  in `.claude/settings.json`, `.codex/hooks.json`, `.agents/hooks.json`, or
+  `.gemini/settings.json`. On Codex, also confirm the project is trusted and the hook was
+  approved in `/hooks`.
 - `agentic_team.py audit verify --by <name> --token-file <path>` (human): recomputes ledger
   signatures and the event hash chain; any finding means stop and investigate.
 - Other harnesses: inspect the generated agent files for the allowlists in the table above.

@@ -26,7 +26,8 @@ contracts precise enough that engineers on adjacent components never need to neg
 3. **Verify currency.** Confirm current stable versions and breaking changes for every major
    choice from official docs or registries; ask research-agent for cited, dated findings when
    the answer is not in the repository. Never trust memory for versions or APIs.
-4. `scaffold --artifact ARCHITECTURE.md`, then write `.agentic-team/runs/<run-id>/ARCHITECTURE.md`:
+4. Write `.agentic-team/runs/<run-id>/ARCHITECTURE.md` by hand (it has no scaffold template; the
+   02_solution exit needs the file present with no `{{...}}` marker or TODO left in it):
    - stack with pinned versions and a one-line justification each;
    - component diagram (text or mermaid) and responsibilities;
    - data model: entities, relations, key indexes;

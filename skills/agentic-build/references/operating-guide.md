@@ -19,7 +19,7 @@ they are optional.
 | 03_readiness | READINESS.md | delivery-lead (ceo) | (bmad) exists and traces every `AC-` id |
 | 04_build | code and tests | owners of build tasks | every completed write task has `file:`/`cmd:`/`commit:` evidence |
 | 05_verify | VERIFICATION.md | qa-lead (code-reviewer) | `Verdict:` / `Verifier:` / `Verified-SHA:` header; see agentic-verify |
-| 06_release | RELEASE.md | release-manager (devops-engineer) | (bmad) exists; release gate is always human |
+| 06_release | RELEASE.md | release-manager (devops-engineer) | (bmad) exists; human release checkpoint, except `unattended` with no task above R1: exits on the executable conditions of `protocols/autonomy.md` (RELEASE.md complete under every context, rehearsed rollback) |
 | 07_learn | RETROSPECTIVE.md, DELIVERY-REPORT.md | delivery-lead; ceo | DELIVERY-REPORT.md exists (both under bmad) |
 
 Every stage also needs: all its tasks closed, no pending checkpoint, activated specialists

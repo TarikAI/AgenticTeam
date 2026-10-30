@@ -133,15 +133,17 @@ unless `--purge`. Upgrading from v2: [migration guide](docs/migration-v3.md).
 decision came from you, and that token must never reach an agent:
 
 ```powershell
-py -3 .agentic-team/bin/agentic_team.py init-run --project . --name "My Platform" --autonomy supervised --entry idea --context bmad-progressive
+py -3 .agentic-team/bin/agentic_team.py init-run --project . --name "My Platform" --autonomy supervised --entry idea --context bmad-progressive --budget usd=20
 ```
 
 ```bash
-python3 .agentic-team/bin/agentic_team.py init-run --project . --name "My Platform" --autonomy supervised --entry idea --context bmad-progressive
+python3 .agentic-team/bin/agentic_team.py init-run --project . --name "My Platform" --autonomy supervised --entry idea --context bmad-progressive --budget usd=20
 ```
 
-It prints where it wrote the token (`~/.agentic-team/owner-tokens/<run-id>.<uid>.token`). Then
-ask the harness:
+`--budget usd=20` is the run's spend ceiling; pick your own figure. `supervised`, `autonomous`,
+and `unattended` runs refuse to start without one (or without `budgets.usd` / `budgets.tokens`
+in `.agentic-team/config/policies.local.json`). It prints where it wrote the token
+(`~/.agentic-team/owner-tokens/<run-id>.<uid>.token`). Then ask the harness:
 
 > Use the `agentic-build` skill. The run is started. Build this platform completely and
 > activate specialists when their triggers apply: [idea or plan].

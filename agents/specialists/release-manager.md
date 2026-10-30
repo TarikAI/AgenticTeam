@@ -39,16 +39,21 @@ SLOs and runbooks, `_decisions/ADR-NNN.md` entries that touch rollout.
    the equivalents in `protocols/admin-surfaces.md`). A missing gate result is an exception to
    dispose of, not a gap to wave through.
 6. Comms: user, support, and status-page notes; post-release observation owner.
-7. Raise `checkpoint --kind decision --question "Release <version> to production?"` with
-   recommendation, alternatives, impact, evidence, rollback. Record the checkpoint id in
-   RELEASE.md. Deployment waits for the human's approval. Under `unattended`, a run with no task
-   above R1 leaves the stage on the five conditions in `protocols/autonomy.md` instead of this
-   checkpoint; the production deploy itself is still an R3 task with its own human risk checkpoint.
+7. Human release gate (every profile except `unattended` with no task above R1): raise
+   `checkpoint --kind decision --question "Release <version> to production?"` with
+   recommendation, alternatives, impact, evidence, rollback, and record the checkpoint id under
+   Approval in RELEASE.md. Deployment waits for the human's approval. Under `unattended`, a run
+   with no task above R1 leaves the stage on the five conditions in `protocols/autonomy.md`
+   instead: raise no release checkpoint (a pending one would hold the stage for a human), and
+   write under Approval "Executable release" with the rollback rehearsal task id. The production
+   deploy itself is still an R3 task with its own human risk checkpoint.
 
 ## Output
-`.agentic-team/runs/<run-id>/06_release/RELEASE.md`: identity, verdict consumed, checklist,
-rollout plan, migration plan, monitoring, rollback evidence, SBOM/license, comms, approval
-checkpoint id.
+`.agentic-team/runs/<run-id>/RELEASE.md` (the run folder, where `scaffold` writes it and the
+06_release gate reads it; not the `06_release/` stage folder): identity, verdict consumed,
+checklist, rollout plan, migration plan, monitoring, rollback evidence, SBOM/license, comms, and
+the approval: the human release checkpoint id, or under `unattended` with no task above R1 the
+executable-release record (rehearsal task id) in its place.
 
 **Owns:** RELEASE.md
 

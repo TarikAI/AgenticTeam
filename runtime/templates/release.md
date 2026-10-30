@@ -24,4 +24,4 @@ Owner: release-manager (devops-engineer when not installed). Stage: 06_release.
 
 ## Approval
 
-{{checkpoint id of the human release approval}}
+{{human release gate (every profile except unattended with no task above R1): the id of the release decision checkpoint the human approves; unattended run with no task above R1: "Executable release" and the rollback rehearsal task id, with no release checkpoint raised}}

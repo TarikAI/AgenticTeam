@@ -29,7 +29,7 @@
     },
     {
       "id": "G03",
-      "statement": "The verifier is not a builder: --verifies tasks refuse their builders and VERIFICATION.md's Verifier may not be a 04_build claimant.",
+      "statement": "The verifier is not a builder: --verifies tasks refuse every agent that ever held the work (across reopen, reassignment, and completion), and VERIFICATION.md's Verifier may not be a 04_build contributor or a 05_verify remediation writer.",
       "enforced_by": [
         "cli"
       ],
@@ -47,7 +47,7 @@
     },
     {
       "id": "G05",
-      "statement": "Commands matching an R3/R4 command rule (deploys, publishes, force pushes, infrastructure apply, global installs) run only inside a claimed task of that action with a human-approved risk checkpoint.",
+      "statement": "Commands matching an R3/R4 command rule (deploys, publishes, force pushes, infrastructure apply, global installs) run only inside a claimed task of that action with a human-approved risk checkpoint covering that action, target, and risk; once such a rule matches, a guard that cannot check the approval (no run, unreadable state or policy, unverifiable ledger) denies.",
       "enforced_by": [
         "harness",
         "cli"
@@ -134,7 +134,7 @@
     },
     {
       "id": "G14",
-      "statement": "A rejection blocks the run until the human resolves it; exhausted retries in hitl block until the human reopens or cancels.",
+      "statement": "A rejection blocks the run, and every new process in it, until the human resolves it: the block derives from the last signed decision, so editing, deleting, or renumbering the checkpoint in state.json does not lift it. Exhausted retries in hitl block until the human reopens or cancels.",
       "enforced_by": [
         "cli"
       ],
@@ -164,7 +164,7 @@
     },
     {
       "id": "G17",
-      "statement": "A task that fails the same way twice stops retrying; only the human reopens it.",
+      "statement": "A task that fails the same way twice, or exhausts its retries through fail, lease expiry, or claim reopen, stops retrying; only the human reopens it.",
       "enforced_by": [
         "cli"
       ],
@@ -218,16 +218,16 @@
     },
     {
       "id": "G23",
-      "statement": "The supervisor keeps one writer per checkout: each attempt and its budget reservation are recorded before its wrapper starts, exactly one wrapper can claim an attempt, a late wrapper finds it abandoned, an attempt whose processes cannot be shown to have stopped holds instead of relaunching, task leases are never released while the previous writer may act, and a cancelled or held job keeps the checkout until its last attempt is reconciled; the store lock is an operating-system lock released when its holder dies.",
+      "statement": "The supervisor keeps one writer per checkout: the checkout is bound to one owner store, so another store (another --store, owner home, or path alias) or a store recorded for another project launches nothing until the owner moves the binding from an idle store; each attempt and its budget reservation are recorded before its wrapper starts, exactly one wrapper can claim an attempt, a late wrapper finds it abandoned, an attempt whose processes cannot be shown to have stopped holds instead of relaunching, task leases are never released while the previous writer may act, a cancelled or held job keeps the checkout until its last attempt is reconciled, and a missing, moved, or torn job record keeps its reservations and checkout claim under an orphan-recovery hold; the store lock is an operating-system lock released when its holder dies.",
       "enforced_by": [
         "cli"
       ],
       "test": "test_supervisor.LaunchRecoveryTests",
-      "bypass": "Process identity relies on the platform's process start time; where it cannot be read the supervisor holds for the owner. Two supervisors over two different stores for the same checkout are not detected."
+      "bypass": "Process identity relies on the platform's process start time; where it cannot be read the supervisor holds for the owner. The checkout binding is a file in the checkout: a worker that deletes it lets a second store the owner runs bind the checkout."
     },
     {
       "id": "G24",
-      "statement": "A supervised job is done only when the attempt's frozen transcript was metered exactly once, no checkpoint is pending, audit verify passes, the owner-side re-check of the verification, release, and learning exit contracts and of the event log agrees the run completed, and the tree (with no hidden or unreadable state) is clean at the verified commit; unknown usage keeps its reservation counted and holds further paid work until the owner resolves it.",
+      "statement": "A supervised job is done only when the attempt's frozen transcript was metered exactly once from a numeric USD figure and the run's usage record matches a usage record signed into the owner ledger (missing, null, or non-numeric USD and unsigned or edited projections stay unknown), no checkpoint is pending, audit verify passes, the owner-side re-check of the verification, release, and learning exit contracts and of the event log agrees the run completed, and the tree (with no hidden or unreadable state) is clean at the verified commit; unknown usage keeps its reservation counted and holds further paid work until the owner resolves it.",
       "enforced_by": [
         "cli"
       ],
