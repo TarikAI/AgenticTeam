@@ -1677,12 +1677,13 @@ class OwnerCommandTests(SupervisorBase):
             commands = row["next_commands"][shell]
             self.assertEqual(len(commands), 2)
             text = " ".join(commands)
-            for needed in (str(runtime), str(supervisor), str(self.project), str(self.sup.store.root), "--run", self.job()["run_id"]):
+            # The commands name resolved paths (long Windows names, /private/var on macOS).
+            for needed in (str(runtime), str(supervisor), str(self.project.resolve()), str(self.sup.store.root), "--run", self.job()["run_id"]):
                 self.assertIn(needed, text)
             self.assertNotIn(str(self.project / ".agentic-team" / "bin"), text)
         argv = [part for part in sup.shlex.split(row["next_commands"]["bash"][0]) if not sup.re.match(r"^[A-Z_]+=", part)]
         self.assertEqual(argv[:3], [sys.executable, str(runtime), "approve"])
-        self.assertEqual(argv[argv.index("--project") + 1], str(self.project))
+        self.assertEqual(Path(argv[argv.index("--project") + 1]).resolve(), self.project.resolve())
 
     @unittest.skipUnless(os.name == "nt" and shutil.which("powershell"), "PowerShell execution is checked on Windows")
     def test_powershell_commands_run_with_spaces_in_every_path(self) -> None:
