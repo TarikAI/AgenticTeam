@@ -990,6 +990,22 @@ class ReviewFindingTests(SupervisorBase):
         self.sup.release("hung", "draft discarded by the owner")
         self.assertEqual(self.sup.status()["allowance"]["usd_reserved"], 0)
 
+    def test_a_wrapper_between_start_and_its_first_beat_is_not_held(self) -> None:
+        self.sup.configure(heartbeat_seconds=30.0)
+        self.mode("claim-and-hang")
+        self.enqueue("early")
+        self.sup.tick()
+        folder = self.attempt_dir("early")
+        self.assertTrue(self.wait_for(lambda: (folder / "start.json").exists() and (folder / "heartbeat").exists()))
+        self.sup.tick()
+        (folder / "heartbeat").unlink()  # the moment after start.json is written and before the first beat
+        self.sup.tick()
+        self.assertEqual(self.job("early")["status"], "running", json.dumps(self.job("early").get("hold")))
+        os.utime(folder / "start.json", (time.time() - 600, time.time() - 600))
+        self.sup.tick()
+        self.assertEqual((self.job("early")["status"], self.job("early")["hold"]["kind"]), ("needs-human", "ownership"),
+                         "a wrapper that never beats is still held once the grace runs out")
+
     def test_a_launch_failure_before_the_wrapper_is_a_visible_hold(self) -> None:
         self.enqueue()
         with mock.patch.object(sup.Supervisor, "worker_argv", side_effect=KeyError("runid")):
@@ -1035,7 +1051,7 @@ class ReviewFindingTests(SupervisorBase):
             self.sup.resume("paid")  # still frozen at acceptance
         self.sup.resume("paid", refresh_config=True)
         self.until_idle()
-        self.assertEqual(self.job("paid")["status"], "done")
+        self.assertEqual(self.job("paid")["status"], "done", json.dumps(self.job("paid").get("hold")))
         self.sup.configure(run_budget={"usd": 1.0}, attempt_usd=1.0)
         self.mode("stop-after-build cost=0.5")
         self.enqueue("budgeted")

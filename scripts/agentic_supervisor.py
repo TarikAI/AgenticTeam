@@ -256,6 +256,13 @@ def touch(path: Path) -> None:
     os.utime(path, None)
 
 
+def mtime_or_none(path: Path) -> float | None:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
 def git(project: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", *args], cwd=project, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
 
@@ -1490,7 +1497,9 @@ class Supervisor:
                 self.transition(job, "running", f"wrapper claimed attempt {attempt['id']}", attempt=attempt["id"])
                 self.store.save_job(job)
             start = read_optional_quiet(folder / "start.json") or (claim if claim.get("pid") else {})
-            beat = (folder / "heartbeat").stat().st_mtime if (folder / "heartbeat").exists() else None
+            beat = mtime_or_none(folder / "heartbeat")
+            if beat is None:
+                beat = mtime_or_none(folder / "start.json")  # the wrapper writes start.json just before its first beat
             stale_after = max(float(job["config"]["heartbeat_seconds"]) * 6, 5.0)
             fresh = beat is not None and time.time() - beat < stale_after
             wrapper = ownership(start.get("pid"), start.get("identity")) if start else "unknown"
