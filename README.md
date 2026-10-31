@@ -217,6 +217,7 @@ runner drives the six team scenarios against installed CLIs.
 - [Runtime CLI reference](docs/cli.md)
 - [Autonomy, Fusion, and progressive context](docs/operating-modes.md)
 - [Supervisor operator guide](docs/supervisor-operator-guide.md) (implemented, offline-verified; [design](docs/supervisor-design.md), [progress](docs/supervisor-progress.md))
+- [Supervisor pilot plan](docs/pilot-plan.md) and [prompt pack](docs/pilot-prompts.md) (the paid pilot and the activation decision; not yet run)
 - [Running the team on local LLMs](docs/local-llms.md)
 - [Shared protocols](protocols/)
 - [Third-party inspiration and licenses](THIRD_PARTY_NOTICES.md)
