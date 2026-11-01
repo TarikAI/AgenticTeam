@@ -209,6 +209,8 @@ runner drives the six team scenarios against installed CLIs.
 
 ## Documentation
 
+- [Interactive team reference: all 50 roles, prompts, safety, harnesses and durability](docs/agent-team-guide/index.html) — offline snapshot, 2026-11-01; [CSV roster](docs/agent-team-guide/agent-roster.csv).
+- [Autonomy implementation plan](docs/autonomy-implementation-plan.md) and [master implementation prompt](docs/autonomy-implementation-prompt.md) — supervisor completion, quality qualification and the six persistent core responsibilities.
 - [Plain-language owner guide](docs/quickstart-non-dev.md)
 - [Migrating from v2](docs/migration-v3.md)
 - [Architecture, runtime, and guarantee ledger](docs/architecture.md)

@@ -1,0 +1,175 @@
+{
+  "title": "Safety, durability and quality",
+  "asOf": "2026-11-01",
+  "scope": "Source-repository assessment. Host activation and live service status were not independently inspected. Recommendations are not deployed agents or configuration changes.",
+  "summary": "The team has reusable prompts and durable shared state. Its supervisor is implemented and tested with scripted workers; the repository records no paid pilot or activated host service. Safety coverage differs by harness, and no model or harness combination can guarantee perfect results.",
+  "controls": [
+    {
+      "name": "Human authority",
+      "description": "Approvals and waivers require an owner token and a signed, hash-chained decision ledger. Editing task state does not create approval.",
+      "layer": "CLI and tamper detection",
+      "limitation": "A worker with access to the owner's token can impersonate authority. File permissions and OS isolation are still required.",
+      "source": "config/guarantees.json:12"
+    },
+    {
+      "name": "Evidence before completion",
+      "description": "Stage exits require their artifacts, acceptance traceability and verification. Build tasks declare executable checks; completion refuses failing checks.",
+      "layer": "CLI",
+      "limitation": "The CLI checks evidence structure and execution. People and reviewers must judge whether the chosen checks and artifact content are sufficient.",
+      "source": "config/guarantees.json:22",
+      "additionalSources": ["config/guarantees.json:99"]
+    },
+    {
+      "name": "Independent verification",
+      "description": "A builder cannot verify its own recorded task. Verification names the commit being released.",
+      "layer": "CLI",
+      "limitation": "Role identity is self-declared. A commit hash alone does not detect uncommitted edits; the supervisor adds a clean-tree check.",
+      "source": "config/guarantees.json:31",
+      "additionalSources": ["config/guarantees.json:175", "config/guarantees.json:229"]
+    },
+    {
+      "name": "Risk and hard human gates",
+      "description": "Production deployment, public publishing or messaging, spending, real credentials or payments, destructive actions, broad system changes and legal commitments remain human-controlled.",
+      "layer": "CLI, supported harness hooks and instructions",
+      "limitation": "Risk depends on truthful task declarations. Direct actions outside the CLI can escape checks when the harness has no applicable hook.",
+      "source": "protocols/guardrails.md:6",
+      "additionalSources": ["config/guarantees.json:40", "config/guarantees.json:49"]
+    },
+    {
+      "name": "Tool and file protections",
+      "description": "Supported harnesses receive hooks, permission settings or tool allowlists that protect owner material and runtime records.",
+      "layer": "Harness-dependent",
+      "limitation": "Coverage is not identical across harnesses. Pi and generic rely on instructions for these protections; hooks are not an OS sandbox.",
+      "source": "protocols/harness-security.md:22",
+      "additionalSources": ["protocols/harness-security.md:15", "protocols/harness-security.md:32"]
+    },
+    {
+      "name": "Budget and retry bounds",
+      "description": "Runs have ceilings, attempts reserve budget before launch, transcript usage is reconciled, and repeated failures stop retries.",
+      "layer": "CLI and supervisor",
+      "limitation": "Usage is based on harness estimates. A running attempt can spend before its final transcript is metered; provider-side limits add another boundary.",
+      "source": "config/guarantees.json:127",
+      "additionalSources": ["config/guarantees.json:184", "docs/supervisor-operator-guide.md:193"]
+    },
+    {
+      "name": "Recoverable execution",
+      "description": "The supervisor persists jobs and attempts, allows one writer per checkout, reconciles process ownership and retains uncertain cost reservations.",
+      "layer": "Deterministic supervisor",
+      "limitation": "Unclear ownership or missing records cause a hold for the owner rather than an unsafe automatic restart. This is not a permanently running model.",
+      "source": "config/guarantees.json:220",
+      "additionalSources": ["docs/supervisor-operator-guide.md:212"]
+    },
+    {
+      "name": "Bounded unattended release",
+      "description": "Low-risk runs can finish the release stage without a click only with passing checks, current verification, a release packet, rehearsed rollback and no pending budget question.",
+      "layer": "CLI and supervisor re-check",
+      "limitation": "Every task must remain R0 or R1. This does not authorize production deployment or other external actions, and declared checks can still be incomplete.",
+      "source": "config/guarantees.json:193",
+      "additionalSources": ["protocols/autonomy.md:38"]
+    },
+    {
+      "name": "Controlled learning",
+      "description": "Lessons become candidates, are evaluated and proposed, and need human promotion before becoming proven playbook checks.",
+      "layer": "CLI for promotion; instructions and review for learning quality",
+      "limitation": "Ordinary knowledge files can be edited. The system does not prove every lesson is true or silently improve itself without evaluation.",
+      "source": "protocols/evolution.md:3",
+      "additionalSources": ["protocols/evolution.md:53"]
+    },
+    {
+      "name": "Regression evaluation",
+      "description": "Deterministic scenarios test workflow rules. The behavioral-change protocol requires pre-registered metrics, repeated baseline/candidate live runs and no score regression.",
+      "layer": "Automated workflow tests; opt-in live evaluation and human approval",
+      "limitation": "Workflow tests do not measure model intelligence. The live comparison protocol is not evidence that every model and harness has been qualified.",
+      "source": "protocols/team-evaluation.md:7",
+      "additionalSources": ["protocols/team-evaluation.md:71", "agents/specialists/eval-engineer.md:20"]
+    }
+  ],
+  "blockers": [
+    {
+      "id": "Q1-a",
+      "name": "Isolation probe needs positive controls",
+      "status": "Known pre-pilot correction remains in source",
+      "description": "A path that does not exist inside a worker boundary can currently be mistaken for securely denied access. The probe must also prove that the worker can read the intended view and write its own home.",
+      "codeEvidence": "The probe catches any OSError and prints AGENTIC-ISOLATION-DENIED or AGENTIC-VIEW-READONLY; its verified expression checks these output markers without a successful-read control.",
+      "source": "scripts/agentic_supervisor.py:2397",
+      "additionalSources": ["scripts/agentic_supervisor.py:2411", "docs/pilot-plan.md:79"]
+    },
+    {
+      "id": "Q1-b",
+      "name": "Credential inheritance needs tighter filtering",
+      "status": "Known pre-pilot correction remains in source",
+      "description": "Anthropic and Claude credential variables are not filtered by default. The plan requires filtering them and explicitly passing only a dedicated worker credential.",
+      "codeEvidence": "SENSITIVE_ENV includes OPENAI_.* and other provider prefixes, but has no ANTHROPIC_.* or CLAUDE_.* branch.",
+      "source": "scripts/agentic_supervisor.py:70",
+      "additionalSources": ["docs/pilot-plan.md:80"]
+    },
+    {
+      "id": "Q1-c",
+      "name": "Host and worker paths need a verified mapping",
+      "status": "Known pre-pilot setup and documentation correction",
+      "description": "The worker boundary must expose the checkout, view and worker home at the paths passed by the supervisor. The pilot plan selects a POSIX host with matching absolute paths; a Windows-to-WSL prefix is not proof of that mapping.",
+      "codeEvidence": "worker_argv builds values with str(self.project) and str(run_dir); verify_isolation passes str(sentinel) and str(view_dir) to the prefixed process.",
+      "source": "scripts/agentic_supervisor.py:1450",
+      "additionalSources": ["scripts/agentic_supervisor.py:2401", "docs/pilot-plan.md:19", "docs/pilot-plan.md:81"]
+    },
+    {
+      "id": "pilot",
+      "name": "Real-worker pilot pending",
+      "status": "Not demonstrated",
+      "description": "The repository records no paid worker pilot. Offline tests use scripted workers and cannot establish real model behavior, real boundary effectiveness or actual usage quality.",
+      "source": "docs/pilot-plan.md:41",
+      "additionalSources": ["docs/supervisor-operator-guide.md:9"]
+    },
+    {
+      "id": "activation",
+      "name": "Persistent host activation pending",
+      "status": "Not demonstrated",
+      "description": "The repository records no registered host task. Generating a scheduler example does not activate it. Activation is a separate step after the pilot and owner decision.",
+      "source": "docs/pilot-plan.md:41",
+      "additionalSources": ["docs/pilot-plan.md:199", "docs/supervisor-operator-guide.md:120"]
+    }
+  ],
+  "durability": {
+    "plainMeaning": "Durable work survives a model session ending: a new worker can recover the task, evidence, decisions and progress from persistent state.",
+    "promptPersistence": "All 50 canonical roles have reusable source prompts. A saved prompt is not an active background agent.",
+    "sharedState": "The runtime persists tasks, stages, events, evidence, handoffs and knowledge. A replacement session resumes from this shared record.",
+    "executionRecovery": "One deterministic supervisor manages persistent jobs and bounded worker attempts per checkout. Its implementation is offline-verified; live activation is not evidenced here.",
+    "rosterLabel": "Reusable prompt; shared durable state; no independently activated service evidenced",
+    "supervisorAdapters": [
+      {"name": "claude", "status": "Built-in paid-worker adapter; requires a verified boundary and configured budgets; pilot pending"},
+      {"name": "command", "status": "Owner-supplied argv; used for scripted tests; unisolated and cost reported by its own output"}
+    ],
+    "portabilityLimit": "13 harness installation targets do not mean 13 equivalent supervisor adapters, security boundaries or model performance levels.",
+    "sources": ["docs/architecture.md:7", "docs/architecture.md:38", "protocols/runtime.md:77", "scripts/agentic_supervisor.py:64", "docs/supervisor-operator-guide.md:286", "docs/harnesses.md:126"]
+  },
+  "recommendedCore": {
+    "status": "Proposed operating model; not activated by this guide",
+    "count": 6,
+    "countMeaning": "Six persistent control responsibilities, backed by one deterministic supervisor. They can run as temporary sessions with persistent identities and records; six always-running LLM processes are unnecessary.",
+    "roles": [
+      {"id": "delivery-lead", "responsibility": "Own the task graph, dispatch, escalation, recovery coordination and retrospective."},
+      {"id": "context-engineer", "responsibility": "Maintain usable handoff context and consistent task packets across sessions."},
+      {"id": "qa-lead", "responsibility": "Independently verify acceptance and issue the quality verdict."},
+      {"id": "eval-engineer", "responsibility": "Measure AI behavior and qualify model or harness changes against baselines."},
+      {"id": "security-engineer", "responsibility": "Review trust boundaries, permissions, sensitive operations and injection risks."},
+      {"id": "sre-engineer", "responsibility": "Monitor runtime reliability, failure recovery, service health and operational readiness."}
+    ],
+    "supervisor": "One deterministic durable supervisor, not counted as an LLM agent.",
+    "requiredWorkers": "Builders remain required on demand, such as fullstack-engineer, frontend-engineer or backend-engineer. Add code-reviewer, product-manager, cto-architect, release-manager and other specialists when scope requires them. The six control roles alone do not build a product.",
+    "limitation": "This is a recommended starting structure, not a universal minimum. More role names cannot guarantee autonomy or quality. Human decisions remain necessary at protected boundaries."
+  },
+  "modelAndHarnessQuality": {
+    "promise": "Measured quality floors, detected regressions, rejected bad switches and recoverable execution are achievable. Always-best quality with every LLM or harness is not guaranteed.",
+    "recommendedSteps": [
+      "Keep versioned prompts, policies, task state and knowledge outside any model's chat memory.",
+      "Define an adapter contract covering tools, refusals, evidence, usage, cancellation and recovery.",
+      "Qualify each model, harness, version and task class together.",
+      "Compare repeated runs on held-out tasks, adversarial cases and real acceptance checks.",
+      "Admit only combinations that meet the required baseline; keep a known-good fallback and rollback.",
+      "Hold or escalate when a candidate cannot meet the baseline. Do not weaken checks to pass a switch.",
+      "Promote lessons only after evidence and evaluation; retain their provenance and rollback."
+    ],
+    "source": "protocols/team-evaluation.md:71",
+    "additionalSources": ["protocols/evolution.md:3", "agents/specialists/eval-engineer.md:20"]
+  }
+}
