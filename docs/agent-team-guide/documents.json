@@ -1,0 +1,21 @@
+{
+  "current": [
+    {"id": "master", "title": "Complete implementation program", "plan": "docs/autonomy-implementation-plan.md", "prompt": "docs/autonomy-implementation-prompt.md"},
+    {"id": "supervisor", "title": "Supervisor safety, pilot and activation", "plan": "docs/supervisor-completion-plan.md", "prompt": "docs/supervisor-completion-prompt.md"},
+    {"id": "quality", "title": "Quality qualification and model changes", "plan": "docs/quality-qualification-plan.md", "prompt": "docs/quality-qualification-prompt.md"},
+    {"id": "core", "title": "Six persistent core responsibilities", "plan": "docs/durable-core-plan.md", "prompt": "docs/durable-core-prompt.md"},
+    {"id": "prompts", "title": "Agent prompt improvements", "plan": "docs/agent-prompt-improvement-plan.md", "prompt": "docs/agent-prompt-improvement-prompt.md"},
+    {"id": "pilot", "title": "Supervisor pilot", "plan": "docs/pilot-plan.md", "prompt": "docs/pilot-prompts.md"}
+  ],
+  "earlier": [
+    {"id": "codebase-repair", "title": "Codebase audit and repair (30 October)", "plan": "docs/codebase-audit-and-repair-plan.md", "prompt": "docs/codebase-repair-prompts.md"},
+    {"id": "supervisor-build", "title": "Supervisor implementation (29 October)", "plan": "docs/supervisor-implementation-plan.md", "prompt": "docs/supervisor-implementation-prompts.md"},
+    {"id": "v3", "title": "v3 upgrade (September)", "plan": "docs/v3-upgrade-plan.md", "prompt": "docs/v3-implementation-prompt.md"},
+    {"id": "skills", "title": "Skills integration (September)", "plan": "docs/skills-integration-plan.md", "prompt": null}
+  ],
+  "records": [
+    {"path": "docs/codebase-repair-progress.md", "title": "Codebase repair progress (30 October)"},
+    {"path": "docs/supervisor-progress.md", "title": "Supervisor implementation progress (29 October)"},
+    {"path": "docs/v3-progress.md", "title": "v3 progress (September)"}
+  ]
+}

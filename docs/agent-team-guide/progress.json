@@ -1,0 +1,68 @@
+{
+  "asOf": "2026-11-03",
+  "updatedBy": "claude",
+  "documentationBase": "3aafe1b",
+  "recordsRef": "autonomy-integration",
+  "runtimeIntegration": "cbb074a",
+  "refs": {
+    "wiring": "c4794ec",
+    "measurement": "86e96b0",
+    "reviewFixes": "1b710ca",
+    "reviewFixesSecondPass": "2fd30a7",
+    "promptImprovement": "c2d8315",
+    "durableCoreCompletion": "028a7bf"
+  },
+  "scope": "Statuses come from the records on the integration branch and from checks recorded there; no fresh service, host or billing inspection.",
+  "todaySummary": [
+    "The 50-role catalog now has **implemented safety and durable-core libraries**, merged role-step wiring, two rounds of reviewed fixes, a generated execution contract for workers, frozen step packets and owner-enabled advisory duties.",
+    "Main (`3aafe1b`) still hosts the original runtime. All implementation work is on the `autonomy-integration` branch, which is not merged into main and not pushed.",
+    "A real build was measured on 1 November but stopped at QA. It is sizing evidence, not a supervised role-step pilot. On 3 November the owner authorized the remaining live runs on the Max subscription only."
+  ],
+  "evidence": [
+    "Roster and prompt content come from this checkout. Records and the guarantee ledger come from the integration branch each time the guide is built. The statuses were last reconciled against integration `cbb074a`.",
+    "Latest full suite: 701 tests OK and 7 skipped, on Windows at `5004130`, whose tree is identical to the merge `028a7bf`. Linux-only tests last ran on 1 and 2 November. The S4 host drills used a real Docker engine with scripted workers.",
+    "Harness formats were last recorded vendor-verified on 25 September 2026. This static guide does not re-certify vendors or monitor running services."
+  ],
+  "nextPriority": "R09 packet retention, the R06 supervised assessment adapter with a container grading sandbox, and the R05 container role-step transport. Then the R11 host drills in WSL and the authorized subscription-only live runs: the stalled-measurement rerun, the predeclared prompt comparison and a first small assessment.",
+  "documentsNote": "Plans and prompts are read from this checkout's docs folder when the guide is built, and records from the integration branch. The date beside each document is when its file last changed. Register a new plan or prompt in documents.json so it appears here.",
+  "statuses": [
+    {
+      "area": "Supervisor safety",
+      "state": "Merged; offline-tested",
+      "detail": "Safety, admission and review fixes are merged: commands and checks run inside the boundary and timed-out commands are reaped there, model role steps without a boundary are refused, unknown model identity holds, and admission is rechecked while an attempt runs. Real-host proof of the new paths remains."
+    },
+    {
+      "area": "Real host",
+      "state": "Partly verified",
+      "detail": "Docker boundary, cancel, timeout and lost-wrapper drills passed on Ubuntu 24.04 in WSL2 on 1 November. Service-manager, engine-restart and supervisor-restart drills (R11) remain; work on them started on 3 November."
+    },
+    {
+      "area": "Role-step team",
+      "state": "Merged; offline-tested; partial",
+      "detail": "Role-step dispatch, the generated execution contract (version 3), frozen read-only step packets (R07) and owner-enabled advisory duties (R08) are merged at cbb074a, with 701 tests OK. Container role-step transport (R05) and packet retention (R09) remain."
+    },
+    {
+      "area": "Real model work",
+      "state": "Sizing only; live runs authorized",
+      "detail": "A direct build reached QA then stopped on tool denials (1 November). On 3 November the owner authorized the remaining live runs on the Max subscription only, with no billed API key and the cheapest adequate model and effort. None has run yet."
+    },
+    {
+      "area": "Quality qualification",
+      "state": "Not evidenced",
+      "detail": "Registry, admission and bundle observation exist, and an attempt that reports no model now holds. The supervised assessment adapter and the container grading sandbox (R06) and a first certificate remain."
+    },
+    {
+      "area": "Service activation",
+      "state": "Not evidenced",
+      "detail": "Templates exist; no registered operational service is recorded."
+    }
+  ],
+  "active": [
+    {
+      "task": "R09 retention, R06 assessment adapter, R05 container transport, R11 host drills and the subscription-only live runs",
+      "agent": "claude",
+      "where": "Claude Code session \"Remaining autonomy steps and live runs\", branch autonomy-remaining (cut from autonomy-integration at cbb074a)",
+      "since": "2026-11-03"
+    }
+  ]
+}

@@ -1,0 +1,144 @@
+{
+  "entries": [
+    {
+      "date": "2026-11-03",
+      "agent": "claude",
+      "task": "Shared roster for Claude Code and Codex",
+      "summary": "Made this guide the roster both agents maintain: a records tab that reads every progress record from the integration branch, this update log, a work-in-flight table, plans registered in documents.json, stale-data checks in `build.py --check`, and the rules in UPDATING.md. Dates and commit references moved from the page into progress.json.",
+      "documents": [
+        "docs/agent-team-guide/UPDATING.md",
+        "docs/agent-team-guide/build.py",
+        "docs/agent-team-guide/guide.template.html",
+        "docs/agent-team-guide/progress.json",
+        "docs/agent-team-guide/updates.json",
+        "docs/agent-team-guide/documents.json",
+        "docs/agent-team-guide/CODEX-HANDOVER.md",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "README.md"
+      ],
+      "refs": [
+        "main, commit \"Share one team roster between Claude Code and Codex\""
+      ]
+    },
+    {
+      "date": "2026-11-03",
+      "agent": "claude",
+      "task": "Durable core completion: R07 and R08",
+      "summary": "Each role step reads a frozen, read-only input packet, and only lines an owner-signed promotion names count as approved knowledge. The four advisory duties dispatch when the owner enables them, capped and never self-waking. Full suite 701 OK, 7 skipped. Merged into autonomy-integration.",
+      "documents": [
+        "docs/autonomy-progress/durable-core-completion.md",
+        "docs/autonomy-implementation-progress.md",
+        "docs/autonomy-contracts/dispatch-and-identity.md",
+        "docs/supervisor-operator-guide.md"
+      ],
+      "refs": [
+        "durable-core-completion@5004130",
+        "autonomy-integration@028a7bf",
+        "autonomy-integration@cbb074a"
+      ]
+    },
+    {
+      "date": "2026-11-03",
+      "agent": "claude",
+      "task": "Agent prompt improvement (offline scope)",
+      "summary": "Implemented docs/agent-prompt-improvement-prompt.md: a generated execution contract in every role-step prompt, the shared contract rewritten around four layers, a mode-aware footer on all 50 compiled roles, untrusted-content tiers and guarantee G35. The live comparison is predeclared in the record and was not run.",
+      "documents": [
+        "docs/autonomy-progress/prompt-improvement.md",
+        "protocols/agent-contract.md",
+        "protocols/untrusted-content.md"
+      ],
+      "refs": [
+        "prompt-improvement@8fc6ea5",
+        "autonomy-integration@c2d8315"
+      ]
+    },
+    {
+      "date": "2026-11-02",
+      "agent": "claude",
+      "task": "Review fixes, second pass (residual R01 to R03)",
+      "summary": "Timed-out commands are reaped inside the boundary, model role steps without a boundary are refused, container fixtures run without network, and an attempt that reports no model holds. Merged into autonomy-integration.",
+      "documents": [
+        "docs/autonomy-progress/review-fixes.md"
+      ],
+      "refs": [
+        "autonomy-review-fixes-2@2264bd0",
+        "autonomy-integration@2fd30a7"
+      ]
+    },
+    {
+      "date": "2026-11-02",
+      "agent": "claude",
+      "task": "Review fixes (R01 to R04, R09, R10)",
+      "summary": "Implemented the code findings of the cross-workstream review: commands and checks inside the boundary (G33), command-adapter admission, effective-bundle observation, running-attempt revocation (G34), evaluated promotion and consistent command forms. Merged into autonomy-integration.",
+      "documents": [
+        "docs/autonomy-progress/review-fixes.md"
+      ],
+      "refs": [
+        "autonomy-review-fixes@5ad3703",
+        "autonomy-integration@1b710ca"
+      ]
+    },
+    {
+      "date": "2026-11-02",
+      "agent": "codex",
+      "task": "Progress review, plan refresh and team guide",
+      "summary": "Wrote the cross-workstream progress review (R01 to R12), refreshed the five plans and prompts to the 2 November checkpoint, added the agent prompt improvement plan and prompt, and rebuilt this guide.",
+      "documents": [
+        "docs/autonomy-progress-review.md",
+        "docs/agent-prompt-improvement-plan.md",
+        "docs/agent-prompt-improvement-prompt.md",
+        "docs/autonomy-implementation-plan.md",
+        "docs/autonomy-implementation-prompt.md"
+      ],
+      "refs": [
+        "main@f190688 (committed on 3 November at the owner's request)"
+      ]
+    },
+    {
+      "date": "2026-11-02",
+      "agent": "claude",
+      "task": "Integration wiring and quality measurement merged",
+      "summary": "Merged quality admission (G29), opt-in role steps (G30 to G32) and the quality session's live adapter and cost measurement into autonomy-integration; 646 tests OK.",
+      "documents": [
+        "docs/autonomy-progress/integration.md",
+        "docs/autonomy-progress/quality.md"
+      ],
+      "refs": [
+        "autonomy-integration@ba66cd1"
+      ]
+    },
+    {
+      "date": "2026-11-01",
+      "agent": "claude",
+      "task": "Three workstreams merged; owner chose role-step mode",
+      "summary": "Merged supervisor safety (S1 to S3 and the S4 host drills), quality qualification (Q0 to Q2) and the durable core (D0 to D2) into autonomy-integration. The owner chose role-step execution and installed Ubuntu 24.04 in WSL on D:.",
+      "documents": [
+        "docs/autonomy-implementation-progress.md",
+        "docs/autonomy-progress/supervisor.md",
+        "docs/autonomy-progress/quality.md",
+        "docs/autonomy-progress/durable-core.md"
+      ],
+      "refs": [
+        "autonomy-integration@4949185",
+        "autonomy-integration@7520c9b"
+      ]
+    },
+    {
+      "date": "2026-11-01",
+      "agent": "codex",
+      "task": "Autonomy plans, prompts and the first team guide",
+      "summary": "Wrote the master, supervisor completion, quality qualification and durable core plans with their implementation prompts, and the first version of this guide.",
+      "documents": [
+        "docs/autonomy-implementation-plan.md",
+        "docs/supervisor-completion-plan.md",
+        "docs/quality-qualification-plan.md",
+        "docs/durable-core-plan.md",
+        "docs/agent-team-guide/index.html"
+      ],
+      "refs": [
+        "main@3aafe1b"
+      ]
+    }
+  ]
+}
