@@ -16,10 +16,10 @@ WHERE IT IS
 WHAT CLAUDE CODE CHANGED IN YOUR GUIDE (3 NOVEMBER 2026)
 - build.py also reads every progress record and the guarantee ledger from the autonomy-integration branch (git show), plus the update log and the document list. --check changes nothing and fails when the page is stale, a plan or prompt is not registered, an entry is malformed, or the integration branch has moved past the commit in progress.json "runtimeIntegration".
 - The template gained a "Records & updates" tab and a "Work in flight" table on "Current progress". Dates, commit references and status text moved out of the HTML into progress.json. Plans are grouped as current and earlier, each with its last-changed date. The design is otherwise yours, unchanged.
-- Your uncommitted edits in the main checkout were kept: the plans, prompts, progress review, safety.json and README.
+- Your 2 November edits were kept unchanged and are now committed on main at the owner's request: the plans, prompts and progress review in f190688, your guide edits (safety.json, the template, the README line) in the roster commit 445c266.
 
 CURRENT STATE (confirm it in the guide; do not trust this prompt over the records)
-- autonomy-integration is at cbb074a: everything through R07 (frozen step packets), R08 (owner-enabled advisory duties) and the agent prompt improvement; full suite 701 OK, 7 skipped. Main is 3aafe1b, untouched; nothing is pushed.
+- autonomy-integration is at cbb074a: everything through R07 (frozen step packets), R08 (owner-enabled advisory duties) and the agent prompt improvement; full suite 701 OK, 7 skipped. Main has only documentation commits since 3aafe1b, the latest being this shared roster; its runtime is still the original. Nothing is pushed.
 - In flight, Claude Code: R09 retention, R06 assessment adapter, R05 container transport, the R11 host drills in WSL, and the owner-authorized live runs on the Max subscription only, on branch autonomy-remaining. Do not edit that branch or its worktree.
 
 YOUR FIRST TASK

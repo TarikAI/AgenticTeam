@@ -1,7 +1,7 @@
 {
   "asOf": "2026-11-03",
   "updatedBy": "claude",
-  "documentationBase": "3aafe1b",
+  "documentationBase": "445c266",
   "recordsRef": "autonomy-integration",
   "runtimeIntegration": "cbb074a",
   "refs": {
@@ -15,7 +15,7 @@
   "scope": "Statuses come from the records on the integration branch and from checks recorded there; no fresh service, host or billing inspection.",
   "todaySummary": [
     "The 50-role catalog now has **implemented safety and durable-core libraries**, merged role-step wiring, two rounds of reviewed fixes, a generated execution contract for workers, frozen step packets and owner-enabled advisory duties.",
-    "Main (`3aafe1b`) still hosts the original runtime. All implementation work is on the `autonomy-integration` branch, which is not merged into main and not pushed.",
+    "Main still hosts the original runtime: its commits since `3aafe1b` are documentation only. All implementation work is on the `autonomy-integration` branch, which is not merged into main and not pushed.",
     "A real build was measured on 1 November but stopped at QA. It is sizing evidence, not a supervised role-step pilot. On 3 November the owner authorized the remaining live runs on the Max subscription only."
   ],
   "evidence": [
