@@ -1,160 +1,213 @@
-# AgenticTeam master implementation prompt
+# AgenticTeam master implementation resume prompt
 
-Copy the block below into a capable coding harness with the AgenticTeam repository open. The focused prompts linked in the plan can also be used for one workstream at a time. This prompt directs implementation; creating or reading this file does not itself run the implementation or authorize paid work.
+Updated 2 November 2026. Copy the complete block into the implementation session. It continues existing work; reading it does not authorize a new paid batch or activate anything. See the [progress review](autonomy-progress-review.md) and [master plan](autonomy-implementation-plan.md).
 
 ```text
-Implement the AgenticTeam autonomy program in this repository. Take the existing
-offline-verified supervisor to a correctly bounded, evidence-tested system with
-quality qualification and six durable core responsibilities. Deliver working code,
-tests, migrations, documentation and a concrete activation package; do not stop at
-another plan. Complete authorized work and keep status truthful at live/owner gates.
+LATEST CHECKPOINT — 2 NOVEMBER 2026 (supersedes earlier checkpoint descriptions)
+Current audited integration is bf9d11ab4c6fa06db8db11fee3f968156fd361d9. Wiring c4794ec,
+quality measurement 86e96b0 and review fixes have been merged (fix merge 1b710ca).
+Recheck actual HEAD/diffs; do not re-merge these or redo implemented work. Main 3aafe1b
+is still the documentation baseline. Older 4949185/unmerged passages below describe
+the initial audit, and their defect examples are regression history, not current status.
 
-READ FIRST
-Read applicable AGENTS.md/CLAUDE.md instructions and these files in order:
-1. docs/autonomy-implementation-plan.md
-2. docs/supervisor-completion-plan.md
-3. docs/quality-qualification-plan.md
-4. docs/durable-core-plan.md
-5. docs/supervisor-operator-guide.md, docs/pilot-plan.md, docs/pilot-prompts.md,
-   protocols/harness-security.md, protocols/team-evaluation.md,
-   protocols/evolution.md, config/guarantees.json and config/policies.json.
-Then inspect the actual implementation and tests referenced by those plans.
-The new plans identify corrections to older pilot recipes. Reconfirm every gap in
-the current code; skip already-fixed items with evidence. Never execute an old
-recipe that contradicts the safety/authorization requirements of this task.
-If a required plan is absent, locate it before proceeding; do not invent its contents.
+Implemented since that initial audit: boundary-aware COMMAND_EXECUTOR for broker exec
+and implicit checks; narrowed command-fixture exemption; observe-bundle hashes for
+installed instructions/launcher/env/image/delegation; post-run undeclared-model checks;
+active watch_authority cancellation/reconciliation; evaluated lesson promotion; removal
+of the Out-File instruction; shared live-smoke environment. Preserve these. G33 covers
+executor routing and G34 active revocation; existing G15/G29 were updated. Recorded
+659 tests OK, 7 skipped at 1cf4ebf, then documentation-only changes and source-equivalent
+merge. The full runtime suite was not rerun by this docs audit. No live role-step pilot,
+certificate or activated service is established.
+
+REMAINING PRIORITY, NOT REIMPLEMENTATION
+- R01: Prove the new executor on the real boundary and terminate/reconcile timed-out
+  commands and children before continuation. The record says a timed-out container
+  command can persist until container stop. Keep no-boundary fallback nonoperational.
+- R02: fixture_problems still uses only absent approved env/credential names plus
+  evidence class. That does not prevent local unauthenticated model/network calls or
+  arbitrary code. Enforce capability/network confinement and explicit nonoperational
+  scope, or require admission. Test harmless stand-ins without actual model calls.
+- R03: Missing modelUsage IDs currently produce an empty used-model set and pass.
+  Hold unknown identities. Complete actual tools/permissions/harness settings/context
+  attestation and dynamic launcher dependencies; preserve the new digest coverage.
+- R04: Preserve active monitoring; directly test real role-step/container revocation,
+  late results and bounded detection/stop latency, including supervisor downtime.
+- R05: Container role-step transport remains refused until endpoint confinement,
+  peer identity, owner-store/process isolation and lifecycle pass on the real engine.
+- R06: Implement supervised principal/receipt-bound assessment and protected container/
+  VM grading. Direct sizing and local-process grader fixtures cannot certify.
+- R07-R08: Complete consumed immutable context, approved-only knowledge and bounded
+  scheduling of context/eval/security/SRE obligations. These remain incomplete.
+- R09: Promotion now uses evaluated records; preserve it. Finish dependency-aware
+  retention and verify evidence remains available for active jobs/certificates/rollback.
+- R10: Preserve corrected Out-File/environment behavior. Finish broader shared/role/
+  skill execution-mode/authority/context consistency and authorized live adherence.
+- R11-R12: Remaining real service/restart/dummy-credential/supported logoff drills,
+  exact-candidate evidence and stale host-history reconciliation. Inspect host state
+  before setup: S4 says WSL integration was enabled; some next-action notes are stale.
+
+Read the latest progress review before following the retained acceptance specification
+below. Treat its earlier claims of unmerged work or absent fixes as historical. Extend
+only residual gaps; keep meaningful regression coverage for corrected defects. Do not
+require a new worker user blindly when a verified boundary provides required isolation.
+The prior sizing approval is not new assessment/activation approval. No prompt authorizes
+new paid work, service setup or wider permissions; reuse exact existing session authority.
+
+Continue the AgenticTeam autonomy implementation to a safely qualified, durable
+role-step team. Deliver the remaining code, meaningful regression tests, migrations,
+evidence and a concrete activation package. Reuse the existing implementation; do
+not start over or stop at another plan. Limit readiness claims to actual evidence.
+
+READ AND RECONCILE FIRST
+Read applicable AGENTS.md/CLAUDE.md, then:
+- docs/autonomy-progress-review.md
+- docs/autonomy-implementation-plan.md
+- docs/supervisor-completion-plan.md
+- docs/quality-qualification-plan.md
+- docs/durable-core-plan.md
+- docs/agent-prompt-improvement-plan.md
+Read the implementation checkout's docs/autonomy-implementation-progress.md,
+docs/autonomy-progress/{supervisor,quality,durable-core,integration}.md and
+contracts in docs/autonomy-contracts/. Inspect runtime, tests, schemas, guarantees,
+policies, operator guide, host qualification and authorization/activation packages.
 
 SCOPE AND AUTHORITY
-This invocation authorizes the local implementation and offline checks described
-by the plans, subject to the user's and harness's applicable rules. It does not by
-itself authorize paid model calls, spending, credential provisioning, elevated host
-changes, external messages, remote GitHub polling, publishing, production actions,
-push/merge, or service registration. Reuse explicit authorization already present
-in the conversation when it covers the exact action; do not ask for it twice.
-Before a missing paid or activation authorization, finish all independent local
-work and present the exact reviewable setup, limits, checks and stop criteria.
-No secret values in chat, files, process arguments or logs. Do not read .env files
-or owner token files. Use the approved secret mechanism and owner-side operations.
-Never weaken a guard, permission prompt, hard human gate or isolation boundary.
+This implementation invocation covers local code/docs and offline checks under the
+current user's rules. It does not itself authorize new model calls, spending,
+credentials, elevated host changes, service registration, external messages/polling,
+publishing or production actions. Reuse exact existing authorization; do not ask
+twice. Sizing or host-setup permission is not blanket assessment/activation authority.
+Finish independent work and prepare a concrete packet before asking for missing
+approval. Never read .env variants or owner token files, print secrets, weaken
+permissions/guards, relax safety/quality gates or remove a refusal to make tests pass.
 
-WORKING METHOD
-Inspect git status and preserve all existing work, including the team guide and
-README changes. Reuse a suitable checkout; use the codex/ branch prefix if a new
-branch is needed. Do not discard indexes, user changes or historical run records.
-Create docs/autonomy-implementation-progress.md with baseline revision, current
-behavior, evidence, phases, owners, unresolved decisions and next safe action.
-One integration owner controls shared runtime/schema/policy files. Parallelize
-read-only audits and disjoint edits when safe, but never launch two writers in the
-same active pilot checkout or run overlapping full test suites unnecessarily.
-Reproduce confirmed defects with meaningful regression tests before fixing them.
-Do not create tests that only echo implementation details or silently update
-golden snapshots to make failures disappear.
+ONE INTEGRATION RECORD
+Update the existing integration-owner record with dated corrections, current heads,
+merged/unmerged state, ownership, contracts and evidence. Correct stale 'wiring not
+started', 'S4 pending' and no-host/no-model claims by scope; retain historical results.
+Do not repeat inconsistent test arithmetic. Keep G26-G28 supervisor, G29 admission,
+G30-G32 core, with actual limitations. Parallelize disjoint work with one runtime owner.
 
-IMPLEMENTATION ORDER
-A. Baseline and contracts.
-   Record the actual host/tool versions without exposing credentials. Inspect the
-   current manifest, supervisor, state CLI, tests, schemas and generated docs.
-   Agree the shared identity, job/step outcome, qualification and evidence contracts
-   before editing cross-cutting code. Mark proposed interfaces as proposed until
-   implemented. Preserve existing exit-code and legacy read/migration contracts.
+PRIORITY 1: EXECUTION AND ADMISSION BEFORE MODEL ROLE STEPS
+R01: Preserve COMMAND_EXECUTOR and step_executor now installed by the wrapper. Verify
+explicit/implicit checks and their children actually stay contained, especially on timeout
+and cancellation. Add safe regressions with dummy owner sentinels for residual gaps. Every candidate
+code path, including implicit completion checks and indirect test imports, must run
+inside the approved worker/grader boundary. Trusted broker code validates requests
+and imports authenticated receipts; it must not run project commands with owner
+filesystem/environment authority. Removing shell=True alone is insufficient. Preserve
+command time/output bounds, cancellation, artifact identity and usage accounting.
 
-B. Supervisor safety and pilot readiness.
-   Implement every confirmed correction in supervisor-completion-plan.md: positive
-   boundary controls; explicit consistent environments including help preflight;
-   Linux namespace/mount proof; paid-auth separation; separate fake and real stores;
-   correct no-active-run checks; drain versus cancellation; whole process/container
-   termination; lifecycle-safe scheduling; bounded usage/recovery and safe recipes.
-   Do not call a marker-only mocked probe a verified OS boundary. Do not claim
-   pause or the serve-loop deadline has stopped a running worker unless verified.
+R02: Preserve admission for credential-bearing generic routes and close the remaining
+credential-less arbitrary-command fixture exemption through enforceable confinement. Fixture
+mode must be enforceably scratch-only/nonoperational, with no model credentials or
+network and no path to operational results. Command wrappers/children cannot become
+a bypass. Operational generic adapters need the same capability/quality admission.
 
-C. Quality qualification.
-   Implement the protected versioned evidence/qualification registry and owner-only
-   promotion path. Evaluate the complete model+harness+tools+prompts+policy+context+
-   boundary configuration for explicit task classes, not a model display name.
-   Add fail-closed operational admission at enqueue/launch as applicable, immediately
-   before process spawn, on resume/config refresh and every new role attempt.
-   Missing, unknown, mismatched, expired or revoked qualification must hold work.
-   Keep schema/config changes, results and qualification status auditable.
-   Run untrusted candidate code only in a separate grading sandbox without owner
-   credentials. Keep holdouts/graders/thresholds outside the candidate's write access.
-   Provide a tightly scoped owner-authorized assessment mode for the first baseline
-   and candidates; it cannot admit operational jobs or mark itself qualified.
-   Do not promise guaranteed best quality. Fail/inconclusive is a valid outcome.
+R03: Preserve expanded observation and verify the remaining effective bundle fields;
+hold missing model identifiers instead of treating an empty reported set as success. Include resolved/auxiliary/delegated models, harness/adapter/parser/
+launcher, tools/permissions, prompts/skills/policy, context/knowledge and boundary/image/
+environment. Recheck at spawn and later steps; test tampering every material field.
+Unknown identity holds or receives an explicit limited policy, never inherited approval.
 
-D. Durable core.
-   Implement persistent responsibility records for delivery-lead, context-engineer,
-   qa-lead, eval-engineer, security-engineer and sre-engineer. Keep one deterministic
-   owner-side supervisor, not six immortal model sessions. Preserve required on-demand
-   Product Manager, CTO, builders, Code Reviewer, Release Manager and specialists.
-   Bind authoritative claims/results to owner-launched role attempts through the
-   trusted identity/broker contract. A self-declared agent or Verifier string is not
-   authentication. An untrusted subagent result can be advisory, not an authenticated
-   independent verdict. Enforce fresh reviewer identity and immutable source snapshot.
-   Add a verified role-step completion outcome distinct from whole-job completion;
-   successful continuation must not consume failure retries. Every step still owns
-   a budget reservation, bounded attempt, transcript/evidence record and safe lease.
-   Preserve the single-writer checkout rule and explicit legacy monolithic mode.
-   Persist context/provenance/freshness and promote only evaluated approved lessons.
+R04: Preserve active watch_authority and complete direct role-step/container
+revocation/expiry/invalidation tests with bounded detection and stop latency. Detect invalid
+authority, safely stop, retain reservation/lease until reconciliation, reject late
+results and hold. Test revoke/expire mid-attempt and restart during reconciliation.
+Future-dispatch checks alone are insufficient.
 
-E. Offline validation and independent review.
-   Exercise each focused plan's acceptance matrix with fake adapters and harmless
-   fixtures. Include crash windows, replay, impersonation, stale verification,
-   context truncation, denied tools, missing cost, exhausted budgets, corruption,
-   cancellation, container children, stale qualifications and promotion tampering.
-   Run the repository's manifest validation, generated-doc check, relevant focused
-   tests, full unit suite, scenario suite and skills preflight from repository root.
-   Keep outputs and verdicts. Run real-host boundary/lifecycle checks when an
-   authorized capable host exists. Do not silently install elevated services.
-   Have an independent reviewer verify the implementation and evidence. Fix material
-   findings, repeat affected checks, and update docs/guarantee ledger honestly.
+R05: Keep container role-steps refused until real-engine endpoint confinement, peer
+binding and owner-store/process isolation are proven. Same-UID Linux peer identity
+is not strong isolation. Test per-dispatch mounts, trusted owner-copy identity, foreign
+peer/replay refusal, lost wrapper, cancel and no second writer. Preserve explicit legacy
+mode and fixture-only Windows IPC; never enable merely by deleting the refusal.
 
-F. Authorized assessment and live pilot.
-   Prepare the exact scratch project, provider/model and harness version, frozen
-   configuration digest, credential reference, test-set version, trial count,
-   per-attempt/run/aggregate budgets, deadline, expiry and stop rules. If matching
-   authorization is missing, present it and wait before paid work. The first paid
-   authentication check also requires coverage and counts toward the budget.
-   Freeze metrics and grading thresholds before results. Keep fake-worker evidence
-   separate. Qualify the first pair against absolute floors, then compare candidates
-   against the same baseline/task distribution with repeated trials and uncertainty.
-   Run the live supervisor pilot for the actual new execution mode. Keep the
-   existing smoke eval's human-release-gate outcome distinct from unattended pilot
-   completion. Meter/reconcile provider usage, audit decisions, independently run
-   acceptance checks in the grading boundary and record pass/fail/inconclusive.
-   No unapproved extra trials, retry batches, automatic budget increase or fallback.
+PRIORITY 2: COMPLETE EXISTING TEAM AND QUALITY PATHS
+R06: Implement receipt-bound supervised assessment and a protected container/VM grader.
+No candidate code receives registry/owner credentials. Trials bind authentic dispatch,
+principal and receipt to exact source/artifacts/bundle and known reconciled usage.
+The direct sizing adapter and local-process fixture grader cannot issue certificates.
+Bootstrap assessment is an explicitly authorized experiment, never an operational bypass.
 
-G. Controlled activation and improvement.
-   Prepare exact service files and the approved task/trigger scope; use a qualified
-   configuration. Present schedule, limits, owner account, secret references, stop,
-   recovery, local status, retention and rollback. Register only when the owner's
-   activation authorization covers it. Verify registration, an allowed run, a refused
-   run, restart behavior, stopping and accounting. External notifications need their
-   own authorized recipient/destination. Do not notify on unchanged status by default.
-   Add observation->lesson->evaluation->proposal->human promotion->changelog handling.
-   Requalify material changes and retain a tested qualified fallback. If first
-   activation has no earlier qualified route, rollback to paused/no dispatch after
-   reconciling active work; never substitute an unqualified configuration. Never silently
-   relax thresholds, replace the baseline or self-promote a new model/lesson.
+R07: Freeze and consume complete role/task/acceptance/source/context packets. Include
+canonical prompts and needed inputs; do not read mutable BRIEF as authority after a
+snapshot. Candidate lessons are not approved knowledge. Preserve approved provenance;
+reject stale/missing/tampered inputs; test recovery, truncation and post-snapshot edits.
 
-DONE MEANS
-All offline acceptance cases pass; documentation and migrations match the actual
-interfaces; independent review has no unresolved release-blocking finding; and
-any claimed live/activated state has configuration-specific authorized evidence.
-If paid approval, host access or activation permission is absent, complete and
-deliver the offline implementation plus the concrete pending package. Report the
-dependency exactly; do not call the system live-verified or activated.
+R08: Finish all six duties: delivery-lead, context-engineer, qa-lead, eval-engineer,
+security-engineer and sre-engineer. Four advisory obligations currently display without
+dispatch. Add bounded owner-configured triggers/dependencies, idempotent wake-ups,
+budgets and no-recursion/no-progress holds. Every attempt needs a principal, reservation,
+lease and receipt. Builders/product/architecture/review/release specialists remain on
+demand. Builder children cannot become independent QA by changing their role name.
+Step-complete continues the job without failure retry consumption or whole-job success.
+Preserve paused/reconciled legacy migration and one writer per checkout.
 
-FINAL REPORT
-State what changed, files/commits, tests actually run, remaining risks, which
-model+harness+task classes are qualified, which identities are durably dispatched,
-pilot and service status, actual usage versus ceilings, how to stop/rollback, and
-the next required owner decision. Link the progress record. Avoid perfect-quality
-claims and distinguish inferred safety from tested enforcement.
+R09: Preserve integrated evaluated lesson promotion, verify revocation semantics and
+finish reference-aware retention. Preserve evidence needed by active jobs, certificates,
+incidents or rollback. Models cannot silently promote lessons or loosen policy.
+
+R10: Align COMMAND_RULE, skills and actual permitted tools/working directory. Replace
+any remaining unsupported examples with a genuinely supported narrow method; the
+known PowerShell Out-File contradiction has already been removed. Share environment policy across live smoke/measurement where applicable.
+Use offline denied-tool tests before authorized live adherence measurement.
+Apply the prompt-improvement plan across the shared contract, role specialties,
+generated execution-mode/authority instructions and immutable task packet. Keep
+legacy and broker-mediated examples distinct. Native children cannot self-declare
+independent QA; repository content cannot grant authority. Version all changed
+instructions in the effective bundle and qualify them, rather than merely testing text.
+
+PRIORITY 3: VERIFY ONE FINAL CANDIDATE
+Run focused before/after regressions, schema checks, manifest validation, generated
+docs, scenarios, skills preflight, installed/owner-copy packaging and one coherent
+full suite. Cover crash/replay/impersonation, stale verdict/context, unknown cost,
+budget exhaustion, cancellation, registry corruption, revoked/expired qualification,
+forbidden fixture use and migration. Historical sibling tests are not current evidence.
+Get independent review; close release-blocking findings and rerun affected checks.
+Record exact candidate revisions, commands, results, skips and remaining limitations.
+
+Complete harmless remaining S4 drills under actual host authorization: disposable
+systemd service, engine restart, supervisor restart, scheduled dummy-credential
+reference, supported logoff/reboot, role-step transport and cancellation. The prior
+whole-worker boundary does not prove broker transport. Refresh proof after material
+code changes. Report unsupported cases. No paid call hidden in this phase.
+
+PRIORITY 4: AUTHORIZED QUALIFICATION AND COMPLETE ROLE-STEP PILOT
+Prepare exact host/image/project/store, full effective bundle and task classes,
+secret references, protected dataset/graders, trial count/repeated-case rules,
+absolute floor/comparative thresholds, per-attempt/run/aggregate allowance, deadline,
+expiry and stop criteria. Follow the detailed plan's predeclared statistics and
+inconclusive rules. Reconcile previous usage/authority before any call, including auth
+smoke. If scope is missing, present this packet and wait for the dependent action.
+
+Assess the first baseline against protected absolute floors, independently grade it,
+and run a complete supervised role-step job with real independent QA/final delivery.
+A build-only sizing result is not a pilot; one happy pilot is not full task-class
+qualification. Record pass/fail/inconclusive. No automatic extra trials, larger budget,
+weaker checks or unqualified fallback. Reconcile auxiliary-model and failed-attempt
+usage. Only owner promotion changes routes. A second model/harness needs its own evidence.
+
+PRIORITY 5: NARROW ACTIVATION AND CONTROLLED IMPROVEMENT
+Prepare service files, triggers/task classes, qualified route, schedule, account,
+secret references, limits, health/hold status, retention, stop/recovery and rollback.
+Register only within actual activation authority. Read back registration; verify
+allowed/refused jobs, restart/stop and accounting. External notifications need their
+own destination scope; stay quiet on unchanged state. No earlier qualified route
+means rollback to paused intake/no dispatch after active-work reconciliation.
+Requalify material changes; promote lessons after protected evaluation and owner
+approval with reversible versions. Never silently lower the quality floor.
+
+DONE AND REPORT
+Deliver code and evidence for all authorized scope. Distinguish implemented, offline-
+verified, host-verified, live-measured, qualified and activated. If authority/host
+capability is missing, finish independent work and deliver the exact pending package;
+do not claim readiness. Report candidate refs, changes, tests actually run, open IDs,
+six-duty status, qualified task classes, pilot/service state, usage, stop/rollback and
+next owner decision. Link progress. Never promise best output or universal non-degradation.
 
 ON RESUME
-Read the progress record, working-tree changes, owner-side job/attempt status and
-existing authorizations. Reconcile them before doing anything. Never relaunch while
-the previous writer may still act. Evidence, frozen configuration and live state
-override an optimistic progress note. Continue at the earliest unsatisfied gate;
-do not repeat paid work just because context was lost.
+Read current code/diffs, redacted owner-side job status, authorization and evidence.
+Reconcile prior workers/usage; never duplicate an uncertain writer or paid trial because
+context was lost. Continue at the earliest unsatisfied gate.
 ```

@@ -1,8 +1,76 @@
 # Quality qualification across models and harnesses
 
-Prepared 1 November 2026 against source revision `f6153d3`. This document specifies proposed work. It does not record an implemented qualification registry, a live evaluation result, owner authorization, or an activated service.
+## Latest verified checkpoint — 2 November 2026
 
-The governing integration contract is [Autonomy implementation plan](autonomy-implementation-plan.md). Coordinate this work with [Supervisor completion](supervisor-completion-plan.md) and [Durable core](durable-core-plan.md). Use the [focused implementation prompt](quality-qualification-prompt.md) to execute this workstream.
+**Integration advanced during this review to `bf9d11ab4c6fa06db8db11fee3f968156fd361d9` (`autonomy-integration`).** The wiring `c4794ec`, quality measurement `86e96b0` and review-fixes branch are now merged. `main` remains `3aafe1b` plus these documentation edits. This checkpoint supersedes the earlier `4949185` / unmerged status below; retain that earlier pass only as historical evidence. Recheck current HEAD before implementation; do not reset or re-merge work already incorporated.
+
+The review-fixes record reports **659 tests OK, 7 skipped** at `1cf4ebf`, followed by a documentation-only commit and merge `1b710ca` with the same source tree. The integration owner recorded manifest/docs/scenario/preflight checks on the merge. Later `72ef067`/`bf9d11a` clarify promotion documentation. This review inspected the new source and records; it did not rerun that full runtime suite. No new live role-step pilot, qualification or service activation is recorded.
+
+| Correction | Latest implementation | Remaining acceptance |
+| --- | --- | --- |
+| R01 | `step_executor` now routes explicit and completion checks through container/prefix execution; records boundary; owner-side git hooks/fsmonitor are constrained. | Real boundary proof for these new execution paths, guaranteed termination of timed-out commands/children before continuing, and no-boundary fallback confined to genuine nonoperational fixtures. Fake-boundary tests prove routing/environment, not OS containment. |
+| R02 | Credential/approved-environment-bearing command adapters now require admission; offline-rehearsal refuses those names. | The residual fixture exemption still checks only environment/credential names and evidence class. Arbitrary argv can reach local unauthenticated models or other network/services without such names. Enforce fixture capabilities/network and nonoperational scope; do not equate “no credentials passed” with “cannot call a model.” |
+| R03 | Installed prompt/skill/policy, launcher, environment/image and delegation digests are observed; undeclared models reported in `modelUsage` hold results. | Missing model IDs currently yield an empty set and pass this check. Hold unknown model evidence. Complete actual tool schemas/permissions, harness version/settings/context identity and dynamically loaded launcher code coverage. A post-run reported subset is not complete pre-run attestation. |
+| R04 | `watch_authority` rechecks admitted attempts each tick, records withdrawal, stops and reconciles; revoked outcomes cannot advance. | Preserve this implementation; prove actual role-step/container revocation, late-result refusal and bounded detection/stop latency, including supervisor downtime. Do not rebuild the monitor. |
+| R05 | Container role-step refusal remains. | Endpoint-confined transport and real-engine negative identity/lifecycle tests. Same-UID process binding alone is not isolation. |
+| R06 | Direct live sizing adapter exists. | Supervised principal/receipt-bound assessment and protected container/VM grading; first certificate-quality trials. |
+| R07–R08 | Earlier snapshot/obligation wiring remains. | Complete frozen context actually consumed, approved-only knowledge, and bounded scheduling for the four currently advisory duties. |
+| R09 | Runtime promotion now requires an evaluation record and invokes `promote_lesson`; G15 updated. | Preserve and verify the promotion path; dependency-aware retention is still open. Do not label all R09 complete merely because promotion is wired. |
+| R10 | Conflicting `Out-File` advice is removed; live smoke uses shared environment policy. | Live command-rule adherence and broader shared/role/skill mode/context/authority consistency from the prompt-improvement plan. |
+| R11–R12 | Merge/status/contract reconciliation has advanced; G33 executor and G34 active revocation were added. | Remaining real service/restart/dummy-credential/supported logoff drills, source-specific qualification and a few stale host/history statements. |
+
+Source: current integration `docs/autonomy-progress/review-fixes.md` and `docs/autonomy-implementation-progress.md`; `scripts/agentic_supervisor.py` (`step_executor`, `observed_bundle`, `fixture_problems`, `transcript_models`, `watch_authority`), runtime executor/promotion hooks, updated skill and live-smoke files. Residual findings above are source review, not exploit demonstrations. The record itself notes that timed-out container commands can continue until the container stops, launcher-loaded external code is not fully digested, missing model IDs pass, and real role-step revocation is not yet directly tested.
+
+**Resume order:** preserve merged fixes; finish residual R01–R04 acceptance alongside R05 transport; implement R06 assessment/grader, R07 context, R08 scheduling and R09 retention; align broader agent instructions; then finish host drills, authorized live qualification/pilot and narrow activation. A distinct worker user is one possible isolation mechanism, not an unconditional extra requirement when a verified boundary provides the required separation. Read actual host state before repeating setup: S4 records WSL integration enabled, while some next-action notes still say to enable it.
+
+Historical design baseline: 1 November 2026, source revision `f6153d3`. Refreshed 2 November 2026 against the worktree checkpoints below. The detailed requirements remain the acceptance contract; resume implemented components rather than recreating them. This document does not authorize new model spending, issue a qualification certificate or activate a service.
+
+The governing integration contract is [Autonomy implementation plan](autonomy-implementation-plan.md). Read the [current progress review](autonomy-progress-review.md), coordinate with [Supervisor completion](supervisor-completion-plan.md) and [Durable core](durable-core-plan.md), and use the [focused resume prompt](quality-qualification-prompt.md).
+
+## Earlier checkpoint — superseded by the latest refresh
+
+These are inspected source checkpoints, not evidence that the main checkout contains all runtime work or that operational activation is complete. Recheck branch ancestry and dirty files before integrating further changes.
+
+| Checkout or stream | Checkpoint | Implemented progress and remaining distinction |
+| --- | --- | --- |
+| Main checkout | `3aafe1b` before this documentation refresh | Planning and guide source; runtime implementation is in the worktrees below. |
+| `autonomy-integration`, `.claude/worktrees/pensive-poincare-5e61a2` | `4949185` | Quality and durable-core libraries merged; supervisor S1–S3 and partial S4 host evidence merged. The later admission/role-step wiring is still a separate delta. |
+| `claude/autonomy-integration-wiring-8046ea` | `c4794ec` | Admission, role-step dispatch, migration, packaging, G29–G32 and a command-shape rule exist. Review and integrate this implementation; do not start wiring again. |
+| `claude/autonomy-quality-registry-22bb47` | `86e96b0` | Q0–Q2 library work is already merged into integration. Later commits `f90f6b8`, `2f9ce02` and `86e96b0` add a direct measurement adapter and sizing evidence; review that unmerged delta separately. |
+| Durable-core stream | `1baed75` | D0–D2 library work is already merged. Integration and remaining trust-boundary work are the next steps. |
+
+Evidence sources are the respective worktrees' `docs/autonomy-progress/quality.md`, `integration.md`, `durable-core.md` and `supervisor.md`, together with `docs/autonomy-contracts/`. Older summaries saying wiring has not started, S4 is entirely pending, or all qualification code is merely proposed are stale. The master progress review reconciles those records; a branch record alone is not current runtime activation evidence.
+
+Recorded checks include 505 tests in the recorded full suite at `472d408`, 130 focused checks after `2f97cfc`, and wiring records of 632 Windows tests and 87 Ubuntu tests. These are historical reports, not reruns for this refresh. The later `c4794ec` command-rule change has focused evidence, not a fresh full-suite result. CI on the unpushed branches is not evidenced.
+
+### Remaining gates that change the next implementation steps
+
+| Gap at the inspected checkpoint | Required completion evidence |
+| --- | --- |
+| Owner-side broker `exec` and completion-triggered acceptance currently run worker-project checks outside the worker boundary. | Run both explicit and automatic checks inside an unprivileged container/VM grading boundary before live qualification or a pilot. Owner code validates evidence; worker-controlled code must never execute with owner credentials, signing keys, private registry/holdouts or inherited authority. |
+| Admission returns `not-applicable` for the generic `command` adapter. Arbitrary command arguments do not prove there is no model call. | Explicit nonoperational fixtures remain usable, but every newly activated operational command route must pass admission. Test a command that invokes a model and a forged fixture label. |
+| Bundle checks observe only part of the effective tuple: execution mode, adapter, requested model, runtime/CLI digests and separate boundary evidence. Other material is owner-declared. | Bind immutable artifacts and independent capability/identity probes to prompts, skills, tools, harness and actual resolved auxiliary/delegated models. Declared settings alone are not runtime attestation. |
+| Dispatch checks exist; active revocation/expiry monitoring and cancellation are incomplete. | A revoked/expired active attempt stops through the tested lifecycle, preserves unknown-cost reservations, reconciles ownership and cannot start a second writer or another step. |
+| The new direct CLI measurement adapter lacks supervised broker principal and receipt binding. | Implement a supervised assessment adapter that binds plan, task, attempt identity, artifacts, usage and independent grades to owner-verifiable receipts. Preserve direct sizing as a separate evidence type. |
+| Local-process grader fixtures are not container/VM isolation evidence. Repository holdout-shaped fixtures are public. | Prove a real grader boundary and use protected immutable private holdouts. Test owner-secret/store access denial and grader child-process inheritance with safe canaries. |
+| Linux role-step identity transport exists; admitted container role-step transport and Windows authentication remain incomplete. | Demonstrate the actual supported transport and negative identity cases. A monolithic-worker run cannot certify role-step dispatch. |
+| `c4794ec` corrects a shell command-shape rule, but the skill's PowerShell `Out-File` path and allowed tool instructions still need alignment. | Align generated prompts, skills and narrow enforced permissions, then complete the authorized representative job. Do not broaden permissions to hide the mismatch. |
+| Measurement includes auxiliary model usage and cached-token accounting. | Account for every actual `modelUsage` entry, including auxiliary Haiku and cache categories, with known cost provenance; unknown usage never means zero. |
+
+### Measurement provenance and authority
+
+Owner-authorized measurements recorded on 1 November used Claude Max. Their reported dollar amounts are harness-reported **API-equivalent estimates**, not a subscription invoice or proven incremental charge. The old quality record heading “Paid calls: None” describes its earlier offline stage and must not be used as a current summary of the entire branch.
+
+| Recorded sizing evidence | Interpretation |
+| --- | --- |
+| One Sonnet double-dev measurement, approximately `$0.0146` | Followed an authentication failure with no model execution; it is a small direct-call measurement. |
+| Five practice measurements, approximately `$0.0466` total | Limited sizing evidence, not a complete workflow. |
+| First greet-worker attempt, approximately `$0.20` and 357k tokens | Stopped at a missing decision view. |
+| Second greet-worker attempt, approximately `$0.34` and 962k tokens, mostly cached | Reached build/fix work, then stopped at a denied verification shell command. The token total uses `modelUsage`, not an incomplete top-level count. |
+
+Those direct measurements ran outside the supervised `serve` path and do not establish isolated grading, complete-run cost, role-step qualification or a certificate. A previously discussed `$0.80–$1.50` full-run range is a projection, not a measured completed job. No completed live qualification or activated route is evidenced.
+
+Prior measurement authorization does not authorize a new batch, pilot or activation. Check the actual existing session decision for scope, limits and expiry before any further spend; reuse matching authorization without asking twice, but never infer an expansion from a progress document or this plan.
 
 ## 1. Outcome and limits
 
@@ -12,11 +80,11 @@ The six proposed persistent responsibilities are Delivery Lead, Context Engineer
 
 No number of agents and no finite evaluation can guarantee the best answer on every task or prove universal non-regression across arbitrary LLMs and harnesses. The enforceable promise is narrower: use only configurations qualified for the intended scope, reject observed regressions, hold when evidence is insufficient, preserve independent checks and permit measured, reversible promotion.
 
-## 2. What exists and what must be added
+## 2. Historical baseline and retained acceptance requirements
 
-Reconfirm these anchors before editing; line numbers describe the inspected source and can move.
+The following table describes the original `f6153d3` design baseline, not the current worktrees. Its gaps motivated the requirements below; several now have implementations identified in the current checkpoint. Do not recreate Q0–Q2, the durable-core libraries or existing wiring. Reconfirm actual code and contracts before extending them; historical line numbers can move.
 
-| Existing foundation | Source anchor | Missing qualification capability |
+| Foundation at the historical baseline | Historical source anchor | Gap at that time |
 | --- | --- | --- |
 | Fifty role definitions and thirteen harness emitters | `team.json`; `docs/harnesses.md` | Emitted files are not evidence of equivalent runtime behavior or quality. |
 | Supervisor adapters named `claude` and `command` | `scripts/agentic_supervisor.py:64` | No registry of qualified model/harness/tool/prompt combinations. |
@@ -52,9 +120,9 @@ Only the owner-side broker may authorize admission or sign promotion. Workers ma
 
 The [durable-core plan](durable-core-plan.md) owns authenticated attempt identities and result binding. Qualification must consume that identity contract. A worker-supplied `agent` or `verifier` string is never sufficient proof of separation.
 
-## 4. Proposed files and interface boundaries
+## 4. Existing modules and historical interface proposals
 
-These paths are proposed implementation targets, not currently available commands or APIs. Consolidate files where justified, but retain the contracts and trust boundaries.
+Current implementation uses `scripts/agentic_qualification.py`, `scripts/agentic_evaluator.py`, generated `schemas/qualification/`, and tests named in the worktree records. The table below preserves the original provisional paths for traceability; do not create duplicates or assume these old names are current interfaces. Extend implemented contracts and migrate incompatible changes explicitly. G29 is quality admission; G26–G28 belong to supervisor safety and G30–G32 to core.
 
 | Proposed path | Responsibility |
 | --- | --- |
@@ -133,7 +201,7 @@ Promotion, revocation and rollback use the store lock, expected route revision, 
 
 The first live configuration has no qualified predecessor. Do not create an operational bypass to evaluate it.
 
-Implement an explicit `assessment` execution mode separate from `operational` mode. This is a proposed interface requirement; choose and document actual command syntax during implementation.
+Implement an explicit `assessment` execution mode separate from `operational` mode. Assessment records/admission already exist; complete the supervised live adapter and protected grader using implemented contracts, and document any additional interface accurately.
 
 Assessment requires a protected, owner-authorized plan naming the exact candidate, task set, isolated fixture project/store, trial count, per-attempt/run/aggregate spend caps, wall-clock cap, credential reference, permitted operations, expiry and stop conditions. It permits only the plan's experiment work. It cannot consume operational issues, deploy, publish, message real people, alter routes, grant approvals, or mint certificates. The existing hard human gates still apply.
 

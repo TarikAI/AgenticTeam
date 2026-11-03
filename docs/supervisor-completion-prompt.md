@@ -1,11 +1,65 @@
-# Supervisor completion implementation prompt
+# Supervisor completion resume prompt
+
+Updated 2 November 2026. Start with the [progress review](autonomy-progress-review.md).
 
 Copy the prompt below into a coding session with the AgenticTeam source repository open. It implements the supervisor workstream of [the master plan](autonomy-implementation-plan.md); it does not itself authorize paid execution or service activation. Existing owner authorization remains valid when it actually covers the concrete action. Do not execute this prompt concurrently with another writer of shared runtime files or an active pilot checkout.
 
 ```text
-Implement the remaining AgenticTeam supervisor work described in:
+LATEST CHECKPOINT — 2 NOVEMBER 2026 (supersedes earlier checkpoint descriptions)
+Current audited integration is bf9d11ab4c6fa06db8db11fee3f968156fd361d9. Wiring c4794ec,
+quality measurement 86e96b0 and review fixes have been merged (fix merge 1b710ca).
+Recheck actual HEAD/diffs; do not re-merge these or redo implemented work. Main 3aafe1b
+is still the documentation baseline. Older 4949185/unmerged passages below describe
+the initial audit, and their defect examples are regression history, not current status.
+
+Implemented since that initial audit: boundary-aware COMMAND_EXECUTOR for broker exec
+and implicit checks; narrowed command-fixture exemption; observe-bundle hashes for
+installed instructions/launcher/env/image/delegation; post-run undeclared-model checks;
+active watch_authority cancellation/reconciliation; evaluated lesson promotion; removal
+of the Out-File instruction; shared live-smoke environment. Preserve these. G33 covers
+executor routing and G34 active revocation; existing G15/G29 were updated. Recorded
+659 tests OK, 7 skipped at 1cf4ebf, then documentation-only changes and source-equivalent
+merge. The full runtime suite was not rerun by this docs audit. No live role-step pilot,
+certificate or activated service is established.
+
+REMAINING PRIORITY, NOT REIMPLEMENTATION
+- R01: Prove the new executor on the real boundary and terminate/reconcile timed-out
+  commands and children before continuation. The record says a timed-out container
+  command can persist until container stop. Keep no-boundary fallback nonoperational.
+- R02: fixture_problems still uses only absent approved env/credential names plus
+  evidence class. That does not prevent local unauthenticated model/network calls or
+  arbitrary code. Enforce capability/network confinement and explicit nonoperational
+  scope, or require admission. Test harmless stand-ins without actual model calls.
+- R03: Missing modelUsage IDs currently produce an empty used-model set and pass.
+  Hold unknown identities. Complete actual tools/permissions/harness settings/context
+  attestation and dynamic launcher dependencies; preserve the new digest coverage.
+- R04: Preserve active monitoring; directly test real role-step/container revocation,
+  late results and bounded detection/stop latency, including supervisor downtime.
+- R05: Container role-step transport remains refused until endpoint confinement,
+  peer identity, owner-store/process isolation and lifecycle pass on the real engine.
+- R06: Implement supervised principal/receipt-bound assessment and protected container/
+  VM grading. Direct sizing and local-process grader fixtures cannot certify.
+- R07-R08: Complete consumed immutable context, approved-only knowledge and bounded
+  scheduling of context/eval/security/SRE obligations. These remain incomplete.
+- R09: Promotion now uses evaluated records; preserve it. Finish dependency-aware
+  retention and verify evidence remains available for active jobs/certificates/rollback.
+- R10: Preserve corrected Out-File/environment behavior. Finish broader shared/role/
+  skill execution-mode/authority/context consistency and authorized live adherence.
+- R11-R12: Remaining real service/restart/dummy-credential/supported logoff drills,
+  exact-candidate evidence and stale host-history reconciliation. Inspect host state
+  before setup: S4 says WSL integration was enabled; some next-action notes are stale.
+
+Read the latest progress review before following the retained acceptance specification
+below. Treat its earlier claims of unmerged work or absent fixes as historical. Extend
+only residual gaps; keep meaningful regression coverage for corrected defects. Do not
+require a new worker user blindly when a verified boundary provides required isolation.
+The prior sizing approval is not new assessment/activation approval. No prompt authorizes
+new paid work, service setup or wider permissions; reuse exact existing session authority.
+
+Resume the existing AgenticTeam supervisor implementation; do not rebuild completed fixes. Read:
+- docs/autonomy-progress-review.md (current evidence and corrections R01-R12)
 - docs/autonomy-implementation-plan.md (shared program and authority contract)
-- docs/supervisor-completion-plan.md (S0-S8 and acceptance A01-A14)
+- docs/supervisor-completion-plan.md (S0-S8 and acceptance A01-A19)
 - docs/quality-qualification-plan.md (qualification/admission/assessment contract)
 - docs/durable-core-plan.md (identity, role-step results and execution-mode contract)
 
@@ -25,8 +79,8 @@ Fresh-start and resume procedure
 1. Inspect source revision, branch, working-tree changes and local instructions. Preserve all
    unrelated edits, including guide/README work. Reuse a suitable checkout; use the codex/ prefix
    for a new task branch if needed. Do not reset, clean, delete or overwrite existing work.
-2. Read docs/autonomy-implementation-progress.md if it exists. Create or update its supervisor
-   S0-S8 table with source, status, evidence paths, exact outstanding gate and next safe action.
+2. Read the existing integration progress and workstream records. Update through their owners;
+   preserve history and append dated corrections. Record exact outstanding gates and evidence.
 3. Reconfirm every S01-S13 source finding against current code. Mark already-fixed items with
    evidence; do not duplicate fixes. Historic line references and test counts are not fresh results.
 4. Agree shared admission, assessment, proof, identity and role-step result contracts with the
@@ -59,7 +113,8 @@ results. Pin CI evidence to that SHA. Separate observed source behavior, mocked 
 behavior and paid model evidence. Record absent infrastructure as a dependency, not a passed gate.
 
 S1 isolation and environment
-Implement the current open S01-S05 items with regressions demonstrated failing before their fix:
+Preserve the implemented S01-S05 controls below. Add regressions only for remaining or newly
+confirmed gaps; do not recreate already-fixed probe/environment code:
 - Replace marker-only isolation with a bounded structured probe tied to a harmless nonce and the
   expected configuration. The owner creates a protected harmless sentinel and a readable view
   control. Prove expected view access, owner-sentinel denial, view write denial, successful
@@ -84,7 +139,7 @@ Implement the current open S01-S05 items with regressions demonstrated failing b
 
 S2 stopping and host lifecycle
 - Test and document that pause stops new launches; it does not terminate an active attempt.
-- Make an outer serve deadline distinguish unfinished work from normal completion. Agree whether
+- Preserve the implemented explicit unfinished outcome at the outer serve deadline. Agree whether
   it explicitly cancels/reconciles or returns an unfinished outcome with a precise next action;
   implement, test and document that contract. Do not assume a supervisor exit stopped its worker.
 - Implement the proven emergency procedure: prevent new launch, cancel the exact owned job,
@@ -92,12 +147,12 @@ S2 stopping and host lifecycle
   ownership as allowed. Unknown ownership/spend stays held; never kill by an unverified reusable PID.
 - Validate container-specific ownership, timeout, stubborn children, wrapper crash, daemon restart
   and late receipts. Add persisted container identity or a lifecycle-aware launcher when needed.
-- Replace the unqualified oneshot recipe with a tested service/worker lifecycle. Do not disable
+- Preserve the implemented long-running service recipe and qualify its actual lifecycle. Do not disable
   process cleanup to conceal the mismatch. Add local health and meaningful hold/failure events;
   external delivery awaits an approved destination. Preserve unsettled evidence during retention.
 
 S3 fixtures
-Create distinct offline rehearsal and paid-candidate projects/stores with distinct IDs, allowances
+Preserve distinct offline rehearsal and paid-candidate projects/stores with distinct IDs, allowances
 and evidence labels. Use task-owned temporary owner homes for tests, not the operational store.
 Fake-worker cost is synthetic. The fake feature is not the greet acceptance. Never delete/rebind
 stores to erase history or make a budget look fresh. Keep the real candidate fixture untouched by
@@ -124,7 +179,8 @@ ordinary work, approve/promote itself, or bypass risk/identity/isolation gates. 
 not implemented, keep dependent assessment pending; never invent an existing CLI switch for it.
 
 S5 paid assessment authorization and execution
-Before the first paid call, including authentication, prepare a concrete packet naming project,
+Before any further paid/model call, including authentication, reconcile prior usage and prepare
+a concrete covered packet naming project,
 store, source/boundary/configuration digests, execution mode, provider/model, harness version,
 credential reference, task set, protected graders, trial count, retries, per-attempt/run/aggregate
 ceilings, wall-clock bounds, expiry, stop/cancel procedure and evidence location. Verify the actual
@@ -162,11 +218,12 @@ Only after concrete activation authorization covers S7, register the service and
 Verify an allowed task, refusal of unqualified/disallowed work, no duplicate writer, scheduled secret
 delivery, exhausted-allowance behavior and the proven stop/recovery procedure. Test restart/reboot
 only where supported and authorized. On failure prevent new launches, reconcile active work and
-restore the last safe configuration. Record activated only with host evidence and the exact
+restore a still-qualified route. If no earlier qualified route exists, keep intake paused
+and dispatch disabled after safe reconciliation; never substitute an unqualified route. Record activated only with host evidence and the exact
 qualified configuration/mode/task classes. No claim of operation while the host is unavailable.
 
 Verification and delivery
-Keep A01-A14 in the supervisor plan traceable to tests or host/live evidence. Run targeted tests
+Keep A01-A19 in the supervisor plan traceable to tests or host/live evidence. Run targeted tests
 while changing code, then integrated source validation, generated-doc consistency, the full unit
 suite from repo root, deterministic scenarios and skill preflight. Do not run live smoke merely
 because it is in a test directory; it is paid and separately scoped. Add executed doc-workflow

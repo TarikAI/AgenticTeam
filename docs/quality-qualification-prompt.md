@@ -1,12 +1,66 @@
-# Copy-ready prompt: implement quality qualification
+# Copy-ready prompt: resume quality qualification
+
+Updated 2 November 2026; [current progress review](autonomy-progress-review.md).
 
 Use this prompt in the AgenticTeam source checkout. It requests implementation, not immediate model spending or service activation. For the complete program, use the [master implementation prompt](autonomy-implementation-prompt.md). The detailed acceptance contract is [Quality qualification plan](quality-qualification-plan.md).
 
 ---
 
-Implement AgenticTeam's quality-qualification workstream completely through the authorized scope. Read these documents first:
+LATEST CHECKPOINT — 2 NOVEMBER 2026 (supersedes earlier checkpoint descriptions)
+Current audited integration is bf9d11ab4c6fa06db8db11fee3f968156fd361d9. Wiring c4794ec,
+quality measurement 86e96b0 and review fixes have been merged (fix merge 1b710ca).
+Recheck actual HEAD/diffs; do not re-merge these or redo implemented work. Main 3aafe1b
+is still the documentation baseline. Older 4949185/unmerged passages below describe
+the initial audit, and their defect examples are regression history, not current status.
 
-1. `docs/autonomy-implementation-plan.md` and any existing `docs/autonomy-implementation-progress.md`.
+Implemented since that initial audit: boundary-aware COMMAND_EXECUTOR for broker exec
+and implicit checks; narrowed command-fixture exemption; observe-bundle hashes for
+installed instructions/launcher/env/image/delegation; post-run undeclared-model checks;
+active watch_authority cancellation/reconciliation; evaluated lesson promotion; removal
+of the Out-File instruction; shared live-smoke environment. Preserve these. G33 covers
+executor routing and G34 active revocation; existing G15/G29 were updated. Recorded
+659 tests OK, 7 skipped at 1cf4ebf, then documentation-only changes and source-equivalent
+merge. The full runtime suite was not rerun by this docs audit. No live role-step pilot,
+certificate or activated service is established.
+
+REMAINING PRIORITY, NOT REIMPLEMENTATION
+- R01: Prove the new executor on the real boundary and terminate/reconcile timed-out
+  commands and children before continuation. The record says a timed-out container
+  command can persist until container stop. Keep no-boundary fallback nonoperational.
+- R02: fixture_problems still uses only absent approved env/credential names plus
+  evidence class. That does not prevent local unauthenticated model/network calls or
+  arbitrary code. Enforce capability/network confinement and explicit nonoperational
+  scope, or require admission. Test harmless stand-ins without actual model calls.
+- R03: Missing modelUsage IDs currently produce an empty used-model set and pass.
+  Hold unknown identities. Complete actual tools/permissions/harness settings/context
+  attestation and dynamic launcher dependencies; preserve the new digest coverage.
+- R04: Preserve active monitoring; directly test real role-step/container revocation,
+  late results and bounded detection/stop latency, including supervisor downtime.
+- R05: Container role-step transport remains refused until endpoint confinement,
+  peer identity, owner-store/process isolation and lifecycle pass on the real engine.
+- R06: Implement supervised principal/receipt-bound assessment and protected container/
+  VM grading. Direct sizing and local-process grader fixtures cannot certify.
+- R07-R08: Complete consumed immutable context, approved-only knowledge and bounded
+  scheduling of context/eval/security/SRE obligations. These remain incomplete.
+- R09: Promotion now uses evaluated records; preserve it. Finish dependency-aware
+  retention and verify evidence remains available for active jobs/certificates/rollback.
+- R10: Preserve corrected Out-File/environment behavior. Finish broader shared/role/
+  skill execution-mode/authority/context consistency and authorized live adherence.
+- R11-R12: Remaining real service/restart/dummy-credential/supported logoff drills,
+  exact-candidate evidence and stale host-history reconciliation. Inspect host state
+  before setup: S4 says WSL integration was enabled; some next-action notes are stale.
+
+Read the latest progress review before following the retained acceptance specification
+below. Treat its earlier claims of unmerged work or absent fixes as historical. Extend
+only residual gaps; keep meaningful regression coverage for corrected defects. Do not
+require a new worker user blindly when a verified boundary provides required isolation.
+The prior sizing approval is not new assessment/activation approval. No prompt authorizes
+new paid work, service setup or wider permissions; reuse exact existing session authority.
+
+
+Resume AgenticTeam's existing quality-qualification implementation through the authorized scope. Preserve and extend implemented modules instead of starting Q0-Q2 again. Read these documents first:
+
+1. `docs/autonomy-progress-review.md`, `docs/autonomy-implementation-plan.md` and any existing `docs/autonomy-implementation-progress.md`.
 2. `docs/quality-qualification-plan.md` in full.
 3. `docs/supervisor-completion-plan.md` and `docs/durable-core-plan.md`, especially shared identity, role-step, authority, assessment and lifecycle contracts.
 4. `protocols/team-evaluation.md`, `protocols/evolution.md`, `protocols/harness-security.md`, `config/guarantees.json`, `docs/pilot-plan.md` and applicable repository instructions.
@@ -27,11 +81,11 @@ Inspect the actual code and tests. Record the source revision, current behavior,
 
 The repository has thirteen role emitters, but only `claude` and `command` supervisor adapters in the inspected baseline. Its current live smoke is Claude-specific and succeeds by reaching the human release gate. Preserve that contract. Add separate cases for unattended completion and role-sized steps.
 
-Coordinate supervisor pre-pilot fixes before paid assessment: positive isolation controls, explicit credential filtering across preflight/probe/worker paths, correct host/worker namespace mapping and tested process/container stop behavior. Do not treat marker strings, a filtered environment or a changed home directory as an OS boundary.
+Preserve and validate the merged supervisor controls before paid assessment: positive isolation controls, explicit credential filtering across preflight/probe/worker paths, correct host/worker namespace mapping and tested process/container stop behavior. Do not treat marker strings, a filtered environment or a changed home directory as an OS boundary.
 
-### B. Implement immutable qualification records
+### B. Verify and complete immutable qualification records
 
-Implement the strict schemas and protected owner-side registry specified in the quality plan. Reject malformed records, unknown authority fields, duplicate JSON keys, unsafe paths, unsupported versions and non-finite values.
+Preserve and extend the existing strict schemas and protected owner-side registry to meet the quality plan. Reject malformed records, unknown authority fields, duplicate JSON keys, unsafe paths, unsupported versions and non-finite values.
 
 Fingerprint the complete effective tuple: provider/resolved model and inference settings; every delegated role's effective model; harness/adapter/executable or image version; tool schemas, trusted identities and effective permissions; canonical and compiled prompts, shared contracts, skills, policy and routing; owner runtime and parser versions; sandbox, mounts and approved environment names; context/retrieval procedure and approved knowledge/playbooks.
 
@@ -41,7 +95,7 @@ Keep signing authority, private test sets and raw evidence outside worker-writab
 
 Implement protected, versioned owner promotions, revocations and route rollback with signatures, a hash-chained event history, monotonic revisions, store locking and atomic updates. Passing evaluation does not promote or activate a candidate. Reuse proven authority utilities only where their scope is appropriate; a run token is not automatically a global promotion credential.
 
-Choose and document the actual new command/API syntax during implementation. No proposed operation in the plan should be presented as an already-existing command.
+Use implemented API contracts; version and document any required new interface. No proposed operation in the plan should be presented as an already-existing command.
 
 ### C. Build bounded assessment and trustworthy grading
 
@@ -53,7 +107,7 @@ Protect immutable qualification holdouts and reference answers from workers, sha
 
 Prefer objective checks. Pin and calibrate supplementary model judges independently; preserve disagreement and missing evidence. Bind builder and verifier outcomes to broker-issued identities from the durable-core workstream, not self-declared role names. Include known-bad artifacts so graders demonstrably fail false successes.
 
-### D. Implement honest statistical decisions
+### D. Preserve and verify honest statistical decisions
 
 Treat the following as proposed defaults requiring preregistration and owner approval before paid assessment:
 
@@ -81,7 +135,7 @@ Preserve legacy interactive/monolithic parser and read semantics. Mark missing q
 
 Fallback may select only an owner-approved, currently qualified configuration for the same scope. Reconcile the previous attempt and unknown usage before switching. Verify resume compatibility; otherwise hold or use an explicitly controlled checkpoint. Record a new attempt and reverify current output.
 
-Implement scoped promotion, controlled canary, clear abort thresholds and rollback to a still-valid qualified route. Rollback must retain evidence and accounting and cannot undo external effects by assumption.
+Complete scoped promotion, controlled canary, clear abort thresholds and rollback to a still-valid qualified route. With no earlier qualified route, first-activation rollback is paused intake/no dispatch after reconciliation. Rollback must retain evidence and accounting and cannot undo external effects by assumption.
 
 Use failure evidence to create sanitized lessons, development regression cases and separately protected sibling cases. Evaluate candidate playbook/prompt changes before owner promotion. Version knowledge and requalify material changes. Do not leak private test content into learning or lower safety standards to accommodate a weaker model.
 

@@ -1,8 +1,73 @@
 # Six persistent core responsibilities
 
-Prepared 1 November 2026 against the baseline named in [the autonomy implementation plan](autonomy-implementation-plan.md). This document specifies future implementation. It does not establish that the core has been implemented, pilot-verified, or activated.
+## Latest verified checkpoint — 2 November 2026
+
+**Integration advanced during this review to `bf9d11ab4c6fa06db8db11fee3f968156fd361d9` (`autonomy-integration`).** The wiring `c4794ec`, quality measurement `86e96b0` and review-fixes branch are now merged. `main` remains `3aafe1b` plus these documentation edits. This checkpoint supersedes the earlier `4949185` / unmerged status below; retain that earlier pass only as historical evidence. Recheck current HEAD before implementation; do not reset or re-merge work already incorporated.
+
+The review-fixes record reports **659 tests OK, 7 skipped** at `1cf4ebf`, followed by a documentation-only commit and merge `1b710ca` with the same source tree. The integration owner recorded manifest/docs/scenario/preflight checks on the merge. Later `72ef067`/`bf9d11a` clarify promotion documentation. This review inspected the new source and records; it did not rerun that full runtime suite. No new live role-step pilot, qualification or service activation is recorded.
+
+| Correction | Latest implementation | Remaining acceptance |
+| --- | --- | --- |
+| R01 | `step_executor` now routes explicit and completion checks through container/prefix execution; records boundary; owner-side git hooks/fsmonitor are constrained. | Real boundary proof for these new execution paths, guaranteed termination of timed-out commands/children before continuing, and no-boundary fallback confined to genuine nonoperational fixtures. Fake-boundary tests prove routing/environment, not OS containment. |
+| R02 | Credential/approved-environment-bearing command adapters now require admission; offline-rehearsal refuses those names. | The residual fixture exemption still checks only environment/credential names and evidence class. Arbitrary argv can reach local unauthenticated models or other network/services without such names. Enforce fixture capabilities/network and nonoperational scope; do not equate “no credentials passed” with “cannot call a model.” |
+| R03 | Installed prompt/skill/policy, launcher, environment/image and delegation digests are observed; undeclared models reported in `modelUsage` hold results. | Missing model IDs currently yield an empty set and pass this check. Hold unknown model evidence. Complete actual tool schemas/permissions, harness version/settings/context identity and dynamically loaded launcher code coverage. A post-run reported subset is not complete pre-run attestation. |
+| R04 | `watch_authority` rechecks admitted attempts each tick, records withdrawal, stops and reconciles; revoked outcomes cannot advance. | Preserve this implementation; prove actual role-step/container revocation, late-result refusal and bounded detection/stop latency, including supervisor downtime. Do not rebuild the monitor. |
+| R05 | Container role-step refusal remains. | Endpoint-confined transport and real-engine negative identity/lifecycle tests. Same-UID process binding alone is not isolation. |
+| R06 | Direct live sizing adapter exists. | Supervised principal/receipt-bound assessment and protected container/VM grading; first certificate-quality trials. |
+| R07–R08 | Earlier snapshot/obligation wiring remains. | Complete frozen context actually consumed, approved-only knowledge, and bounded scheduling for the four currently advisory duties. |
+| R09 | Runtime promotion now requires an evaluation record and invokes `promote_lesson`; G15 updated. | Preserve and verify the promotion path; dependency-aware retention is still open. Do not label all R09 complete merely because promotion is wired. |
+| R10 | Conflicting `Out-File` advice is removed; live smoke uses shared environment policy. | Live command-rule adherence and broader shared/role/skill mode/context/authority consistency from the prompt-improvement plan. |
+| R11–R12 | Merge/status/contract reconciliation has advanced; G33 executor and G34 active revocation were added. | Remaining real service/restart/dummy-credential/supported logoff drills, source-specific qualification and a few stale host/history statements. |
+
+Source: current integration `docs/autonomy-progress/review-fixes.md` and `docs/autonomy-implementation-progress.md`; `scripts/agentic_supervisor.py` (`step_executor`, `observed_bundle`, `fixture_problems`, `transcript_models`, `watch_authority`), runtime executor/promotion hooks, updated skill and live-smoke files. Residual findings above are source review, not exploit demonstrations. The record itself notes that timed-out container commands can continue until the container stops, launcher-loaded external code is not fully digested, missing model IDs pass, and real role-step revocation is not yet directly tested.
+
+**Resume order:** preserve merged fixes; finish residual R01–R04 acceptance alongside R05 transport; implement R06 assessment/grader, R07 context, R08 scheduling and R09 retention; align broader agent instructions; then finish host drills, authorized live qualification/pilot and narrow activation. A distinct worker user is one possible isolation mechanism, not an unconditional extra requirement when a verified boundary provides the required separation. Read actual host state before repeating setup: S4 records WSL integration enabled, while some next-action notes still say to enable it.
+
+Originally prepared 1 November 2026 against source baseline `3aafe1b`; that baseline is historical. Updated 2 November 2026 after a read-only review of the integration and workstream checkouts. The checkpoint below separates code that exists, recorded tests, and remaining work. The rest of the document preserves the complete target specification. Neither this plan nor fixture test results establish a live-qualified or activated durable team.
 
 The target is six persistent responsibilities, one deterministic owner-side supervisor, and fresh bounded role executions. Identity, pending work, approved knowledge and evidence survive restarts. A model session is disposable. Six permanently running or continuously billing sessions are neither required nor proposed.
+
+## Checkpoint — 2 November 2026
+
+Use [the cross-workstream progress review](autonomy-progress-review.md) with this checkpoint. It is the shared review, not permission to merge, deploy or run an experiment. Re-read current commits and working trees before resuming: the references below are a dated observation, not a request to reset a branch to them.
+
+| Source | Observed revision | What is present | Evidence and limit |
+| --- | --- | --- | --- |
+| Main checkout | `3aafe1b` | Original plans, prompts and guide. | Stale as a runtime progress source. |
+| `autonomy-integration` in `.claude/worktrees/pensive-poincare-5e61a2` | `4949185` | Core libraries, quality library and supervisor safety; includes the real-host S4 container-user correction. | The core branch is fully merged here. The top-level progress table still says wiring has not started and must not be used alone. |
+| `claude/autonomy-durable-core-fb9050` | `1baed75` | D0–D2: `agentic_core.py`, `agentic_broker.py`, generated schemas and tests. | No branch-only commits remain relative to `4949185`. Recorded core results include 439 Windows tests and 63 Ubuntu core/broker tests; Linux process/socket tests are infrastructure evidence, not LLM trials. |
+| `claude/autonomy-integration-wiring-8046ea` | `c4794ec` | Q3 admission wiring; D3 role-step lifecycle; partial D4–D5 events, snapshots, migration and status; G29–G32; packaging. | Not merged into `4949185`. Recorded integrated results are 632 Windows tests OK, 6 skipped, and 87 Ubuntu tests. Those full runs precede final `c4794ec`; its command-rule change has focused-test evidence, not a fresh full-suite or live-worker result. |
+
+The wiring branch's `docs/autonomy-progress/integration.md` is the detailed historical record. The core branch's `docs/autonomy-progress/durable-core.md` describes the earlier library milestone. Preserve both histories; append reconciled outcomes through their assigned integration owner rather than overwriting a workstream's record. This documentation update did not rerun those suites.
+
+Actual implementation names supersede provisional names later in this plan: responsibilities, journaled intake, snapshots, limits and outcome helpers are in `scripts/agentic_core.py`; identity, dispatches, receipts and IPC are in `scripts/agentic_broker.py`; wiring is in `scripts/agentic_supervisor.py` and `scripts/agentic_team.py`; generated contracts live in `schemas/durable-core/`. Use `docs/autonomy-contracts/dispatch-and-identity.md` from the reviewed candidate. Do not create a parallel `agentic_dispatch.py`, duplicate schema tree or new responsibility store merely because it appeared as a proposal below.
+
+### Implemented versus complete
+
+- **D0–D2 libraries:** implemented and offline-tested, with real Linux peer-process tests. The strong operational boundary is not complete.
+- **D3 integration:** implemented and offline-tested on the unmerged wiring branch. Successful steps queue the same job without consuming failure retries; whole-job acceptance remains separate. Preserve this behavior.
+- **D4 duties:** partial. Delivery/verification and ordinary task steps are dispatched. Context, evaluation, security review and SRE diagnosis currently become advisory obligations visible in status; their presence is not execution of all six duties.
+- **D5 knowledge/context/migration:** partial. Snapshot and migration machinery exists, but the consumption, trust, promotion and retention gaps below remain.
+- **D6 live role-step qualification:** not demonstrated. Container role steps are explicitly refused. Selected S4 boundary/cancellation drills used a scripted worker and synthetic usage; they do not qualify an LLM or the role-step container transport. A separate bounded measurement elsewhere is not operational approval or role-step evidence; use the shared review for its exact scope and outcome.
+
+### Source findings that must gate the next implementation
+
+These are read-only findings at `c4794ec`, not exploit demonstrations. Reproduce them with harmless fixtures and negative tests before claiming a fix. Line anchors refer to that commit and can move.
+
+| ID | Observed source | Required correction and acceptance |
+| --- | --- | --- |
+| DC-R1 | `agentic_broker.py:306` (`TeamRuntime.exec`) passes a worker command to `team.exec_command(..., shell=True)`; `agentic_team.py:2838` launches it in the broker process's environment without a boundary executor. `complete_task` at `:2748` also runs declared checks. `open_step_broker` at `agentic_supervisor.py:793` constructs this runtime owner-side. | Keep trusted state mutation owner-side, but execute all worker/project commands and automatic checks inside a proven restricted executor. A receipt must bind the actual isolated execution, dispatch, command/input, candidate and result. Both explicit `exec` and implicit completion checks must fail harmless sentinel tests if they can reach the owner store. This is a prerequisite to claiming strong operational isolation. |
+| DC-R2 | `execution_problems` at `agentic_supervisor.py:3649` refuses container role steps; process-tree peer binding is proven only for local Linux processes. `require_distinct_uid` is not enabled and the container defaults to the owner's non-root UID. | Keep the refusal until real-engine tests prove endpoint-confined identity, PID/session behavior, socket exposure, mounts, owner-store exclusion and process inspection/ptrace isolation. Same numeric UID is not authority separation. A distinct UID alone is also insufficient if storage or process access remains exposed. |
+| DC-R3 | `select_step` at `agentic_supervisor.py:3705` chooses the ready task graph or a planner, not the advisory obligation queue. | Schedule all enabled required duties through explicit bounded policy and admitted task classes, or mark unsupported duties held with a reason. Test exactly-once dispatch, priority, no recursive wakeups, spend limits and no starvation. Do not launch six agents on every tick. |
+| DC-R4 | `step_snapshot` at `agentic_supervisor.py:1949` freezes BRIEF, stage CONTEXT and lessons; `role_step_prompt` at `:4072` tells the worker to read the mutable project BRIEF. Task-specific inputs and canonical role prompt are not fully captured. | Freeze and actually deliver the complete task/role packet through a read-only worker view; bind the prompt and consumed packet digests in the receipt. Test that the worker consumes frozen bytes, not merely that a pre-spawn hash check passed. |
+| DC-R5 | `agentic_supervisor.py:1956` labels the entire candidate `knowledge/lessons.md` index `approved-knowledge`. | Preserve candidate status and untrusted provenance; only independently evaluated, owner-promoted entries may be approved knowledge. Test mixed candidate/proven records and attempted instructions embedded in a candidate. |
+| DC-R6 | `agentic_core.promote_lesson` exists at `:985`, but CLI `promote` still uses the original `agentic_team.promote_check` at `:4872`. | Wire the protected evaluation/promotion path, with unchanged owner authority, into every relevant public path. A direct CLI call cannot bypass evaluation. Test self/failed/mismatched evaluation, forged promotion and valid owner promotion. |
+| DC-R7 | `agentic_supervisor.prune` at `:3553` prunes terminal transcripts; snapshot retention tags do not implement dependency-aware lifecycle. | Define retention across snapshots, receipts, qualifications, incidents and rollback. Never delete the only evidence needed by an active/held/unsettled run or a current qualification. Test dependency invalidation and privacy deletion handling. |
+| DC-R8 | `bundle_observation_problems` at `agentic_supervisor.py:3737` observes only mode, adapter, requested model and supervisor/runtime digests. `admission` at `:1756` exempts the arbitrary command adapter by assuming it is scripted. | Consume the quality plan's complete effective-tuple verification and explicit nonoperational fixture classification. A command-adapter label must not allow operational or model-backed work to bypass admission. Test renamed/wrapped model launchers and changes to effective prompts, tools, permissions, harness or delegated models. |
+
+`c4794ec` adds a command-shape rule after an earlier measurement encountered denied QA commands. Preserve the allowlist; align all worker/subagent instructions and `skills/agentic-build/SKILL.md`, which still suggests PowerShell `Out-File`. Test the exact permitted command shape and measure actual adherence only within an appropriately authorized experiment.
+
+Resume in this order: reconcile the candidate and contracts without discarding existing work; close DC-R1 and its process/accounting lifecycle; prove DC-R2 without removing the refusal prematurely; complete packet trust/consumption and protected promotion; connect bounded duties and retention; then run the merged offline matrix and authorized live qualification. Coordinate DC-R8 with the quality owner. Requalification is required after material runtime, broker, executor or instruction changes; prior measurements do not certify the new tuple.
 
 ## Integration contract
 
@@ -12,14 +77,15 @@ Read these documents together before implementation:
 - [Supervisor completion plan](supervisor-completion-plan.md): isolation, environment filtering, process ownership, metering, recovery and host activation.
 - [Quality qualification plan](quality-qualification-plan.md): capability evidence, protected evaluations, qualified configuration identities, admission and promotion.
 - [Durable-core implementation prompt](durable-core-prompt.md): a copy-ready execution brief for this workstream.
+- [Progress review](autonomy-progress-review.md): the 2 November checkpoint, branch state and cross-workstream evidence limits.
 
 The plans share runtime files. Assign one integration owner for the supervisor, state CLI, policy, schemas and generated documentation. Parallelize read-only investigation and isolated tests; do not run competing edits or pilots against one checkout.
 
-Every interface, field, command and new file proposed below is a design target, not an existing API. Resolve its exact spelling with the other workstreams in the implementation progress record before writing code. The quality workstream owns qualification records and decisions; the durable core consumes that contract rather than creating a second qualification database.
+Detailed contracts below remain the target specification. Some original proposed names have been superseded by the implemented contracts listed in the checkpoint. Preserve and extend those contracts instead of recreating them; explicitly migrate any incompatible change. The quality workstream owns qualification records and decisions; the durable core consumes that contract rather than creating a second qualification database.
 
-## What exists and what is missing
+## Historical baseline and remaining integration
 
-The source catalog has 50 roles and matching prompt files in `team.json` and `agents/`. The catalog's 13 harness targets are compiler targets, not 13 qualified supervisor adapters. The supervisor currently has `claude` and `command` adapters. Its documented status is offline-verified, without a verified paid pilot or registered host service.
+The source catalog has 50 roles and matching prompt files in `team.json` and `agents/`. The catalog's 13 harness targets are compiler targets, not 13 qualified supervisor adapters. The supervisor has `claude` and `command` adapters. There is no demonstrated live-qualified role-step team or activated service. The 2 November checkpoint above governs current implementation status; the following seam inventory records the original `3aafe1b` baseline.
 
 Existing useful foundations include:
 
@@ -28,9 +94,9 @@ Existing useful foundations include:
 - Context packs and provenance rules, role playbooks, candidate lessons and human promotion.
 - Canonical access classes, model tiers, risk rules and conditional specialist routing.
 
-The missing core is not another collection of personas. It is authenticated role dispatch, bounded role-step completion, persistent responsibility obligations, trusted handoffs, and admission of only qualified execution configurations.
+Role dispatch, bounded step completion and responsibility records now have implementations. Remaining work is to integrate and harden them, finish the six duty flows, prove trusted execution and handoffs, and admit only configurations qualified for the actual execution path.
 
-Current code anchors to recheck before edits:
+Historical code anchors at `3aafe1b`; consult the checkpoint and implemented contracts before edits:
 
 | Existing seam | Location | Limitation or extension |
 | --- | --- | --- |
@@ -96,7 +162,7 @@ The normal flow is:
 
 No fallback, retry, changed role name or new session may expand autonomy. The existing R3/R4 human gates, stricter local policy, run budget, checkpoint decisions and release conditions remain in force.
 
-## Proposed records and schema locations
+## Records and schema contracts
 
 Use versioned JSON contracts and the existing durable-write discipline. A small new module may own each concern, but do not create a second uncoordinated writer for run state.
 
@@ -110,7 +176,7 @@ Use versioned JSON contracts and the existing durable-write discipline. A small 
 | `scripts/agentic_dispatch.py` | Proposed bounded-step scheduling helpers; no independent approval authority. |
 | `scripts/agentic_broker.py` | Proposed owner-side request validation and receipt creation. |
 
-These names are provisional integration choices. Prefer a small implementation over a new orchestration framework. Use standard-library facilities unless a justified dependency is approved under the existing policy.
+The preceding filenames were provisional integration choices from 1 November. The 2 November checkpoint gives the existing module and generated schema locations to extend; no duplicate files are required. Keep the field/authority contracts below, adapting their spelling through explicit compatibility decisions. Prefer a small implementation over a new orchestration framework. Use standard-library facilities unless a justified dependency is approved under the existing policy.
 
 Authoritative control records belong in the existing protected supervisor store. Proposed additions are `responsibilities.json`, `dispatches/<dispatch-id>.json`, `receipts/<dispatch-id>.json` and `contexts/<snapshot-id>/`. A project-side status page is a projection, never an authority source. The existing project task graph remains the task graph.
 
@@ -161,6 +227,10 @@ The broker must:
 
 Initially, serialize strong-mode mutations through this broker and the existing run lock. Worker-readable state may remain in the project bus, but a worker-edited projection cannot satisfy trusted acceptance. Define how broker-accepted history is replayed or compared during owner audit; otherwise direct edits could still counterfeit completion.
 
+The broker's authority to record evidence is not authority to execute worker-controlled code as the owner. Introduce a boundary-contained executor interface for both explicit command requests and checks automatically run during completion. Prefer structured argv; any necessary shell remains inside the restricted boundary. The broker validates the dispatch and records the result, while the executor receives only scoped mounts, approved environment and credentials, bounded network access and a process lifetime owned by that dispatch. Protected grading uses the quality plan's separate clean sandbox. Do not run candidate tests or imported project modules in the broker to manufacture trusted evidence.
+
+Execution receipts must bind the command/check identity, input and candidate hashes, effective boundary/configuration, process ownership, output digest, exit/timeout/cancellation reason and accounting provenance. A worker cannot submit an exit code as proof. Track broker-triggered subprocesses and containers until stopped and reconciled even if the LLM worker exits first. Unknown descendants or cost retain the checkout/reservation. Use throwaway sentinels and no real secrets in the negative tests.
+
 For QA, independent identity requires a fresh session with no prior authoring/remediation contribution to the candidate, protected inputs and an exact candidate fingerprint. Same model is permitted only if qualified; same role label is not proof of independence. Avoid passing the builder's private reasoning to the verifier. Pass the specification, diff, artifacts and reproduced evidence needed for review.
 
 ## Role step versus complete job
@@ -194,6 +264,8 @@ Use task dependency order and deterministic priority rules. Prioritize pending s
 Create a read-only snapshot for each dispatch from the task envelope, accepted requirements, stage contract, canonical role prompt, permitted protocols and relevant approved knowledge. Use the existing packet budget as the starting point; record omissions and required follow-up reads. Context Engineer judgment is needed for difficult summarization, not every packet assembly.
 
 A snapshot manifest records source paths/identities, source hashes or immutable Git revisions, capture time, scope, author, trust classification, omissions, required facts, and the task/dispatch allowed to consume it. Freeze the actual packet bytes. A path to an editable file alone is not an immutable snapshot. The worker's output directory is separate.
+
+Deliver those bytes through the read-only worker view and make the effective role prompt name that packet. Include the task envelope and named inputs, canonical and compiled role instructions, relevant policy/protocol versions and correctly classified knowledge. Record which packet and prompt were actually supplied. A snapshot that is only checked by the wrapper while the model is directed to mutable originals does not satisfy this contract.
 
 Before dispatch, compare required sources to the snapshot. A changed requirement, policy, prompt or relevant source invalidates the snapshot; regenerate or hold. Never silently compress away a safety condition, unresolved decision or acceptance criterion. When a summary disagrees with an authoritative source, the source wins and the discrepancy is recorded.
 
@@ -230,6 +302,8 @@ Reinstall/uninstall must preserve knowledge and protected control state by defau
 ## Delivery phases and acceptance gates
 
 Follow the master program's sequencing. These are the durable-core work packages, not permission to run a paid experiment or register a service.
+
+The D0–D6 names are retained for traceability. They are not all unstarted: resume from the checkpoint, preserving already-implemented behavior and tests. Treat DC-R1–DC-R8 as remaining acceptance work within these phases, not a reason to recreate the libraries.
 
 ### D0 Baseline and shared contracts
 
@@ -280,15 +354,22 @@ Gate: independent owner-side evidence supports the exact tested configuration an
 | Event durability | Crash between obligation and cursor writes; duplicate source IDs; altered payload under the same ID; unknown run cursor. |
 | Writer exclusion | Two supervisors/ticks compete; old wrapper starts late; previous writer outlives wrapper; reboot with uncertain identity. |
 | Role identity | Builder supplies `qa-lead`; child process claims another role; copied/expired dispatch; forged receipt; altered checkout CLI. |
+| Broker execution boundary | Explicit `exec` and automatic completion checks attempt to read/write harmless owner-store sentinels, inspect the broker, reach an unmounted path or leave a detached child; none gains owner authority, and cancellation/accounting tracks every child. |
+| Container transport | Real engine: correct peer and namespace binding, foreign client/dispatch refusal, PID reuse, same-UID storage and process isolation, no owner-store/engine-socket exposure; configuration remains refused before this evidence exists. |
 | Independence | QA contributed before reassignment/reopen; QA remediates source; verdict references old HEAD or uncommitted changes. |
 | Step outcomes | Exit zero without output; valid step with incomplete run; repeated no-progress steps; malformed continuation. |
 | Accounting | Crash after reservation, after receipt and during metering; missing/NaN/unknown cost; changed model tries to reset allowance. |
 | Qualification | Missing/expired/revoked record; tuple mismatch; weak adapter; stale proof; unqualified fallback; first-baseline assessment cannot operate. |
+| Effective configuration | Change role/delegated model, prompts, tools, permissions or harness while retaining declared bundle; wrapped/renamed model launcher through command adapter; operational dispatch must hold. |
 | Context | Requirement or prompt changes after snapshot; omitted safety dependency; mutable file reference; cross-project memory contamination. |
+| Packet consumption | Worker receives frozen task/role/input bytes; changing mutable originals cannot substitute them; candidate lessons retain candidate trust, including mixed candidate/proven indexes. |
 | Knowledge | Poisoned external instructions; duplicate lesson; unsupported `proven` label; candidate changes a permission; invalid promotion. |
+| Promotion entry points | Direct runtime CLI cannot skip evaluated owner promotion; self, failed, mismatched or forged evaluations refuse; valid promotion is recorded once. |
+| Duty scheduling | All six required duties become bounded admitted steps or explicit holds; advisory backlog is not called completion; duplicates, self-wakes, priorities, cost caps and starvation are tested. |
 | Stop and recovery | Pause drains as documented; cancel proves tree stopped; uncertain stop preserves lock/reservation; restart resumes exact pending obligation. |
 | Migration | Live attempt blocks migration; legacy evidence stays labeled; compatible reinstall preserves state; old binary refuses new schema. |
 | Retention | Prune cannot remove active/held/unsettled or required qualification evidence; raw sensitive content is excluded. |
+| Packaging and instructions | Installed checkout and protected owner copy contain the same required trusted modules; no writable import substitution; actual Bash commands match the allowlist and no contradictory PowerShell recipe is handed to workers. |
 
 Extend existing `tests/test_supervisor.py`, `tests/test_authority.py`, `tests/test_evidence.py`, `tests/test_orchestration.py`, `tests/test_harness.py`, `tests/test_evals.py`, `tests/test_release.py` and packaging tests. Add focused tests for broker authentication, dispatch contracts, snapshots and migration. Keep deterministic offline fixtures separate from real-model and real-boundary evidence.
 
