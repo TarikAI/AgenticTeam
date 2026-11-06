@@ -8,9 +8,9 @@ Ownership follows the rules below in order; **the last matching rule wins**, as 
 
 | Owner | Kind | Harness | Role | Files | Verified | Patterns |
 |---|---|---|---|---|---|---|
-| tarikai | human | human | Owner. Holds the constitution (roles, protocols, policy, manifest), legal files, and every final approval | 16 | 8 | 2 |
-| claude-code | agent | claude-code | Code lane: CLI and supervisor, installers, tools, tests, evals, run templates, skills, schemas and CI | 19 | 16 | 7 |
-| codex | agent | codex | Docs lane: user docs, plans, prompt packs, progress records, seed knowledge and the shared guide | 29 | 9 | 5 |
+| tarikai | human | human | Owner. Holds the constitution (roles, protocols, policy, manifest), legal files, and every final approval | 16 | 16 | 2 |
+| claude-code | agent | claude-code | Code lane: CLI and supervisor, installers, tools, tests, evals, run templates, skills, schemas and CI | 19 | 19 | 7 |
+| codex | agent | codex | Docs lane: user docs, plans, prompt packs, progress records, seed knowledge and the shared guide | 29 | 29 | 5 |
 
 ## Owner rules (last match wins)
 
@@ -47,16 +47,16 @@ Ownership follows the rules below in order; **the last matching rule wins**, as 
 
 - ✔ `team.json` ★ (modify)
 - ✔ `team.yaml` (modify)
-- ◑ `config/policies.json` ★ (modify)
+- ✔ `config/policies.json` ★ (modify)
 - ✔ `config/guarantees.json` ★ (modify)
-- ◑ `protocols/agent-contract.md` ★ (modify)
-- ◑ `protocols/guardrails.md` ★ (modify)
+- ✔ `protocols/agent-contract.md` ★ (modify)
+- ✔ `protocols/guardrails.md` ★ (modify)
 - ✔ `protocols/plan-modes.md` (modify)
-- ◑ `protocols/autonomy.md` ★ (modify)
-- ◑ `protocols/fusion.md` ★ (modify)
-- ◑ `protocols/progressive-context.md` ★ (modify)
-- ◑ `protocols/runtime.md` ★ (modify)
-- ◑ `protocols/untrusted-content.md` ★ (modify)
+- ✔ `protocols/autonomy.md` ★ (modify)
+- ✔ `protocols/fusion.md` ★ (modify)
+- ✔ `protocols/progressive-context.md` ★ (modify)
+- ✔ `protocols/runtime.md` ★ (modify)
+- ✔ `protocols/untrusted-content.md` ★ (modify)
 - ✔ `AGENTS.md` (modify)
 - ✔ `CLAUDE.md` (modify)
 - ✔ `LICENSE` (modify)
@@ -70,8 +70,8 @@ Ownership follows the rules below in order; **the last matching rule wins**, as 
 
 - ✔ `schemas/team.schema.json` ★ (modify)
 - ✔ `schemas/run-state.schema.json` (modify)
-- ◑ `runtime/templates/router.md` ★ (modify)
-- ◑ `scripts/agentic_team.py` ★ (modify)
+- ✔ `runtime/templates/router.md` ★ (modify)
+- ✔ `scripts/agentic_team.py` ★ (modify)
 - ✔ `scripts/agentic_supervisor.py` (modify)
 - ✔ `scripts/install.sh` (modify)
 - ✔ `scripts/install.ps1` (modify)
@@ -79,7 +79,7 @@ Ownership follows the rules below in order; **the last matching rule wins**, as 
 - ✔ `scripts/findings_to_tasks.py` (modify)
 - ✔ `scripts/design_to_admin.py` (modify)
 - ✔ `scripts/local_llm_check.py` (modify)
-- ◑ `tests/helpers.py` (modify)
+- ✔ `tests/helpers.py` (modify)
 - ✔ `tests/fake_worker.py` (modify)
 - ✔ `tests/supervisor_fixtures.py` (modify)
 - ✔ `evals/run_scenarios.py` (modify)
@@ -99,35 +99,35 @@ Ownership follows the rules below in order; **the last matching rule wins**, as 
 
 **P1 Current system on main (verify only, do not edit)**
 
-- ◑ `knowledge/README.md` (modify)
-- ◑ `knowledge/lessons.md` (modify)
-- ◑ `knowledge/decisions.md` (modify)
-- ◑ `knowledge/evolution/PROPOSALS.md` (modify)
+- ✔ `knowledge/README.md` (modify)
+- ✔ `knowledge/lessons.md` (modify)
+- ✔ `knowledge/decisions.md` (modify)
+- ✔ `knowledge/evolution/PROPOSALS.md` (modify)
 - ✔ `knowledge/evolution/CHANGELOG.md` (modify)
-- ◑ `knowledge/playbooks/README.md` ★ (modify)
-- ◑ `knowledge/playbooks/_template.md` (modify)
-- ◑ `docs/architecture.md` (modify)
-- ◑ `docs/cli.md` (modify)
-- ◑ `docs/harnesses.md` (modify)
-- ◑ `docs/operating-modes.md` (modify)
-- ◑ `docs/quickstart-non-dev.md` (modify)
-- ◑ `docs/local-llms.md` (modify)
-- ◑ `docs/migration-v3.md` (modify)
-- ◑ `docs/supervisor-design.md` (modify)
-- ◑ `docs/supervisor-operator-guide.md` (modify)
-- ◑ `docs/autonomy-progress-review.md` (modify)
+- ✔ `knowledge/playbooks/README.md` ★ (modify)
+- ✔ `knowledge/playbooks/_template.md` (modify)
+- ✔ `docs/architecture.md` (modify)
+- ✔ `docs/cli.md` (modify)
+- ✔ `docs/harnesses.md` (modify)
+- ✔ `docs/operating-modes.md` (modify)
+- ✔ `docs/quickstart-non-dev.md` (modify)
+- ✔ `docs/local-llms.md` (modify)
+- ✔ `docs/migration-v3.md` (modify)
+- ✔ `docs/supervisor-design.md` (modify)
+- ✔ `docs/supervisor-operator-guide.md` (modify)
+- ✔ `docs/autonomy-progress-review.md` (modify)
 - ✔ `docs/agent-team-guide/build.py` (modify)
 - ✔ `docs/agent-team-guide/guide.template.html` (modify)
-- ◑ `docs/agent-team-guide/index.html` (modify)
+- ✔ `docs/agent-team-guide/index.html` (modify)
 - ✔ `docs/agent-team-guide/agent-roster.csv` (modify)
 - ✔ `docs/agent-team-guide/UPDATING.md` (modify)
 - ✔ `docs/agent-team-guide/CODEX-HANDOVER.md` (modify)
-- ◑ `docs/agent-team-guide/progress.json` ★ (modify)
-- ◑ `docs/agent-team-guide/updates.json` ★ (modify)
+- ✔ `docs/agent-team-guide/progress.json` ★ (modify)
+- ✔ `docs/agent-team-guide/updates.json` ★ (modify)
 - ✔ `docs/agent-team-guide/documents.json` ★ (modify)
 - ✔ `docs/agent-team-guide/roster.json` (modify)
 - ✔ `docs/agent-team-guide/safety.json` (modify)
-- ◑ `README.md` (modify)
+- ✔ `README.md` (modify)
 - ⟨pattern⟩ `knowledge/playbooks/*.md`: knowledge/playbooks/<role-id>.md created from _template.md, headed `# Playbook — <role-id>`, with checks under ## Before starting, ## While building and ## Before claiming done. Seeded checks end with `<!-- status: baseline -->`. Lines an agent adds use the candidate form from knowledge/playbooks/README.md: `- [ ] <imperative check>  <!-- status: candidate · learned: YYYY-MM-DD · source: <run>/<task> · cost: <what it broke> -->`. Promoting a candidate to baseline is the owner's decision (protocols/evolution.md). About forty lines at most.
 - ⟨pattern⟩ `docs/*-plan.md`: A plan with scope, phases, acceptance and risks, registered in docs/agent-team-guide/documents.json under current or earlier together with its prompt; an unregistered plan fails the guide check.
 - ⟨pattern⟩ `docs/*-prompt.md`: One ready-to-paste prompt for a single plan, registered beside that plan in documents.json.

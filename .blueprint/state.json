@@ -4,7 +4,7 @@
       "verified": {
         "ok": true,
         "cmd": "python scripts/agentic_team.py validate",
-        "at": "2026-11-06T17:45:21Z",
+        "at": "2026-11-06T20:31:55Z",
         "sha": "9284cc7707adbf631c03f43213a667dd8ca0358b"
       }
     },
@@ -12,7 +12,7 @@
       "verified": {
         "ok": true,
         "cmd": "python scripts/agentic_team.py validate",
-        "at": "2026-11-06T17:45:21Z",
+        "at": "2026-11-06T20:31:55Z",
         "sha": "6438cabd0665d224898d688a29cdd5f3cc2000fb"
       }
     },
@@ -20,7 +20,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('team.yaml').read_text(encoding='utf-8'); sys.exit(0 if 'canonical_manifest: team.json' in t else 1)\"",
-        "at": "2026-11-06T17:45:21Z",
+        "at": "2026-11-06T20:31:55Z",
         "sha": "c979fed65122af982b60161fda982352771a7eb1"
       }
     },
@@ -28,135 +28,135 @@
       "verified": {
         "ok": true,
         "cmd": "python -c \"import json; d=json.load(open('schemas/run-state.schema.json',encoding='utf-8')); assert d.get('type')=='object' and 'properties' in d\"",
-        "at": "2026-11-06T17:45:21Z",
+        "at": "2026-11-06T20:31:55Z",
         "sha": "62579664ff6d9cd0886bfc800c11aeeb96599f6e"
       }
     },
     "config/policies.json": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python scripts/agentic_team.py validate && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
-        "at": "2026-11-06T17:45:24Z",
-        "sha": null
+        "at": "2026-11-06T20:32:08Z",
+        "sha": "7e2e92f7f15338e9a1d46a1a1ed3ac5ac3c5430a"
       }
     },
     "protocols/agent-contract.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
-        "at": "2026-11-06T17:45:27Z",
-        "sha": null
+        "at": "2026-11-06T20:32:50Z",
+        "sha": "d6f1ab4fed11793e46cf009e3c14e3d9237755c8"
       }
     },
     "protocols/guardrails.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
-        "at": "2026-11-06T17:45:27Z",
-        "sha": null
+        "at": "2026-11-06T20:32:50Z",
+        "sha": "44fd8337996d36c42d6debcce3990951af922c5e"
       }
     },
     "protocols/autonomy.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
-        "at": "2026-11-06T17:45:27Z",
-        "sha": null
+        "at": "2026-11-06T20:32:50Z",
+        "sha": "935166626819bed93f7bf0df7a969208d59ef5e4"
       }
     },
     "protocols/fusion.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
-        "at": "2026-11-06T17:45:27Z",
-        "sha": null
+        "at": "2026-11-06T20:32:50Z",
+        "sha": "3a45cf834f3aea8d1101f4693a4472e43d361a26"
       }
     },
     "protocols/progressive-context.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
-        "at": "2026-11-06T17:45:27Z",
-        "sha": null
+        "at": "2026-11-06T20:32:50Z",
+        "sha": "9538de27270a2c90c5bf00e05effd29bc0ce3b58"
       }
     },
     "protocols/runtime.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
-        "at": "2026-11-06T17:45:27Z",
-        "sha": null
+        "at": "2026-11-06T20:32:50Z",
+        "sha": "dd597163cef8cb7822e3538998460d454ab78c0d"
       }
     },
     "protocols/untrusted-content.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
-        "at": "2026-11-06T17:45:27Z",
-        "sha": null
+        "at": "2026-11-06T20:32:50Z",
+        "sha": "dd82089a8fd62c7d58db6b65296c8ec90cbabed5"
       }
     },
     "runtime/templates/router.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\"",
-        "at": "2026-11-06T17:45:57Z",
-        "sha": null
+        "at": "2026-11-06T20:33:20Z",
+        "sha": "bbd94bd268bee96093cf12fc61a15110514bf7be"
       }
     },
     "knowledge/README.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\"",
-        "at": "2026-11-06T17:45:57Z",
-        "sha": null
+        "at": "2026-11-06T20:58:22Z",
+        "sha": "bc65bdef06cbf769f6f759478b38ed35fe61bbc0"
       }
     },
     "knowledge/lessons.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\"",
-        "at": "2026-11-06T17:45:57Z",
-        "sha": null
+        "at": "2026-11-06T20:58:22Z",
+        "sha": "b215b1a153b92765617cbbb4e903ef36e8954a18"
       }
     },
     "knowledge/decisions.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\"",
-        "at": "2026-11-06T17:45:57Z",
-        "sha": null
+        "at": "2026-11-06T20:58:22Z",
+        "sha": "fa1af1999d368ff4a9fe2c2080a81e6087944aca"
       }
     },
     "knowledge/evolution/PROPOSALS.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\"",
-        "at": "2026-11-06T17:45:57Z",
-        "sha": null
+        "at": "2026-11-06T20:58:22Z",
+        "sha": "84e9001db94e435a743e0a3e220d10164d5db0e1"
       }
     },
     "knowledge/playbooks/README.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -c \"import pathlib,sys; t=pathlib.Path('knowledge/playbooks/README.md').read_text(encoding='utf-8'); sys.exit(0 if '## Entry format' in t and 'status: candidate' in t else 1)\"",
-        "at": "2026-11-06T18:07:14Z",
-        "sha": null
+        "at": "2026-11-06T20:58:25Z",
+        "sha": "af6a75bdfc012acac4f548210740f1ff66c03ee3"
       }
     },
     "knowledge/playbooks/_template.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\"",
-        "at": "2026-11-06T17:45:57Z",
-        "sha": null
+        "at": "2026-11-06T20:58:22Z",
+        "sha": "0134f5af2fcde36cd46c03f41a280d72cf0d8b1e"
       }
     },
     "config/guarantees.json": {
       "verified": {
         "ok": true,
         "cmd": "python scripts/agentic_team.py validate && python -m unittest discover -s tests -p \"test_release.py\"",
-        "at": "2026-11-06T17:45:26Z",
+        "at": "2026-11-06T20:32:10Z",
         "sha": "5a79831455cf2ef51b4e4f1ea1c30b89aa3a75f6"
       }
     },
@@ -164,31 +164,31 @@
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_doc_workflows.py\"",
-        "at": "2026-11-06T17:45:56Z",
+        "at": "2026-11-06T20:33:19Z",
         "sha": "c3e34bcf42950c8d6d8b9b196a9135892a5a1635"
       }
     },
     "scripts/agentic_team.py": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests",
-        "at": "2026-11-06T17:57:37Z",
-        "sha": null
+        "at": "2026-11-06T20:45:45Z",
+        "sha": "41975541d0f9b6c29cc2c0fe2657c8b68720847f"
       }
     },
     "tests/helpers.py": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests",
-        "at": "2026-11-06T17:57:37Z",
-        "sha": null
+        "at": "2026-11-06T20:45:45Z",
+        "sha": "331e78e11831797887fa776ec66f413837afbdf7"
       }
     },
     "scripts/agentic_supervisor.py": {
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_supervisor.py\"",
-        "at": "2026-11-06T18:05:58Z",
+        "at": "2026-11-06T20:54:02Z",
         "sha": "fe6b87f9e572ac3919857a30859c29b52a9698d3"
       }
     },
@@ -196,7 +196,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_supervisor.py\"",
-        "at": "2026-11-06T18:05:58Z",
+        "at": "2026-11-06T20:54:02Z",
         "sha": "050bf6458f57a0a68a23fbfb6a5c509b65190725"
       }
     },
@@ -204,7 +204,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_supervisor.py\"",
-        "at": "2026-11-06T18:05:58Z",
+        "at": "2026-11-06T20:54:02Z",
         "sha": "7633c59ab02c8021449f1448934413bc9909c100"
       }
     },
@@ -212,7 +212,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_installers.py\"",
-        "at": "2026-11-06T18:06:10Z",
+        "at": "2026-11-06T20:54:12Z",
         "sha": "153ab2ec0a3eaeac40329c4656f3c35b1bee1fdc"
       }
     },
@@ -220,7 +220,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_installers.py\" && python -m unittest discover -s tests -p \"test_harness.py\"",
-        "at": "2026-11-06T18:06:31Z",
+        "at": "2026-11-06T20:54:31Z",
         "sha": "91d299b80c666fcc76f51df4f0741ec421baa603"
       }
     },
@@ -228,7 +228,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_regressions.py\"",
-        "at": "2026-11-06T18:06:42Z",
+        "at": "2026-11-06T20:54:42Z",
         "sha": "e5d6301568cc019e3f2bf59bf4ca95fa664acffe"
       }
     },
@@ -236,7 +236,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_bridges.py\"",
-        "at": "2026-11-06T18:06:44Z",
+        "at": "2026-11-06T20:54:44Z",
         "sha": "277aeb0d8baf3cc2904e36295147a57b61be0498"
       }
     },
@@ -244,7 +244,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_bridges.py\"",
-        "at": "2026-11-06T18:06:44Z",
+        "at": "2026-11-06T20:54:44Z",
         "sha": "ae0ed67e5ace9d8cf576f3aafd8a17df325c0bd3"
       }
     },
@@ -252,7 +252,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_local_llm_check.py\"",
-        "at": "2026-11-06T18:07:11Z",
+        "at": "2026-11-06T20:55:11Z",
         "sha": "1f232ce79b1c372ec5f5acc93df47b4df6d6362a"
       }
     },
@@ -260,7 +260,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_release.py\"",
-        "at": "2026-11-06T18:07:13Z",
+        "at": "2026-11-06T20:58:24Z",
         "sha": "7a1e44ca968d8f7c4c148cc933a440c76dce3846"
       }
     },
@@ -268,7 +268,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_evals.py\"",
-        "at": "2026-11-06T18:07:48Z",
+        "at": "2026-11-06T20:55:48Z",
         "sha": "aa4c629ac0a8f24599591b20b23e3bd3fc5dcbd3"
       }
     },
@@ -276,95 +276,95 @@
       "verified": {
         "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_live_smoke.py\"",
-        "at": "2026-11-06T18:08:19Z",
+        "at": "2026-11-06T20:56:20Z",
         "sha": "bf849f92da49f9b7e78ee746b029f4ead62a7ae7"
       }
     },
     "docs/architecture.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python scripts/agentic_team.py docs --check && python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
-        "at": "2026-11-06T18:08:20Z",
-        "sha": null
+        "at": "2026-11-06T20:58:37Z",
+        "sha": "3ace27ad1107479d2084bddbc59dc164b9ce0463"
       }
     },
     "docs/cli.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python scripts/agentic_team.py docs --check && python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
-        "at": "2026-11-06T18:08:20Z",
-        "sha": null
+        "at": "2026-11-06T20:58:37Z",
+        "sha": "610f1697019b12f468931334f16ae1265ba1ce6d"
       }
     },
     "docs/harnesses.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
-        "at": "2026-11-06T18:08:21Z",
-        "sha": null
+        "at": "2026-11-06T20:58:50Z",
+        "sha": "464711f1c259f96b572eba92f9c7902e24ed8042"
       }
     },
     "docs/operating-modes.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
-        "at": "2026-11-06T18:08:21Z",
-        "sha": null
+        "at": "2026-11-06T20:58:50Z",
+        "sha": "a1c1195c392c10aee921cc6b47c4324d3baeab95"
       }
     },
     "docs/migration-v3.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
-        "at": "2026-11-06T18:08:21Z",
-        "sha": null
+        "at": "2026-11-06T20:58:50Z",
+        "sha": "736c93cb40f968cf94cd8e768f79369faa49e95b"
       }
     },
     "docs/supervisor-design.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
-        "at": "2026-11-06T18:08:21Z",
-        "sha": null
+        "at": "2026-11-06T20:58:50Z",
+        "sha": "3ec4b727b4ccc58d8a8b33c5241beb53a3604c83"
       }
     },
     "docs/supervisor-operator-guide.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
-        "at": "2026-11-06T18:08:21Z",
-        "sha": null
+        "at": "2026-11-06T20:58:50Z",
+        "sha": "3cd5c14997f74a6ab9233d0ccaaffdf57b3b4dc5"
       }
     },
     "docs/quickstart-non-dev.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
-        "at": "2026-11-06T18:08:21Z",
-        "sha": null
+        "at": "2026-11-06T20:58:50Z",
+        "sha": "6b7039d4ed2687eed2c034bfa011e14ecc4ac699"
       }
     },
     "docs/local-llms.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
-        "at": "2026-11-06T18:08:21Z",
-        "sha": null
+        "at": "2026-11-06T20:58:50Z",
+        "sha": "db07468681f9c920cf70a94a8cb8716ba1939171"
       }
     },
     "docs/autonomy-progress-review.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python docs/agent-team-guide/build.py --check",
-        "at": "2026-11-06T18:08:22Z",
-        "sha": null
+        "at": "2026-11-06T20:59:03Z",
+        "sha": "bc404e65be0b4fa493dacf51d739cf5668cafec0"
       }
     },
     "docs/agent-team-guide/build.py": {
       "verified": {
         "ok": true,
         "cmd": "python docs/agent-team-guide/build.py --check",
-        "at": "2026-11-06T18:08:23Z",
+        "at": "2026-11-06T20:59:04Z",
         "sha": "f1965629ae04fe9f8604d5713cf6bb7887f0906b"
       }
     },
@@ -372,7 +372,7 @@
       "verified": {
         "ok": true,
         "cmd": "python docs/agent-team-guide/build.py --check",
-        "at": "2026-11-06T18:08:23Z",
+        "at": "2026-11-06T20:59:04Z",
         "sha": "3c744a763b1a3dbde9c69e23e76eb9c85c483fe4"
       }
     },
@@ -380,15 +380,15 @@
       "verified": {
         "ok": true,
         "cmd": "python docs/agent-team-guide/build.py --check",
-        "at": "2026-11-06T18:08:23Z",
-        "sha": "1dfddcd5bcd49e9ac150b36537bde743216a0110"
+        "at": "2026-11-06T20:59:04Z",
+        "sha": "0a67e9925b8c14bd9838705fbfba244f8895515c"
       }
     },
     "docs/agent-team-guide/agent-roster.csv": {
       "verified": {
         "ok": true,
         "cmd": "python docs/agent-team-guide/build.py --check",
-        "at": "2026-11-06T18:08:23Z",
+        "at": "2026-11-06T20:59:04Z",
         "sha": "744bfa8afdb446d64bcd89d07d5958b92586bc55"
       }
     },
@@ -396,7 +396,7 @@
       "verified": {
         "ok": true,
         "cmd": "python docs/agent-team-guide/build.py --check",
-        "at": "2026-11-06T18:08:23Z",
+        "at": "2026-11-06T20:59:04Z",
         "sha": "75d3c8e4d10e07530f0df7ec888d05f84996a0be"
       }
     },
@@ -404,23 +404,23 @@
       "verified": {
         "ok": true,
         "cmd": "python docs/agent-team-guide/build.py --check",
-        "at": "2026-11-06T18:08:23Z",
-        "sha": "e156bcfe1bcecea95262651280553a0ded1fc2b2"
+        "at": "2026-11-06T20:59:04Z",
+        "sha": "809b68eaf34dcefdd5c5ea5d883042f7a4fac8b7"
       }
     },
     "docs/agent-team-guide/updates.json": {
       "verified": {
         "ok": true,
         "cmd": "python docs/agent-team-guide/build.py --check",
-        "at": "2026-11-06T18:08:23Z",
-        "sha": "792c14d1597cc5ff66f14af94ae3c78eec9b12c9"
+        "at": "2026-11-06T20:59:04Z",
+        "sha": "dc3c00be66982388daccb1e2688631e04d2b4771"
       }
     },
     "docs/agent-team-guide/documents.json": {
       "verified": {
         "ok": true,
         "cmd": "python docs/agent-team-guide/build.py --check",
-        "at": "2026-11-06T18:08:23Z",
+        "at": "2026-11-06T20:59:04Z",
         "sha": "04b414ca0c6073b33b14cbe5574f148336ff3674"
       }
     },
@@ -428,7 +428,7 @@
       "verified": {
         "ok": true,
         "cmd": "python docs/agent-team-guide/build.py --check",
-        "at": "2026-11-06T18:08:23Z",
+        "at": "2026-11-06T20:59:04Z",
         "sha": "6db32a87384e20722896b677893d2a391fefb304"
       }
     },
@@ -436,7 +436,7 @@
       "verified": {
         "ok": true,
         "cmd": "python docs/agent-team-guide/build.py --check",
-        "at": "2026-11-06T18:08:23Z",
+        "at": "2026-11-06T20:59:04Z",
         "sha": "afc7dcf7fcfb56ccc00af93acf02932d1e33e267"
       }
     },
@@ -444,23 +444,23 @@
       "verified": {
         "ok": true,
         "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('docs/agent-team-guide/CODEX-HANDOVER.md').read_text(encoding='utf-8'); sys.exit(0 if 'UPDATING.md' in t else 1)\"",
-        "at": "2026-11-06T18:08:23Z",
+        "at": "2026-11-06T20:59:05Z",
         "sha": "1ce0e2e0bd8e6feab40834010a54541fd2bf9008"
       }
     },
     "README.md": {
       "verified": {
-        "ok": false,
+        "ok": true,
         "cmd": "python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
-        "at": "2026-11-06T18:08:51Z",
-        "sha": null
+        "at": "2026-11-06T20:59:47Z",
+        "sha": "5adb6faf09b3618a46f15cd60dbb8926f3cc5937"
       }
     },
     "AGENTS.md": {
       "verified": {
         "ok": true,
         "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('AGENTS.md').read_text(encoding='utf-8'); sys.exit(0 if 'docs/agent-team-guide/UPDATING.md' in t and 'build.py --check' in t else 1)\"",
-        "at": "2026-11-06T18:08:52Z",
+        "at": "2026-11-06T20:57:41Z",
         "sha": "76e5d1ddeb6b434eb441d69a51623f948abde295"
       }
     },
@@ -468,7 +468,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('CLAUDE.md').read_text(encoding='utf-8'); sys.exit(0 if '@AGENTS.md' in t else 1)\"",
-        "at": "2026-11-06T18:08:52Z",
+        "at": "2026-11-06T20:57:41Z",
         "sha": "c140473a3a5fbe89301c99d9d0d1b76c5971f2c3"
       }
     },
@@ -476,7 +476,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('LICENSE').read_text(encoding='utf-8'); sys.exit(0 if 'Apache License' in t and 'Version 2.0' in t else 1)\"",
-        "at": "2026-11-06T18:08:52Z",
+        "at": "2026-11-06T20:57:41Z",
         "sha": "b314c7ebb7d599944981908b7f3ed33a30e78f3a"
       }
     },
@@ -484,7 +484,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('THIRD_PARTY_NOTICES.md').read_text(encoding='utf-8'); sys.exit(0 if '# Third-party notices' in t else 1)\"",
-        "at": "2026-11-06T18:08:52Z",
+        "at": "2026-11-06T20:57:41Z",
         "sha": "a47dbeb93fd856b821dbc7cd4b3857529010db34"
       }
     },
@@ -492,7 +492,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -c \"import subprocess,sys; sys.exit(max(subprocess.run(['git','check-ignore','-q',p]).returncode for p in ['tests/__pycache__/x.pyc','evals/out/x.json','dist/x']))\"",
-        "at": "2026-11-06T18:08:52Z",
+        "at": "2026-11-06T20:57:41Z",
         "sha": "06562e09282c214b17bdf27ff0514313741dc517"
       }
     },
@@ -500,7 +500,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -c \"import subprocess,sys; o=subprocess.run(['git','check-attr','eol','--','scripts/install.sh','tests/golden/x.md'],capture_output=True,text=True).stdout; sys.exit(0 if o.count('eol: lf')==2 else 1)\"",
-        "at": "2026-11-06T18:08:52Z",
+        "at": "2026-11-06T20:57:41Z",
         "sha": "98abc55ef92c143cb7b73954edd1f0f180d0ac8b"
       }
     },
@@ -508,7 +508,7 @@
       "verified": {
         "ok": true,
         "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('.github/workflows/ci.yml').read_text(encoding='utf-8'); sys.exit(0 if 'scripts/agentic_team.py validate' in t and 'docs --check' in t and 'unittest discover -s tests' in t and 'run_scenarios.py' in t and 'preflight_skills.py' in t and 'ubuntu-latest' in t and 'windows-latest' in t and 'macos-latest' in t else 1)\" && python -m unittest discover -s tests -p \"test_harness.py\"",
-        "at": "2026-11-06T18:09:01Z",
+        "at": "2026-11-06T20:57:50Z",
         "sha": "1c5404a377f624b0ab1d74cec80fb4de2f732825"
       }
     }
@@ -763,7 +763,7 @@
     }
   },
   "unplanned": [],
-  "syncedAt": "2026-11-06T18:10:19Z",
-  "head": "9f863f7",
+  "syncedAt": "2026-11-06T20:59:56Z",
+  "head": "d08e23a",
   "missingModify": []
 }
