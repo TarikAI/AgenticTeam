@@ -5,6 +5,7 @@ at all. These tests run each installer for real into a temporary project and che
 """
 
 import helpers  # noqa: F401  (isolates AGENTIC_TEAM_HOME before anything touches the CLI)
+import os
 import subprocess
 import tempfile
 import unittest
@@ -53,7 +54,9 @@ class InstallerTests(unittest.TestCase):
         # bash, including the Windows WSL launcher, rejects a CRLF script outright.
         self.assertNotIn(b"\r\n", (ROOT / "scripts" / "install.sh").read_bytes())
 
-    @unittest.skipUnless("powershell" in SHELLS, "no PowerShell here")
+    # install.ps1 is the documented Windows installer, and CI runs it only on Windows; Linux and macOS
+    # runners also have pwsh, so the platform is checked as well as the shell.
+    @unittest.skipUnless(os.name == "nt" and "powershell" in SHELLS, "install.ps1 is the Windows installer")
     def test_install_ps1_installs_a_project(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "my project"
