@@ -42,11 +42,11 @@ All listed working trees were clean when inspected on 2 November. These are loca
 | `.claude/worktrees/autonomy-durable-core-fb9050`, `claude/autonomy-durable-core-fb9050` | `1baed75cb2962a993088de7076ff26e2734e1f4e` | Fully contained in integration; no need to implement D0–D2 again. |
 | `.claude/worktrees/autonomy-supervisor-safety-e51e39`, `claude/autonomy-supervisor-safety-e51e39` | `e0405d254b9e6cbcdfbca03cfd396b8d226e9b22` | Fully merged via `4949185`; detailed S4 evidence at `20b06e4`. |
 
-Source paths below are relative to the named checkout, **not necessarily main**. These local record links are convenient on this machine; if a worktree is absent, inspect the same path at the pinned branch/commit before relying on it:
+Source paths below are relative to the named checkout, **not necessarily main**. They name records in local worktrees, which may since have been removed; if a worktree is absent, inspect the same path at the pinned branch/commit before relying on it:
 
-- [Supervisor record](../.claude/worktrees/pensive-poincare-5e61a2/docs/autonomy-progress/supervisor.md), [integration summary](../.claude/worktrees/pensive-poincare-5e61a2/docs/autonomy-implementation-progress.md).
-- [Wiring record](../.claude/worktrees/autonomy-integration-wiring-8046ea/docs/autonomy-progress/integration.md), [quality and measurement record](../.claude/worktrees/autonomy-quality-registry-22bb47/docs/autonomy-progress/quality.md).
-- [Durable-core record](../.claude/worktrees/pensive-poincare-5e61a2/docs/autonomy-progress/durable-core.md).
+- Supervisor record `docs/autonomy-progress/supervisor.md` and integration summary `docs/autonomy-implementation-progress.md`, in worktree `pensive-poincare-5e61a2`.
+- Wiring record `docs/autonomy-progress/integration.md` (worktree `autonomy-integration-wiring-8046ea`) and quality and measurement record `docs/autonomy-progress/quality.md` (worktree `autonomy-quality-registry-22bb47`).
+- Durable-core record `docs/autonomy-progress/durable-core.md`, in worktree `pensive-poincare-5e61a2`.
 
 ## Initial capability assessment (superseded where updated above)
 

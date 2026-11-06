@@ -1,0 +1,769 @@
+{
+  "files": {
+    "team.json": {
+      "verified": {
+        "ok": true,
+        "cmd": "python scripts/agentic_team.py validate",
+        "at": "2026-11-06T17:45:21Z",
+        "sha": "9284cc7707adbf631c03f43213a667dd8ca0358b"
+      }
+    },
+    "schemas/team.schema.json": {
+      "verified": {
+        "ok": true,
+        "cmd": "python scripts/agentic_team.py validate",
+        "at": "2026-11-06T17:45:21Z",
+        "sha": "6438cabd0665d224898d688a29cdd5f3cc2000fb"
+      }
+    },
+    "team.yaml": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('team.yaml').read_text(encoding='utf-8'); sys.exit(0 if 'canonical_manifest: team.json' in t else 1)\"",
+        "at": "2026-11-06T17:45:21Z",
+        "sha": "c979fed65122af982b60161fda982352771a7eb1"
+      }
+    },
+    "schemas/run-state.schema.json": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -c \"import json; d=json.load(open('schemas/run-state.schema.json',encoding='utf-8')); assert d.get('type')=='object' and 'properties' in d\"",
+        "at": "2026-11-06T17:45:21Z",
+        "sha": "62579664ff6d9cd0886bfc800c11aeeb96599f6e"
+      }
+    },
+    "config/policies.json": {
+      "verified": {
+        "ok": false,
+        "cmd": "python scripts/agentic_team.py validate && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
+        "at": "2026-11-06T17:45:24Z",
+        "sha": null
+      }
+    },
+    "protocols/agent-contract.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
+        "at": "2026-11-06T17:45:27Z",
+        "sha": null
+      }
+    },
+    "protocols/guardrails.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
+        "at": "2026-11-06T17:45:27Z",
+        "sha": null
+      }
+    },
+    "protocols/autonomy.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
+        "at": "2026-11-06T17:45:27Z",
+        "sha": null
+      }
+    },
+    "protocols/fusion.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
+        "at": "2026-11-06T17:45:27Z",
+        "sha": null
+      }
+    },
+    "protocols/progressive-context.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
+        "at": "2026-11-06T17:45:27Z",
+        "sha": null
+      }
+    },
+    "protocols/runtime.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
+        "at": "2026-11-06T17:45:27Z",
+        "sha": null
+      }
+    },
+    "protocols/untrusted-content.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python -m unittest discover -s tests -p \"test_runtime.py\"",
+        "at": "2026-11-06T17:45:27Z",
+        "sha": null
+      }
+    },
+    "runtime/templates/router.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\"",
+        "at": "2026-11-06T17:45:57Z",
+        "sha": null
+      }
+    },
+    "knowledge/README.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\"",
+        "at": "2026-11-06T17:45:57Z",
+        "sha": null
+      }
+    },
+    "knowledge/lessons.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\"",
+        "at": "2026-11-06T17:45:57Z",
+        "sha": null
+      }
+    },
+    "knowledge/decisions.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\"",
+        "at": "2026-11-06T17:45:57Z",
+        "sha": null
+      }
+    },
+    "knowledge/evolution/PROPOSALS.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\"",
+        "at": "2026-11-06T17:45:57Z",
+        "sha": null
+      }
+    },
+    "knowledge/playbooks/README.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -c \"import pathlib,sys; t=pathlib.Path('knowledge/playbooks/README.md').read_text(encoding='utf-8'); sys.exit(0 if '## Entry format' in t and 'status: candidate' in t else 1)\"",
+        "at": "2026-11-06T18:07:14Z",
+        "sha": null
+      }
+    },
+    "knowledge/playbooks/_template.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\"",
+        "at": "2026-11-06T17:45:57Z",
+        "sha": null
+      }
+    },
+    "config/guarantees.json": {
+      "verified": {
+        "ok": true,
+        "cmd": "python scripts/agentic_team.py validate && python -m unittest discover -s tests -p \"test_release.py\"",
+        "at": "2026-11-06T17:45:26Z",
+        "sha": "5a79831455cf2ef51b4e4f1ea1c30b89aa3a75f6"
+      }
+    },
+    "protocols/plan-modes.md": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_doc_workflows.py\"",
+        "at": "2026-11-06T17:45:56Z",
+        "sha": "c3e34bcf42950c8d6d8b9b196a9135892a5a1635"
+      }
+    },
+    "scripts/agentic_team.py": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests",
+        "at": "2026-11-06T17:57:37Z",
+        "sha": null
+      }
+    },
+    "tests/helpers.py": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests",
+        "at": "2026-11-06T17:57:37Z",
+        "sha": null
+      }
+    },
+    "scripts/agentic_supervisor.py": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_supervisor.py\"",
+        "at": "2026-11-06T18:05:58Z",
+        "sha": "fe6b87f9e572ac3919857a30859c29b52a9698d3"
+      }
+    },
+    "tests/fake_worker.py": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_supervisor.py\"",
+        "at": "2026-11-06T18:05:58Z",
+        "sha": "050bf6458f57a0a68a23fbfb6a5c509b65190725"
+      }
+    },
+    "tests/supervisor_fixtures.py": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_supervisor.py\"",
+        "at": "2026-11-06T18:05:58Z",
+        "sha": "7633c59ab02c8021449f1448934413bc9909c100"
+      }
+    },
+    "scripts/install.sh": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_installers.py\"",
+        "at": "2026-11-06T18:06:10Z",
+        "sha": "153ab2ec0a3eaeac40329c4656f3c35b1bee1fdc"
+      }
+    },
+    "scripts/install.ps1": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_installers.py\" && python -m unittest discover -s tests -p \"test_harness.py\"",
+        "at": "2026-11-06T18:06:31Z",
+        "sha": "91d299b80c666fcc76f51df4f0741ec421baa603"
+      }
+    },
+    "scripts/preflight_skills.py": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_regressions.py\"",
+        "at": "2026-11-06T18:06:42Z",
+        "sha": "e5d6301568cc019e3f2bf59bf4ca95fa664acffe"
+      }
+    },
+    "scripts/findings_to_tasks.py": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_bridges.py\"",
+        "at": "2026-11-06T18:06:44Z",
+        "sha": "277aeb0d8baf3cc2904e36295147a57b61be0498"
+      }
+    },
+    "scripts/design_to_admin.py": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_bridges.py\"",
+        "at": "2026-11-06T18:06:44Z",
+        "sha": "ae0ed67e5ace9d8cf576f3aafd8a17df325c0bd3"
+      }
+    },
+    "scripts/local_llm_check.py": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_local_llm_check.py\"",
+        "at": "2026-11-06T18:07:11Z",
+        "sha": "1f232ce79b1c372ec5f5acc93df47b4df6d6362a"
+      }
+    },
+    "knowledge/evolution/CHANGELOG.md": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_release.py\"",
+        "at": "2026-11-06T18:07:13Z",
+        "sha": "7a1e44ca968d8f7c4c148cc933a440c76dce3846"
+      }
+    },
+    "evals/run_scenarios.py": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_evals.py\"",
+        "at": "2026-11-06T18:07:48Z",
+        "sha": "aa4c629ac0a8f24599591b20b23e3bd3fc5dcbd3"
+      }
+    },
+    "evals/live_smoke.py": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -m unittest discover -s tests -p \"test_live_smoke.py\"",
+        "at": "2026-11-06T18:08:19Z",
+        "sha": "bf849f92da49f9b7e78ee746b029f4ead62a7ae7"
+      }
+    },
+    "docs/architecture.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python scripts/agentic_team.py docs --check && python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
+        "at": "2026-11-06T18:08:20Z",
+        "sha": null
+      }
+    },
+    "docs/cli.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python scripts/agentic_team.py docs --check && python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
+        "at": "2026-11-06T18:08:20Z",
+        "sha": null
+      }
+    },
+    "docs/harnesses.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
+        "at": "2026-11-06T18:08:21Z",
+        "sha": null
+      }
+    },
+    "docs/operating-modes.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
+        "at": "2026-11-06T18:08:21Z",
+        "sha": null
+      }
+    },
+    "docs/migration-v3.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
+        "at": "2026-11-06T18:08:21Z",
+        "sha": null
+      }
+    },
+    "docs/supervisor-design.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
+        "at": "2026-11-06T18:08:21Z",
+        "sha": null
+      }
+    },
+    "docs/supervisor-operator-guide.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
+        "at": "2026-11-06T18:08:21Z",
+        "sha": null
+      }
+    },
+    "docs/quickstart-non-dev.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
+        "at": "2026-11-06T18:08:21Z",
+        "sha": null
+      }
+    },
+    "docs/local-llms.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
+        "at": "2026-11-06T18:08:21Z",
+        "sha": null
+      }
+    },
+    "docs/autonomy-progress-review.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\" && python docs/agent-team-guide/build.py --check",
+        "at": "2026-11-06T18:08:22Z",
+        "sha": null
+      }
+    },
+    "docs/agent-team-guide/build.py": {
+      "verified": {
+        "ok": true,
+        "cmd": "python docs/agent-team-guide/build.py --check",
+        "at": "2026-11-06T18:08:23Z",
+        "sha": "f1965629ae04fe9f8604d5713cf6bb7887f0906b"
+      }
+    },
+    "docs/agent-team-guide/guide.template.html": {
+      "verified": {
+        "ok": true,
+        "cmd": "python docs/agent-team-guide/build.py --check",
+        "at": "2026-11-06T18:08:23Z",
+        "sha": "3c744a763b1a3dbde9c69e23e76eb9c85c483fe4"
+      }
+    },
+    "docs/agent-team-guide/index.html": {
+      "verified": {
+        "ok": true,
+        "cmd": "python docs/agent-team-guide/build.py --check",
+        "at": "2026-11-06T18:08:23Z",
+        "sha": "1dfddcd5bcd49e9ac150b36537bde743216a0110"
+      }
+    },
+    "docs/agent-team-guide/agent-roster.csv": {
+      "verified": {
+        "ok": true,
+        "cmd": "python docs/agent-team-guide/build.py --check",
+        "at": "2026-11-06T18:08:23Z",
+        "sha": "744bfa8afdb446d64bcd89d07d5958b92586bc55"
+      }
+    },
+    "docs/agent-team-guide/UPDATING.md": {
+      "verified": {
+        "ok": true,
+        "cmd": "python docs/agent-team-guide/build.py --check",
+        "at": "2026-11-06T18:08:23Z",
+        "sha": "75d3c8e4d10e07530f0df7ec888d05f84996a0be"
+      }
+    },
+    "docs/agent-team-guide/progress.json": {
+      "verified": {
+        "ok": true,
+        "cmd": "python docs/agent-team-guide/build.py --check",
+        "at": "2026-11-06T18:08:23Z",
+        "sha": "e156bcfe1bcecea95262651280553a0ded1fc2b2"
+      }
+    },
+    "docs/agent-team-guide/updates.json": {
+      "verified": {
+        "ok": true,
+        "cmd": "python docs/agent-team-guide/build.py --check",
+        "at": "2026-11-06T18:08:23Z",
+        "sha": "792c14d1597cc5ff66f14af94ae3c78eec9b12c9"
+      }
+    },
+    "docs/agent-team-guide/documents.json": {
+      "verified": {
+        "ok": true,
+        "cmd": "python docs/agent-team-guide/build.py --check",
+        "at": "2026-11-06T18:08:23Z",
+        "sha": "04b414ca0c6073b33b14cbe5574f148336ff3674"
+      }
+    },
+    "docs/agent-team-guide/roster.json": {
+      "verified": {
+        "ok": true,
+        "cmd": "python docs/agent-team-guide/build.py --check",
+        "at": "2026-11-06T18:08:23Z",
+        "sha": "6db32a87384e20722896b677893d2a391fefb304"
+      }
+    },
+    "docs/agent-team-guide/safety.json": {
+      "verified": {
+        "ok": true,
+        "cmd": "python docs/agent-team-guide/build.py --check",
+        "at": "2026-11-06T18:08:23Z",
+        "sha": "afc7dcf7fcfb56ccc00af93acf02932d1e33e267"
+      }
+    },
+    "docs/agent-team-guide/CODEX-HANDOVER.md": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('docs/agent-team-guide/CODEX-HANDOVER.md').read_text(encoding='utf-8'); sys.exit(0 if 'UPDATING.md' in t else 1)\"",
+        "at": "2026-11-06T18:08:23Z",
+        "sha": "1ce0e2e0bd8e6feab40834010a54541fd2bf9008"
+      }
+    },
+    "README.md": {
+      "verified": {
+        "ok": false,
+        "cmd": "python -m unittest discover -s tests -p \"test_doc_workflows.py\" && python -m unittest discover -s tests -p \"test_law.py\" && python -m unittest discover -s tests -p \"test_runtime.py\" && python -m unittest discover -s tests -p \"test_safety_net.py\" && python -m unittest discover -s tests -p \"test_release.py\"",
+        "at": "2026-11-06T18:08:51Z",
+        "sha": null
+      }
+    },
+    "AGENTS.md": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('AGENTS.md').read_text(encoding='utf-8'); sys.exit(0 if 'docs/agent-team-guide/UPDATING.md' in t and 'build.py --check' in t else 1)\"",
+        "at": "2026-11-06T18:08:52Z",
+        "sha": "76e5d1ddeb6b434eb441d69a51623f948abde295"
+      }
+    },
+    "CLAUDE.md": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('CLAUDE.md').read_text(encoding='utf-8'); sys.exit(0 if '@AGENTS.md' in t else 1)\"",
+        "at": "2026-11-06T18:08:52Z",
+        "sha": "c140473a3a5fbe89301c99d9d0d1b76c5971f2c3"
+      }
+    },
+    "LICENSE": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('LICENSE').read_text(encoding='utf-8'); sys.exit(0 if 'Apache License' in t and 'Version 2.0' in t else 1)\"",
+        "at": "2026-11-06T18:08:52Z",
+        "sha": "b314c7ebb7d599944981908b7f3ed33a30e78f3a"
+      }
+    },
+    "THIRD_PARTY_NOTICES.md": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('THIRD_PARTY_NOTICES.md').read_text(encoding='utf-8'); sys.exit(0 if '# Third-party notices' in t else 1)\"",
+        "at": "2026-11-06T18:08:52Z",
+        "sha": "a47dbeb93fd856b821dbc7cd4b3857529010db34"
+      }
+    },
+    ".gitignore": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -c \"import subprocess,sys; sys.exit(max(subprocess.run(['git','check-ignore','-q',p]).returncode for p in ['tests/__pycache__/x.pyc','evals/out/x.json','dist/x']))\"",
+        "at": "2026-11-06T18:08:52Z",
+        "sha": "06562e09282c214b17bdf27ff0514313741dc517"
+      }
+    },
+    ".gitattributes": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -c \"import subprocess,sys; o=subprocess.run(['git','check-attr','eol','--','scripts/install.sh','tests/golden/x.md'],capture_output=True,text=True).stdout; sys.exit(0 if o.count('eol: lf')==2 else 1)\"",
+        "at": "2026-11-06T18:08:52Z",
+        "sha": "98abc55ef92c143cb7b73954edd1f0f180d0ac8b"
+      }
+    },
+    ".github/workflows/ci.yml": {
+      "verified": {
+        "ok": true,
+        "cmd": "python -c \"import pathlib,sys; t=pathlib.Path('.github/workflows/ci.yml').read_text(encoding='utf-8'); sys.exit(0 if 'scripts/agentic_team.py validate' in t and 'docs --check' in t and 'unittest discover -s tests' in t and 'run_scenarios.py' in t and 'preflight_skills.py' in t and 'ubuntu-latest' in t and 'windows-latest' in t and 'macos-latest' in t else 1)\" && python -m unittest discover -s tests -p \"test_harness.py\"",
+        "at": "2026-11-06T18:09:01Z",
+        "sha": "1c5404a377f624b0ab1d74cec80fb4de2f732825"
+      }
+    }
+  },
+  "patterns": {
+    "role-definition": {
+      "instances": [
+        "agents/engineering/ai-ml-engineer.md",
+        "agents/engineering/backend-engineer.md",
+        "agents/engineering/backend-lead.md",
+        "agents/engineering/code-reviewer.md",
+        "agents/engineering/data-engineer.md",
+        "agents/engineering/database-engineer.md",
+        "agents/engineering/devops-engineer.md",
+        "agents/engineering/frontend-engineer.md",
+        "agents/engineering/frontend-lead.md",
+        "agents/engineering/fullstack-engineer.md",
+        "agents/engineering/integration-engineer.md",
+        "agents/engineering/mobile-engineer.md",
+        "agents/engineering/qa-lead.md",
+        "agents/engineering/security-engineer.md",
+        "agents/engineering/test-engineer.md",
+        "agents/engineering/ux-ui-designer.md",
+        "agents/leadership/ceo.md",
+        "agents/leadership/cto-architect.md",
+        "agents/leadership/delivery-lead.md",
+        "agents/leadership/product-manager.md",
+        "agents/marketing/brand-strategist.md",
+        "agents/marketing/cmo.md",
+        "agents/marketing/content-marketer.md",
+        "agents/marketing/email-marketing-specialist.md",
+        "agents/marketing/growth-analyst.md",
+        "agents/marketing/performance-marketer.md",
+        "agents/marketing/seo-specialist.md",
+        "agents/marketing/social-media-manager.md",
+        "agents/marketing/ugc-creative.md",
+        "agents/specialists/accessibility-specialist.md",
+        "agents/specialists/analytics-engineer.md",
+        "agents/specialists/build-integrator.md",
+        "agents/specialists/compliance-advisor.md",
+        "agents/specialists/context-engineer.md",
+        "agents/specialists/customer-success-strategist.md",
+        "agents/specialists/eval-engineer.md",
+        "agents/specialists/finops-engineer.md",
+        "agents/specialists/fraud-risk-analyst.md",
+        "agents/specialists/fusion-moderator.md",
+        "agents/specialists/localization-specialist.md",
+        "agents/specialists/performance-engineer.md",
+        "agents/specialists/platform-admin-engineer.md",
+        "agents/specialists/privacy-engineer.md",
+        "agents/specialists/release-manager.md",
+        "agents/specialists/sre-engineer.md",
+        "agents/specialists/system-mapper.md",
+        "agents/specialists/trust-and-safety-specialist.md",
+        "agents/support/research-agent.md",
+        "agents/support/skill-scout.md",
+        "agents/support/tech-writer.md"
+      ]
+    },
+    "protocol": {
+      "instances": [
+        "protocols/admin-surfaces.md",
+        "protocols/budgets.md",
+        "protocols/coding-standards.md",
+        "protocols/communication.md",
+        "protocols/definition-of-done.md",
+        "protocols/evolution.md",
+        "protocols/final-report.md",
+        "protocols/harness-security.md",
+        "protocols/interface-closure.md",
+        "protocols/review-discipline.md",
+        "protocols/secrets-and-sensitive-data.md",
+        "protocols/skill-acquisition.md",
+        "protocols/source-control.md",
+        "protocols/specialist-routing.md",
+        "protocols/supply-chain.md",
+        "protocols/team-evaluation.md",
+        "protocols/team-observability.md",
+        "protocols/workflow.md"
+      ]
+    },
+    "run-template": {
+      "instances": [
+        "runtime/templates/adr.md",
+        "runtime/templates/assumptions.md",
+        "runtime/templates/brief.md",
+        "runtime/templates/checkpoint.md",
+        "runtime/templates/delivery-report.md",
+        "runtime/templates/fusion-brief.md",
+        "runtime/templates/fusion-critique.md",
+        "runtime/templates/fusion-decision.md",
+        "runtime/templates/fusion-dissent.md",
+        "runtime/templates/fusion-proposal.md",
+        "runtime/templates/fusion-synthesis.md",
+        "runtime/templates/handoff.md",
+        "runtime/templates/prd.md",
+        "runtime/templates/readiness.md",
+        "runtime/templates/release.md",
+        "runtime/templates/retrospective.md",
+        "runtime/templates/risks.md",
+        "runtime/templates/stage-context.md",
+        "runtime/templates/task.md",
+        "runtime/templates/verification.md"
+      ]
+    },
+    "skill-entry": {
+      "instances": [
+        "skills/agentic-build/SKILL.md",
+        "skills/agentic-learn/SKILL.md",
+        "skills/agentic-verify/SKILL.md",
+        "skills/bmad-progressive/SKILL.md",
+        "skills/fusion-council/SKILL.md"
+      ]
+    },
+    "skill-interface": {
+      "instances": [
+        "skills/agentic-build/agents/openai.yaml",
+        "skills/agentic-learn/agents/openai.yaml",
+        "skills/agentic-verify/agents/openai.yaml",
+        "skills/bmad-progressive/agents/openai.yaml",
+        "skills/fusion-council/agents/openai.yaml"
+      ]
+    },
+    "skill-reference": {
+      "instances": [
+        "skills/agentic-build/references/operating-guide.md",
+        "skills/agentic-learn/references/learning-ladder.md",
+        "skills/agentic-verify/references/verification-matrix.md",
+        "skills/bmad-progressive/references/stage-contracts.md",
+        "skills/fusion-council/references/council-artifacts.md"
+      ]
+    },
+    "role-playbook": {
+      "instances": [
+        "knowledge/playbooks/code-reviewer.md",
+        "knowledge/playbooks/frontend-engineer.md",
+        "knowledge/playbooks/platform-admin-engineer.md",
+        "knowledge/playbooks/qa-lead.md",
+        "knowledge/playbooks/security-engineer.md",
+        "knowledge/playbooks/ux-ui-designer.md"
+      ]
+    },
+    "unit-test": {
+      "instances": [
+        "tests/test_authority.py",
+        "tests/test_bridges.py",
+        "tests/test_doc_workflows.py",
+        "tests/test_evals.py",
+        "tests/test_evidence.py",
+        "tests/test_finish.py",
+        "tests/test_harness.py",
+        "tests/test_installers.py",
+        "tests/test_law.py",
+        "tests/test_live_smoke.py",
+        "tests/test_local_llm_check.py",
+        "tests/test_orchestration.py",
+        "tests/test_regressions.py",
+        "tests/test_release.py",
+        "tests/test_repairs_authority.py",
+        "tests/test_repairs_history.py",
+        "tests/test_repairs_packets.py",
+        "tests/test_roster.py",
+        "tests/test_runtime.py",
+        "tests/test_safety_net.py",
+        "tests/test_supervisor.py",
+        "tests/test_unattended.py"
+      ]
+    },
+    "golden-snapshot": {
+      "instances": [
+        "tests/golden/antigravity/.agents/agents/ceo.md",
+        "tests/golden/antigravity/.agents/agents/fullstack-engineer.md",
+        "tests/golden/antigravity/.agents/agents/qa-lead.md",
+        "tests/golden/antigravity/.agents/agents/research-agent.md",
+        "tests/golden/antigravity/.agents/agents/sre-engineer.md",
+        "tests/golden/antigravity/.agents/rules/agentic-team.md",
+        "tests/golden/antigravity/.agents/skills/agentic-execute-plan/SKILL.md",
+        "tests/golden/antigravity/.agents/skills/agentic-resume/SKILL.md",
+        "tests/golden/antigravity/AGENTS.md",
+        "tests/golden/claude-code/CLAUDE.md",
+        "tests/golden/codex/AGENTS.md",
+        "tests/golden/gemini-cli/.gemini/agents/ceo.md",
+        "tests/golden/gemini-cli/.gemini/agents/fullstack-engineer.md",
+        "tests/golden/gemini-cli/.gemini/agents/qa-lead.md",
+        "tests/golden/gemini-cli/.gemini/agents/research-agent.md",
+        "tests/golden/gemini-cli/.gemini/agents/sre-engineer.md",
+        "tests/golden/gemini-cli/GEMINI.md",
+        "tests/golden/generic/AGENTS.md",
+        "tests/golden/opencode/.opencode/agents/ceo.md",
+        "tests/golden/opencode/.opencode/agents/fullstack-engineer.md",
+        "tests/golden/opencode/.opencode/agents/qa-lead.md",
+        "tests/golden/opencode/.opencode/agents/research-agent.md",
+        "tests/golden/opencode/.opencode/agents/sre-engineer.md",
+        "tests/golden/opencode/AGENTS.md",
+        "tests/golden/pi/.pi/prompts/agentic-build.md",
+        "tests/golden/pi/.pi/prompts/agentic-verify.md",
+        "tests/golden/pi/.pi/prompts/fusion-council.md",
+        "tests/golden/pi/AGENTS.md"
+      ]
+    },
+    "eval-scenario": {
+      "instances": [
+        "evals/scenarios/brownfield_fix.json",
+        "evals/scenarios/fusion.json",
+        "evals/scenarios/greenfield.json",
+        "evals/scenarios/plan_given.json",
+        "evals/scenarios/rejection_recovery.json",
+        "evals/scenarios/self_approval.json",
+        "evals/scenarios/supervisor_unattended.json",
+        "evals/scenarios/unattended_release.json"
+      ]
+    },
+    "work-plan": {
+      "instances": [
+        "docs/agent-prompt-improvement-plan.md",
+        "docs/autonomy-implementation-plan.md",
+        "docs/codebase-audit-and-repair-plan.md",
+        "docs/design-review-plan.md",
+        "docs/durable-core-plan.md",
+        "docs/pilot-plan.md",
+        "docs/quality-qualification-plan.md",
+        "docs/skills-integration-plan.md",
+        "docs/supervisor-completion-plan.md",
+        "docs/supervisor-implementation-plan.md",
+        "docs/v3-upgrade-plan.md"
+      ]
+    },
+    "prompt-pack": {
+      "instances": [
+        "docs/agent-prompt-improvement-prompt.md",
+        "docs/autonomy-implementation-prompt.md",
+        "docs/design-review-prompt.md",
+        "docs/durable-core-prompt.md",
+        "docs/quality-qualification-prompt.md",
+        "docs/supervisor-completion-prompt.md",
+        "docs/v3-implementation-prompt.md"
+      ]
+    },
+    "prompt-set": {
+      "instances": [
+        "docs/codebase-repair-prompts.md",
+        "docs/pilot-prompts.md",
+        "docs/supervisor-implementation-prompts.md"
+      ]
+    },
+    "progress-record": {
+      "instances": [
+        "docs/codebase-repair-progress.md",
+        "docs/supervisor-progress.md",
+        "docs/v3-progress.md"
+      ]
+    }
+  },
+  "unplanned": [],
+  "syncedAt": "2026-11-06T18:10:19Z",
+  "head": "9f863f7",
+  "missingModify": []
+}

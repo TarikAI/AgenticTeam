@@ -1,1 +1,4 @@
 tests/golden/** text eol=lf
+# Shell scripts must keep LF even on Windows checkouts: bash (including the WSL launcher)
+# rejects CRLF with "syntax error near unexpected token".
+*.sh text eol=lf
